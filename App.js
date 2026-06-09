@@ -531,7 +531,7 @@ const getPanelPhases=(sys)=>{
 // They can only be used to identify your app to RevenueCat, not to access billing data.
 // DO NOT put your RevenueCat SECRET key (from dashboard API keys) in this app — that's backend-only.
 // DO NOT put OpenAI, Anthropic, Firebase Admin, or Supabase service keys here.
-const RC_IOS_KEY     = 'appl_TdTDZtQDVNVPGbNYTROisxiRrRN';     // ← SAFE to be in app (public SDK key)
+const RC_IOS_KEY     = 'YOUR_IOS_KEY_HERE';     // ← SAFE to be in app (public SDK key)
 const RC_ANDROID_KEY = 'YOUR_ANDROID_KEY_HERE'; // ← SAFE to be in app (public SDK key)
 const RC_ENTITLEMENT = 'pro';
 //
@@ -693,7 +693,7 @@ const ProOverlay = ({ feature, C }) => (
       {feature} is available with SparkConnect Pro.
     </Text>
     <View style={{ backgroundColor: C.blue, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 10 }}>
-      <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>⚡ Upgrade to Pro</Text>
+      <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>⚡ Coming Soon — Join Waitlist</Text>
     </View>
   </View>
 );
@@ -2049,7 +2049,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch }) => {
     if (result === 'rate_limited') {
       setMessages(prev => [...prev, {
         id: Date.now().toString(), role: 'sparky', isRateLimit: true,
-        text: `You've used your ${IS_PRO ? '20 daily' : '3 daily'} free Sparky answers. Upgrade to Pro for up to 20/day, or grab an answer pack.`,
+        text: `You've used your ${IS_PRO ? '100 monthly' : '5 daily'} free answers. Upgrade to Pro for 100 answers/month, or grab a quick answer pack.`,
       }]);
     } else if (result?.answer) {
       if (result.remainingQuestions !== undefined) setRemainingQuestions(result.remainingQuestions);
@@ -2920,7 +2920,7 @@ const TermsScreen = ({ C, onBack }) => {
         <Sec title="Permits and Inspections" body="Permits and inspections may be required for electrical work in your jurisdiction. This app does not determine permit requirements and does not replace inspection by a qualified authority." />
         <Sec title="No Engineering or Professional Advice" body="This app does not provide engineering, legal, or professional advice. For engineering review, consult a licensed professional engineer. For legal questions, consult a licensed attorney." />
         <Sec title="Limitation of Liability" body="To the maximum extent permitted by law, SparkConnect and its developers shall not be liable for any damages, injuries, losses, or code violations arising from use of this application." />
-        <Sec title="Subscription Terms" body="SparkConnect Pro subscriptions are currently in development and not yet available for purchase. Pro subscriptions are billed monthly or annually at the rates displayed in the app at the time of purchase. Subscriptions will auto-renew unless cancelled at least 24 hours before the end of the current period. Manage or cancel subscriptions through your App Store or Google Play account settings. Prices may vary by region." />
+        <Sec title="Subscription Terms" body="SparkConnect Pro subscriptions are currently in development and not yet available for purchase. When launched, Pro subscriptions will be billed monthly or annually at the rates displayed in the app at the time of purchase. Subscriptions will auto-renew unless cancelled at least 24 hours before the end of the current period. Manage or cancel subscriptions through your App Store or Google Play account settings. Prices may vary by region." />
         <Sec title="Changes to Terms" body="We may update these Terms from time to time. Continued use after changes constitutes acceptance." />
         <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>Questions? support@sparkconnect.pro</Text>
       </ScrollView>
@@ -3516,7 +3516,7 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
     // TODO: replace with: const { customerInfo } = await Purchases.restorePurchases();
     await new Promise(r => setTimeout(r, 1200));
     setRestoring(false);
-    (async()=>{try{const P=require("react-native-purchases").default;const info=await P.restorePurchases();const ok=info.customerInfo&&info.customerInfo.entitlements.active["pro"];if(ok){Alert.alert("Restored!","Pro subscription is active.");}else{Alert.alert("Not Found","Contact support@sparkconnect.pro");}}catch(e){Alert.alert("Restore Error","Please try again.");}})()
+    Alert.alert('Restore Purchases', 'No active subscription found.\n\nContact support@sparkconnect.pro if you believe this is an error.');
   };
 
   const SectionTitle = ({ title }) => (
@@ -3551,14 +3551,14 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
               <Text style={{ fontSize: 12, color: C.textSec, marginTop: 1 }}>$7.99/mo · $49.99/yr Launch Special · 100 AI answers/mo</Text>
             </View>
           </View>
-          {['Up to 20 Sparky AI answers/day · 400/month fair-use cap','Box Fill Calculator','Conduit Fill Calculator','Saved Projects & History','PDF Report Export (coming)','Priority new features'].map(f => (
+          {['100 Sparky AI answers/month','Box Fill Calculator','Conduit Fill Calculator','Saved Projects & History','PDF Report Export (coming)','Priority new features'].map(f => (
             <View key={f} style={{ flexDirection: 'row', gap: 8, alignItems: 'center', paddingVertical: 3 }}>
               <Ionicons name="checkmark-circle" size={15} color={C.blue} />
               <Text style={{ fontSize: 12, color: C.text, fontWeight: '500' }}>{f}</Text>
             </View>
           ))}
           <TouchableOpacity
-            onPress={() => setPaywallVisible(true)}
+            onPress={() => Alert.alert('Coming Soon', "Pro subscriptions are launching soon. You'll be notified when available.")}
             style={{ backgroundColor: C.blue, borderRadius: 10, padding: 13, alignItems: 'center', marginTop: 14, flexDirection: 'row', justifyContent: 'center', gap: 8, shadowColor: C.blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}
             activeOpacity={0.85}>
             <Ionicons name="flash" size={16} color="#fff" />
@@ -3942,8 +3942,6 @@ ${choicePreview}
 export default function App() {
   // ── ALL hooks must be called unconditionally, before any early return ──
   const [splashDone, setSplashDone] = useState(false);
-  const [paywallVisible, setPaywallVisible] = useState(false);
-  const [packsVisible, setPacksVisible] = useState(false);
   const [onboardingDone, setOnboardingDone] = useState(false);
   const [onboardingChecked, setOnboardingChecked] = useState(false);
   const [showDailyQ, setShowDailyQ] = useState(true);
@@ -4043,7 +4041,7 @@ export default function App() {
   }
   if (onboardingChecked && !onboardingDone) {
     return (
-      <OnboardingFlow onComplete={async () => {
+      <OnboardingScreen C={C} onAccept={async () => {
         await safeStorageSet('@sc_onboarding_done', 'true');
         setOnboardingDone(true);
         // Schedule  notification after user accepts onboarding
@@ -4123,37 +4121,6 @@ export default function App() {
           </TouchableOpacity>
         ))}
       </View>
-    
-      <SparkPaywall
-        visible={paywallVisible}
-        onClose={() => setPaywallVisible(false)}
-        onStartTrial={async () => {
-          try {
-            const P = require('react-native-purchases').default;
-            const o = await P.getOfferings();
-            const pkg = o && o.current && o.current.monthly;
-            if (pkg) { await P.purchasePackage(pkg); Alert.alert('Welcome to Pro!', 'Your 3-day free trial has started.'); }
-          } catch(e) { if (!e.userCancelled) Alert.alert('Purchase Error', 'Try again or contact support@sparkconnect.pro'); }
-          finally { setPaywallVisible(false); }
-        }}
-        reason="Become Pro"
-      />
-      <SparkPaywall
-        visible={packsVisible}
-        onClose={() => setPacksVisible(false)}
-        onBuyPack={async (packId) => {
-          try {
-            const P = require('react-native-purchases').default;
-            const o = await P.getOfferings();
-            const pkgs = o && o.all ? Object.values(o.all).flatMap(x => x.availablePackages) : [];
-            const pkg = pkgs.find(p => p.product.identifier === packId);
-            if (pkg) { await P.purchasePackage(pkg); Alert.alert('Pack Added!', 'Your Sparky AI answers are ready.'); }
-          } catch(e) { if (!e.userCancelled) Alert.alert('Error', 'Try again.'); }
-          finally { setPacksVisible(false); }
-        }}
-        reason="Buy Answer Packs"
-        isPacks
-      />
     </SafeAreaView>
     </ProGatingProvider>
     );
