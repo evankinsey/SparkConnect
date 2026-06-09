@@ -1,3 +1,4 @@
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 // ─ Box Fill + Conduit Fill: 3 free/day, Proconst SC_LOGO = null; // set to require('./assets/SparkConnectLogo.png') after import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import SparkPaywall from './src/SparkPaywall';
 import OnboardingFlow from './src/OnboardingFlow';
