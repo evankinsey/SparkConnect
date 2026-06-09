@@ -3940,6 +3940,7 @@ ${choicePreview}
 };
 
 };
+};
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   // ── ALL hooks must be called unconditionally, before any early return ──
