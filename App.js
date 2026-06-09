@@ -1,4 +1,8 @@
 // ─ Box Fill + Conduit Fill: 3 free/day, Proconst SC_LOGO = null; // set to require('./assets/SparkConnectLogo.png') after import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import SparkPaywall from './src/SparkPaywall';
+import OnboardingFlow from './src/OnboardingFlow';
+import { useGating } from './src/useGating';
+import { analytics } from './src/analytics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput,
@@ -527,7 +531,7 @@ const getPanelPhases=(sys)=>{
 // They can only be used to identify your app to RevenueCat, not to access billing data.
 // DO NOT put your RevenueCat SECRET key (from dashboard API keys) in this app — that's backend-only.
 // DO NOT put OpenAI, Anthropic, Firebase Admin, or Supabase service keys here.
-const RC_IOS_KEY     = 'YOUR_IOS_KEY_HERE';     // ← SAFE to be in app (public SDK key)
+const RC_IOS_KEY     = 'appl_TdTDZtQDVNVPGbNYTROisxiRrRN';     // ← SAFE to be in app (public SDK key)
 const RC_ANDROID_KEY = 'YOUR_ANDROID_KEY_HERE'; // ← SAFE to be in app (public SDK key)
 const RC_ENTITLEMENT = 'pro';
 //
@@ -3554,7 +3558,7 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
             </View>
           ))}
           <TouchableOpacity
-            onPress={() => Alert.alert('Coming Soon', "Pro subscriptions are launching soon. You'll be notified when available.")}
+            onPress={() => setPaywallVisible(true)}
             style={{ backgroundColor: C.blue, borderRadius: 10, padding: 13, alignItems: 'center', marginTop: 14, flexDirection: 'row', justifyContent: 'center', gap: 8, shadowColor: C.blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}
             activeOpacity={0.85}>
             <Ionicons name="flash" size={16} color="#fff" />
@@ -3938,6 +3942,8 @@ ${choicePreview}
 export default function App() {
   // ── ALL hooks must be called unconditionally, before any early return ──
   const [splashDone, setSplashDone] = useState(false);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [packsVisible, setPacksVisible] = useState(false);
   const [onboardingDone, setOnboardingDone] = useState(false);
   const [onboardingChecked, setOnboardingChecked] = useState(false);
   const [showDailyQ, setShowDailyQ] = useState(true);
