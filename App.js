@@ -547,6 +547,9 @@ const RC_ENTITLEMENT = 'pro';
 // When real AI is connected, the BACKEND must independently verify the
 // user's subscription status before processing any paid AI request.
 // Never trust IS_PRO for backend access control.
+try{
+  const _P=require("react-native-purchases").default,{Platform:_Pl}=require("react-native"),_k=_Pl.OS==="ios"?RC_IOS_KEY:RC_ANDROID_KEY;if(_k)_P.configure({apiKey:_k});
+}catch(_e){}
 const IS_PRO = false;
 
 // ─── BACKEND CONFIGURATION ───────────────────────────────────────────────────
@@ -4043,7 +4046,7 @@ export default function App() {
   }
   if (onboardingChecked && !onboardingDone) {
     return (
-      <OnboardingScreen C={C} onComplete={async () => {
+      <OnboardingFlow onComplete={async () => {
         await safeStorageSet('@sc_onboarding_done', 'true');
         setOnboardingDone(true);
         // Schedule  notification after user accepts onboarding
