@@ -693,7 +693,7 @@ const ProOverlay = ({ feature, C }) => (
       {feature} is available with SparkConnect Pro.
     </Text>
     <View style={{ backgroundColor: C.blue, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 10 }}>
-      <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>⚡ Coming Soon — Join Waitlist</Text>
+      <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>⚡ Upgrade to Pro</Text>
     </View>
   </View>
 );
@@ -2920,7 +2920,7 @@ const TermsScreen = ({ C, onBack }) => {
         <Sec title="Permits and Inspections" body="Permits and inspections may be required for electrical work in your jurisdiction. This app does not determine permit requirements and does not replace inspection by a qualified authority." />
         <Sec title="No Engineering or Professional Advice" body="This app does not provide engineering, legal, or professional advice. For engineering review, consult a licensed professional engineer. For legal questions, consult a licensed attorney." />
         <Sec title="Limitation of Liability" body="To the maximum extent permitted by law, SparkConnect and its developers shall not be liable for any damages, injuries, losses, or code violations arising from use of this application." />
-        <Sec title="Subscription Terms" body="SparkConnect Pro subscriptions are currently in development and not yet available for purchase. When launched, Pro subscriptions will be billed monthly or annually at the rates displayed in the app at the time of purchase. Subscriptions will auto-renew unless cancelled at least 24 hours before the end of the current period. Manage or cancel subscriptions through your App Store or Google Play account settings. Prices may vary by region." />
+        <Sec title="Subscription Terms" body="SparkConnect Pro subscriptions are currently in development and not yet available for purchase. Pro subscriptions are billed monthly or annually at the rates displayed in the app at the time of purchase. Subscriptions will auto-renew unless cancelled at least 24 hours before the end of the current period. Manage or cancel subscriptions through your App Store or Google Play account settings. Prices may vary by region." />
         <Sec title="Changes to Terms" body="We may update these Terms from time to time. Continued use after changes constitutes acceptance." />
         <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>Questions? support@sparkconnect.pro</Text>
       </ScrollView>
@@ -3551,7 +3551,7 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
               <Text style={{ fontSize: 12, color: C.textSec, marginTop: 1 }}>$7.99/mo · $49.99/yr Launch Special · 100 AI answers/mo</Text>
             </View>
           </View>
-          {['100 Sparky AI answers/month','Box Fill Calculator','Conduit Fill Calculator','Saved Projects & History','PDF Report Export (coming)','Priority new features'].map(f => (
+          {['Up to 20 Sparky AI answers/day · 400/month fair-use cap','Box Fill Calculator','Conduit Fill Calculator','Saved Projects & History','PDF Report Export (coming)','Priority new features'].map(f => (
             <View key={f} style={{ flexDirection: 'row', gap: 8, alignItems: 'center', paddingVertical: 3 }}>
               <Ionicons name="checkmark-circle" size={15} color={C.blue} />
               <Text style={{ fontSize: 12, color: C.text, fontWeight: '500' }}>{f}</Text>
@@ -4043,7 +4043,7 @@ export default function App() {
   }
   if (onboardingChecked && !onboardingDone) {
     return (
-      <OnboardingScreen C={C} onAccept={async () => {
+      <OnboardingScreen C={C} onComplete={async () => {
         await safeStorageSet('@sc_onboarding_done', 'true');
         setOnboardingDone(true);
         // Schedule  notification after user accepts onboarding

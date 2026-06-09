@@ -1,29 +1,48 @@
 {
   "expo": {
-    "name": "spark-connect-mvp-2",
-    "slug": "snack-99327158-deb5-4601-b77f-c4915bf6fec1",
+    "name": "SparkConnect Tools",
+    "slug": "sparkconnect-tools",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0A0A0F"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.sparkconnect.tools",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "SparkConnect Job Cam uses your camera to photograph job site conditions, panel layouts, and rough-in work.",
+        "NSPhotoLibraryUsageDescription": "SparkConnect Job Cam needs access to your photo library to import job site photos.",
+        "NSPhotoLibraryAddUsageDescription": "SparkConnect saves job site photos to your library when you choose to share them."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0A0A0F"
       },
+      "package": "com.sparkconnect.tools",
+      "versionCode": 1,
+      "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"],
       "edgeToEdgeEnabled": true
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      ["expo-build-properties", {
+        "android": { "minSdkVersion": 26 },
+        "ios": { "deploymentTarget": "14.0" }
+      }]
+    ],
+    "extra": {
+      "eas": { "projectId": "" }
     }
   }
 }

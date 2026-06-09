@@ -6,7 +6,7 @@ const C = { bg:'#0A0A0F', card:'#16161E', orange:'#F97316', text:'#FFFFFF', mute
 const FEATURES = [
   { i:'🤖', t:'20 Sparky AI answers/day', s:'vs 3 on Free' },
   { i:'🧰', t:'All Calculators unlimited', s:'Box Fill, Conduit, Ampacity & more' },
-  { i:'📸', t:'Job Cam unlimited', s:'Unlimited projects & photos' },
+  { i:'📸', t:'More Job Cam projects', s:'More projects, more photos' },
   { i:'📚', t:'Full Learn & Exam Prep', s:'Journeyman + master level' },
   { i:'⚡', t:'NEC Code Lookup', s:'Cited answers on the job' },
 ];
