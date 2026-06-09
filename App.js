@@ -2052,7 +2052,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch }) => {
     if (result === 'rate_limited') {
       setMessages(prev => [...prev, {
         id: Date.now().toString(), role: 'sparky', isRateLimit: true,
-        text: `You've used your ${IS_PRO ? '100 monthly' : '5 daily'} free answers. Upgrade to Pro for 100 answers/month, or grab a quick answer pack.`,
+        text: `You've used your ${IS_PRO ? '20 daily' : '3 daily'} free Sparky answers. Upgrade to Pro for up to 20/day, or grab an answer pack.`,
       }]);
     } else if (result?.answer) {
       if (result.remainingQuestions !== undefined) setRemainingQuestions(result.remainingQuestions);
@@ -3519,7 +3519,7 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
     // TODO: replace with: const { customerInfo } = await Purchases.restorePurchases();
     await new Promise(r => setTimeout(r, 1200));
     setRestoring(false);
-    Alert.alert('Restore Purchases', 'No active subscription found.\n\nContact support@sparkconnect.pro if you believe this is an error.');
+    (async()=>{try{const P=require("react-native-purchases").default;const info=await P.restorePurchases();const ok=info.customerInfo&&info.customerInfo.entitlements.active["pro"];if(ok){Alert.alert("Restored!","Pro subscription is active.");}else{Alert.alert("Not Found","Contact support@sparkconnect.pro");}}catch(e){Alert.alert("Restore Error","Please try again.");}})()
   };
 
   const SectionTitle = ({ title }) => (
@@ -4126,6 +4126,37 @@ export default function App() {
           </TouchableOpacity>
         ))}
       </View>
+    
+      <SparkPaywall
+        visible={paywallVisible}
+        onClose={() => setPaywallVisible(false)}
+        onStartTrial={async () => {
+          try {
+            const P = require('react-native-purchases').default;
+            const o = await P.getOfferings();
+            const pkg = o && o.current && o.current.monthly;
+            if (pkg) { await P.purchasePackage(pkg); Alert.alert('Welcome to Pro!', 'Your 3-day free trial has started.'); }
+          } catch(e) { if (!e.userCancelled) Alert.alert('Purchase Error', 'Try again or contact support@sparkconnect.pro'); }
+          finally { setPaywallVisible(false); }
+        }}
+        reason="Become Pro"
+      />
+      <SparkPaywall
+        visible={packsVisible}
+        onClose={() => setPacksVisible(false)}
+        onBuyPack={async (packId) => {
+          try {
+            const P = require('react-native-purchases').default;
+            const o = await P.getOfferings();
+            const pkgs = o && o.all ? Object.values(o.all).flatMap(x => x.availablePackages) : [];
+            const pkg = pkgs.find(p => p.product.identifier === packId);
+            if (pkg) { await P.purchasePackage(pkg); Alert.alert('Pack Added!', 'Your Sparky AI answers are ready.'); }
+          } catch(e) { if (!e.userCancelled) Alert.alert('Error', 'Try again.'); }
+          finally { setPacksVisible(false); }
+        }}
+        reason="Buy Answer Packs"
+        isPacks
+      />
     </SafeAreaView>
     </ProGatingProvider>
     );
