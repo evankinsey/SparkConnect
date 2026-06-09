@@ -50,11 +50,12 @@
             "deploymentTarget": "15.1"
           }
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {
-        "projectId": ""
+        "projectId": "6be503ce-d7a7-4ae2-8b8d-3ae0bdc781ba"
       }
     }
   }
