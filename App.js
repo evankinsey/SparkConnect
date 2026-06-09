@@ -1,0 +1,4177 @@
+// ─ Box Fill + Conduit Fill: 3 free/day, Proconst SC_LOGO = null; // set to require('./assets/SparkConnectLogo.png') after import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput,
+  SafeAreaView, StatusBar, Platform, Switch, Dimensions, useColorScheme,
+  Share, Alert, Animated, Linking,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+// expo-image-picker & expo-sharing — lazy-loaded so the app never crashes if package isn't installed
+// Works in Expo Snack, Expo Go, AND production builds
+const _loadImagePicker = (() => {
+  let _mod = null;
+  return async () => {
+    if (_mod) return _mod;
+    try { _mod = await import('expo-image-picker'); return _mod; } catch { return null; }
+  };
+})();
+const _loadSharing = (() => {
+  let _mod = null;
+  return async () => {
+    if (_mod) return _mod;
+    try { _mod = await import('expo-sharing'); return _mod; } catch { return null; }
+  };
+})();
+import Svg, { Path, Line, Text as SvgText } from 'react-native-svg';
+
+const SW = Dimensions.get('window').width;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SECURITY & INPUT VALIDATION HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── Safe logging — only prints in DEV, never in production ───────────────
+const safeLog = (context, error) => {
+  if (__DEV__) {
+    console.warn(`[SparkConnect:${context}]`, error);
+  }
+  // Never expose internal errors to users in production
+};
+
+// ─── Input sanitization helpers ──────────────────────────────────────────
+// Strip everything except digits, one decimal point, and leading minus
+const cleanNumberInput = (raw) => {
+  if (typeof raw !== 'string') return '';
+  // Allow digits and at most one decimal point
+  let cleaned = raw.replace(/[^0-9.]/g, '');
+  const parts = cleaned.split('.');
+  if (parts.length > 2) cleaned = parts[0] + '.' + parts.slice(1).join('');
+  return cleaned;
+};
+
+const toPositiveNumber = (raw, fallback = 0, max = 999999) => {
+  const n = parseFloat(raw);
+  if (!isFinite(n) || isNaN(n) || n < 0) return fallback;
+  return Math.min(n, max);
+};
+
+const toPositiveInteger = (raw, fallback = 0, max = 9999) => {
+  const n = parseInt(raw, 10);
+  if (!isFinite(n) || isNaN(n) || n < 0) return fallback;
+  return Math.min(Math.floor(n), max);
+};
+
+const isValidPositiveNumber = (raw) => {
+  const n = parseFloat(raw);
+  return isFinite(n) && !isNaN(n) && n > 0;
+};
+
+// ─── Safe URL opener — only allows https: and mailto: ────────────────────
+// SECURITY: Never open arbitrary user-generated URLs. Only known safe origins.
+const ALLOWED_URL_PREFIXES = ['https://', 'mailto:'];
+const KNOWN_SAFE_DOMAINS = [
+  'instagram.com', 'www.instagram.com',
+ 'sparkconnect.pro', 'www.sparkconnect.pro',
+];
+// SECURITY: expo-sharing handles image URIs — they are local file paths only.
+// We never send user photos to a server. The share sheet is OS-controlled.
+// SECURITY: All user inputs are capped, sanitized, and never eval'd.
+
+const safeOpenURL = async (url) => {
+  if (!url || typeof url !== 'string') {
+    Alert.alert('Invalid Link', 'This link could not be opened.');
+    return;
+  }
+  const isAllowedScheme = ALLOWED_URL_PREFIXES.some(p => url.startsWith(p));
+  if (!isAllowedScheme) {
+    safeLog('safeOpenURL', `Blocked unsafe URL scheme: ${url}`);
+    Alert.alert('Unsafe Link', 'This link cannot be opened for security reasons.');
+    return;
+  }
+  // For https URLs, verify domain is in known-safe list
+  if (url.startsWith('https://')) {
+    try {
+      const hostname = new URL(url).hostname;
+      if (!KNOWN_SAFE_DOMAINS.includes(hostname)) {
+        safeLog('safeOpenURL', `Blocked unknown domain: ${hostname}`);
+        Alert.alert('Could not open link', `Unable to open ${url}`);
+        return;
+      }
+    } catch (e) {
+      safeLog('safeOpenURL', `Malformed URL: ${url}`);
+      Alert.alert('Invalid Link', 'This link appears to be invalid.');
+      return;
+    }
+  }
+  try {
+    await Linking.openURL(url);
+  } catch (e) {
+    safeLog('safeOpenURL', e);
+    Alert.alert('Could not open link', 'Please try visiting the link manually.');
+  }
+};
+
+// ─── Safe AsyncStorage wrappers ───────────────────────────────────────────
+// SECURITY: AsyncStorage is NOT encrypted. Do NOT store tokens, passwords,
+// or sensitive personal data here. Use expo-secure-store for auth tokens.
+// Safe to store: onboarding flag, theme preference, non-sensitive settings.
+const safeStorageGet = async (key) => {
+  try {
+    return await AsyncStorage.getItem(key);
+  } catch (e) {
+    safeLog('AsyncStorage.get', e);
+    return null;
+  }
+};
+
+const safeStorageSet = async (key, value) => {
+  try {
+    await AsyncStorage.setItem(key, value);
+    return true;
+  } catch (e) {
+    safeLog('AsyncStorage.set', e);
+    return false;
+  }
+};
+
+// ───  query safety ──────────────────────────────────────────────────
+const MAX_QUERY_LENGTH = 500; // Max characters per NEC AI search query
+const sanitizeQuery = (raw) => {
+  if (!raw || typeof raw !== 'string') return '';
+  // Strip characters that could cause issues in email links or URL params
+  return raw.trim().slice(0, MAX_QUERY_LENGTH).replace(/[<>{}|\\^`]/g, '');
+};
+
+// SECURITY: Safe URL builder for mailto links — prevents header injection
+const buildMailtoURL = (to, subject, body) => {
+  const safeTo = 'support@sparkconnect.pro'; // Never use user-supplied email addresses
+  const safeSubject = encodeURIComponent(String(subject || '').slice(0, 100));
+  const safeBody = encodeURIComponent(String(body || '').slice(0, 500));
+  return `mailto:${safeTo}?subject=${safeSubject}&body=${safeBody}`;
+};
+
+
+// ─── THEME ───────────────────────────────────────────────────────────────────
+const LIGHT = {
+  blue:'#0066FF',blueDark:'#0047B3',blueSub:'#E8F0FF',blueLight:'#3385FF',
+  bg:'#F5F7FA',surface:'#FFFFFF',
+  text:'#0F172A',textSec:'#475569',textTert:'#94A3B8',
+  border:'#E2E8F0',borderLight:'#F0F4F8',
+  success:'#10B981',successBg:'#ECFDF5',
+  warning:'#F59E0B',warningBg:'#FFFBEB',
+  danger:'#EF4444',dangerBg:'#FEF2F2',
+  purple:'#7C3AED',purpleBg:'#F5F3FF',purpleSub:'#EDE9FE',
+  teal:'#0D9488',tealBg:'#F0FDFA',
+  amber:'#D97706',amberBg:'#FFFBEB',
+  inputBg:'#F5F7FA',inputBorder:'#E2E8F0',inputText:'#0F172A',placeholder:'#94A3B8',
+  tabBar:'#FFFFFF',tabBorder:'#E2E8F0',tabActive:'#0066FF',tabInactive:'#94A3B8',
+  overlay:'rgba(245,247,250,0.94)',statusBar:'dark-content',
+};
+const DARK = {
+  blue:'#3B82F6',blueDark:'#1D4ED8',blueSub:'#1E3A5F',blueLight:'#60A5FA',
+  bg:'#0F172A',surface:'#1E293B',
+  text:'#F1F5F9',textSec:'#94A3B8',textTert:'#64748B',
+  border:'#334155',borderLight:'#1E293B',
+  success:'#34D399',successBg:'#064E3B',
+  warning:'#FBBF24',warningBg:'#451A03',
+  danger:'#F87171',dangerBg:'#450A0A',
+  purple:'#A78BFA',purpleBg:'#2D1B69',purpleSub:'#3730A3',
+  teal:'#2DD4BF',tealBg:'#042F2E',
+  amber:'#FCD34D',amberBg:'#422006',
+  inputBg:'#1E293B',inputBorder:'#334155',inputText:'#F1F5F9',placeholder:'#64748B',
+  tabBar:'#1E293B',tabBorder:'#334155',tabActive:'#3B82F6',tabInactive:'#64748B',
+  overlay:'rgba(15,23,42,0.95)',statusBar:'light-content',
+};
+
+// ─── NEC DAILY QUESTIONS ─────────────────────────────────────────────────────
+const NEC_QUESTIONS = [
+  {id:'q1',question:'Max recommended voltage drop for a branch circuit per NEC informational notes?',choices:['2%','3%','5%','10%'],correct:1,explanation:'NEC 210.19(A) Informational Note recommends ≤3% on branch circuits, ≤5% total feeder + branch.',ref:'NEC 210.19(A)',difficulty:'Apprentice',category:'Voltage Drop'},
+  {id:'q2',question:'GFCI protection is required for 125V 15/20A receptacles in which location?',choices:['Living rooms','Bathrooms','Closets','Hallways'],correct:1,explanation:'NEC 210.8(A)(1) requires GFCI in all dwelling bathrooms, plus kitchens, garages, outdoors, and more.',ref:'NEC 210.8(A)(1)',difficulty:'Apprentice',category:'GFCI'},
+  {id:'q3',question:'A continuous load OCPD must be rated at what % of the load?',choices:['100%','115%','125%','150%'],correct:2,explanation:'NEC 210.20(A): OCPD ≥125% of continuous load. Continuous = 3+ hours of operation.',ref:'NEC 210.20(A)',difficulty:'Journeyman',category:'Overcurrent'},
+  {id:'q4',question:'A #12 AWG conductor counts as how many cubic inches in box fill?',choices:['1.75','2.00','2.25','2.50'],correct:2,explanation:'NEC 314.16(B) Table: #12 AWG = 2.25 in³ per conductor.',ref:'NEC 314.16(B)',difficulty:'Apprentice',category:'Box Fill'},
+  {id:'q5',question:'Max conduit fill % for 3 or more conductors?',choices:['31%','40%','53%','60%'],correct:1,explanation:'NEC Ch.9 Table 1: 53% (1 wire), 31% (2 wires), 40% (3+ wires).',ref:'NEC Chapter 9, Table 1',difficulty:'Journeyman',category:'Conduit Fill'},
+  {id:'q6',question:'The EGC primarily provides what?',choices:['Load current return','Low-impedance fault path to trip OCPD','Voltage drop reduction','120V neutral'],correct:1,explanation:'NEC 250.4(A)(5): the EGC provides a low-impedance fault-current path so the breaker trips fast.',ref:'NEC 250.4(A)(5)',difficulty:'Apprentice',category:'Grounding'},
+  {id:'q7',question:'Which NEC article covers EV charging equipment?',choices:['Article 210','Article 250','Article 625','Article 700'],correct:2,explanation:'NEC Article 625 covers EVSE: circuit sizing, GFCI, and disconnecting means.',ref:'NEC Article 625',difficulty:'Journeyman',category:'EV Charging'},
+  {id:'q8',question:'Max equivalent 90° bends in EMT between pull points?',choices:['180°','270°','360°','450°'],correct:2,explanation:'NEC 358.26 limits total bends to 360° (four quarter-bends) between pull boxes.',ref:'NEC 358.26',difficulty:'Apprentice',category:'Conduit'},
+];
+const getDailyQuestion = () => {
+  const day = Math.floor((Date.now() - new Date(new Date().getFullYear(),0,0).getTime())/86400000);
+  return NEC_QUESTIONS[day % NEC_QUESTIONS.length];
+};
+
+// ─── FORMULAS ─────────────────────────────────────────────────────────────────
+const FORMULAS = [
+  {id:'o1',cat:"Ohm's Law",name:'Voltage',f:'E = I × R',v:'E=Volts · I=Amps · R=Ohms',u:'Find voltage.',ex:'10A × 12Ω = 120V'},
+  {id:'o2',cat:"Ohm's Law",name:'Current',f:'I = E ÷ R',v:'I=Amps · E=Volts · R=Ohms',u:'Find current.',ex:'120V ÷ 12Ω = 10A'},
+  {id:'o3',cat:"Ohm's Law",name:'Resistance',f:'R = E ÷ I',v:'R=Ohms · E=Volts · I=Amps',u:'Find resistance.',ex:'120V ÷ 10A = 12Ω'},
+  {id:'p1',cat:'Power',name:'Power',f:'P = E × I',v:'P=Watts · E=Volts · I=Amps',u:'Find wattage.',ex:'120V × 15A = 1800W'},
+  {id:'p2',cat:'Power',name:'kVA (1Φ)',f:'kVA = (E × I) ÷ 1000',v:'E=Volts · I=Amps',u:'Apparent power.',ex:'(240×100)÷1000 = 24kVA'},
+  {id:'vd1',cat:'Voltage Drop',name:'VD% (1Φ)',f:'VD% = (2 × K × I × D) ÷ (CM × E) × 100',v:'K=12.9 Cu/21.2 Al · D=ft · CM=circ mils',u:'Single-phase drop.',ex:'NEC recommends ≤3%',ref:'NEC 210.19(A)'},
+  {id:'vd2',cat:'Voltage Drop',name:'VD% (3Φ)',f:'VD% = (√3 × K × I × D) ÷ (CM × E) × 100',v:'K=12.9 Cu · D=ft · CM=circ mils',u:'Three-phase drop.',ex:'NEC 215.2(A)',ref:'NEC 215.2(A)'},
+  {id:'t1',cat:'Three Phase',name:'L-L Voltage',f:'E_LL = E_LN × √3',v:'LL=line-line · LN=line-neutral',u:'Wye line voltage.',ex:'120 × 1.732 = 208V'},
+  {id:'t2',cat:'Three Phase',name:'3Φ Power',f:'P = √3 × E × I × PF',v:'E=line V · I=line A · PF=power factor',u:'True 3Φ power.',ex:'1.732×208×100×0.85 = 30.6kW'},
+  {id:'t3',cat:'Three Phase',name:'3Φ Current from kVA',f:'I = (kVA × 1000) ÷ (√3 × E)',v:'kVA=rating · E=line V',u:'3Φ full-load amps.',ex:'(75×1000)÷(1.732×208)=208A'},
+  {id:'m1',cat:'Motors',name:'Motor Conductor',f:'Min = FLC × 1.25',v:'FLC from NEC 430.248/250',u:'Size motor wire.',ex:'10A × 1.25 = 12.5A',ref:'NEC 430.22(A)'},
+  {id:'m2',cat:'Motors',name:'Motor OCPD',f:'Max = FLC × 2.5',v:'FLC from NEC Table',u:'Inverse-time breaker.',ex:'10A × 2.5 = 25A',ref:'NEC 430.52'},
+  {id:'x1',cat:'Transformers',name:'Turns Ratio',f:'Np ÷ Ns = Ep ÷ Es',v:'N=turns · E=voltage',u:'Secondary voltage.',ex:'480÷120 = 4:1'},
+  {id:'x2',cat:'Transformers',name:'Secondary Current (1Φ)',f:'Is = (kVA × 1000) ÷ Es',v:'kVA=rating · Es=sec V',u:'Full-load secondary A.',ex:'(25×1000)÷240=104A'},
+  {id:'b1',cat:'Bending',name:'Offset 45°',f:'Spacing = Height × 1.414',v:'Height=rise',u:'45° offset marks.',ex:'6" × 1.414 = 8.5"'},
+  {id:'b2',cat:'Bending',name:'Offset 30°',f:'Spacing = Height × 2.0',v:'Height=rise',u:'30° offset marks.',ex:'4" × 2.0 = 8"'},
+  {id:'b3',cat:'Bending',name:'Rolling Offset',f:'Travel = √(Rise² + Roll²)',v:'Rise=vert · Roll=horiz',u:'Diagonal travel.',ex:'√(6²+4²)=7.21"'},
+  {id:'bf1',cat:'Box Fill',name:'Box Fill',f:'Σ conductors + 2×devices + 1×grounds + 1×clamps',v:'volume per NEC 314.16(B)',u:'Box cubic inches.',ex:'#12 = 2.25 in³ ea',ref:'NEC 314.16(B)'},
+  {id:'cf1',cat:'Conduit Fill',name:'Fill %',f:'Fill% = (wire area ÷ conduit area) × 100',v:'areas: NEC Ch.9 T4 & T5',u:'Verify ≤40%.',ex:'3×#12 in ½"EMT = 32.7%',ref:'NEC Ch.9 Table 1'},
+];
+
+// ─── NEC KNOWLEDGE BASE ───────────────────────────────────────────────────────
+const NEC_KB = [
+  {id:'kb1',topic:'Box Fill',calcTab:'boxfill',tags:['box fill','314.16','cubic inches','box size'],
+   short:'Add conductor volumes + devices (2×) + ground (1×) + clamps (1×).',
+   refs:['NEC 314.16','NEC 314.16(B)','NEC 314.16(B)(4)'],
+   explain:'Each conductor has a cubic-inch volume by AWG. Devices/yokes count 2×, all grounds count 1× total, all internal clamps count 1× total.',
+   example:'4×#12 (2.25) + 1 device (2×2.25) + 1 ground (2.25) + 1 clamp (2.25) = 18.0 in³. Use a box ≥18 in³.',
+   related:['NEC 314.16','NEC 314.28']},
+  {id:'kb2',topic:'GFCI Protection',calcTab:null,tags:['gfci','210.8','bathroom','kitchen','ground fault'],
+   short:'GFCI required in bathrooms, kitchens (6ft of sink), garages, outdoors, basements, crawl spaces.',
+   refs:['NEC 210.8(A)','NEC 210.8(B)'],
+   explain:'NEC 210.8(A) lists GFCI locations for dwellings. GFCI trips on 4-6mA imbalance between hot and neutral.',
+   example:'New counter receptacle within 6ft of kitchen sink = GFCI required. Use GFCI at first outlet, feed downstream from LOAD.',
+   related:['NEC 210.8','NEC 406.4']},
+  {id:'kb3',topic:'Continuous Loads',calcTab:'volt',tags:['continuous load','125%','210.20','breaker sizing'],
+   short:'A 3+ hour load needs OCPD rated ≥125% of that load.',
+   refs:['NEC 210.20(A)','NEC 215.2(A)'],
+   explain:'NEC 210.20(A): OCPD ≥125% of continuous load. Conductors must also handle the 125% factor.',
+   example:'16A continuous load × 1.25 = 20A breaker. Or: 20A breaker × 0.8 = 16A max continuous.',
+   related:['NEC 210.20','NEC 215.2']},
+  {id:'kb4',topic:'Conduit Fill',calcTab:'conduitfill',tags:['conduit fill','chapter 9','40%','table 1'],
+   short:'1 wire = 53%, 2 wires = 31%, 3+ wires = 40% max fill.',
+   refs:['NEC Chapter 9, Table 1','NEC Chapter 9, Table 4','NEC Chapter 9, Table 5'],
+   explain:'Table 1 = max fill %. Table 4 = conduit areas. Table 5 = wire areas. Divide total wire area by conduit area.',
+   example:'3×#12 THHN (0.0133 ea) = 0.0399 in² ÷ ½" EMT (0.122) = 32.7% ✓',
+   related:['NEC Chapter 9','NEC 300.17']},
+  {id:'kb5',topic:'Voltage Drop',calcTab:'volt',tags:['voltage drop','3%','5%','210.19','215.2'],
+   short:'NEC recommends (not mandates) ≤3% branch, ≤5% total. Informational Notes only.',
+   refs:['NEC 210.19(A) Info Note','NEC 215.2(A) Info Note'],
+   explain:'Voltage drop limits are recommendations, not enforceable code — but local AHJs may enforce them.',
+   example:'20A/150ft on #12 Cu at 120V ≈ 8% drop. Upsize to #8 Cu or run 240V.',
+   related:['NEC 210.19','NEC 215.2']},
+  {id:'kb6',topic:'Working Clearances',calcTab:null,tags:['clearance','110.26','3 feet','panel'],
+   short:'Minimum 3 ft clear depth in front of equipment ≤150V (Condition 2).',
+   refs:['NEC 110.26(A)','NEC 110.26(A)(1)','NEC 110.26(A)(3)'],
+   explain:'Depth ≥3ft, width ≥30in or equipment width, headroom ≥6ft 3in. Keep working space clear.',
+   example:'200A residential panel: 3ft in front must stay clear of storage at all times.',
+   related:['NEC 110.26','NEC 110.34']},
+  {id:'kb7',topic:'Equipment Grounding',calcTab:null,tags:['grounding','egc','250','fault path','bonding'],
+   short:'EGC provides low-impedance fault path to trip OCPD. Does NOT carry load current.',
+   refs:['NEC 250.4(A)(5)','NEC 250.118','NEC 250.122'],
+   explain:'NEC 250.122 gives minimum EGC sizes by OCPD rating. NEC 250.118 lists acceptable EGC types.',
+   example:'EMT can serve as EGC if properly installed — many electricians still pull a separate green wire.',
+   related:['NEC 250','NEC 250.118','NEC 250.122']},
+  {id:'kb8',topic:'EV Charging (EVSE)',calcTab:'volt',tags:['ev','evse','625','level 2','charger'],
+   short:'NEC 625: EVSE is a continuous load — size circuit at 125% of nameplate.',
+   refs:['NEC Article 625','NEC 625.42'],
+   explain:'Article 625 requires listed EVSE, disconnect means, and GFCI in some cases. Continuous-load rule applies.',
+   example:'32A Level 2 charger × 1.25 = 40A circuit. Use 40A breaker, #8 Cu THHN.',
+   related:['NEC 625','NEC 210.20']},
+  {id:'kb9',topic:'AFCI Protection',calcTab:null,tags:['afci','210.12','arc fault','bedroom'],
+   short:'AFCI required for most 120V, 15A and 20A branch circuits in dwelling units (2020/2023 NEC).',
+   refs:['NEC 210.12(A)'],
+   explain:'NEC 210.12(A) expanded AFCI to cover bedrooms, living rooms, kitchens, hallways, and more. Check your locally adopted edition.',
+   example:'New 15A bedroom circuit: install combination-type AFCI breaker at the panelboard.',
+   related:['NEC 210.12','NEC 210.8']},
+  {id:'kb10',topic:'Motor Circuit Sizing',calcTab:null,tags:['motor','430','fla','fLC','overload'],
+   short:'Motor conductors ≥125% FLC. OCPD up to 250% FLC. Overloads at 115-125% nameplate.',
+   refs:['NEC 430.22(A)','NEC 430.52','NEC 430.32'],
+   explain:'Use FLC from NEC Tables 430.247-430.250, NOT nameplate amps, for conductor and OCPD sizing.',
+   example:'10HP 230V single-phase motor: FLC = 50A. Conductors ≥ 62.5A. OCPD ≤ 125A (250%).',
+   related:['NEC 430','NEC 440']},
+  {id:'kb11',topic:'AFCI Protection',calcTab:null,tags:['afci','210.12','arc fault','bedroom','living room'],
+   short:'AFCI required for most 120V 15A and 20A branch circuits in dwelling units (2020/2023 NEC).',
+   refs:['NEC 210.12(A)','NEC 210.12(B)'],
+   explain:'Combination-type AFCI breakers protect against both series and parallel arc faults. 2023 NEC covers nearly all branch circuits in dwelling units.',
+   example:'New bedroom circuit: install combination-type AFCI breaker. New kitchen circuit: check your locally adopted NEC edition.',
+   related:['NEC 210.12','NEC 210.8']},
+  {id:'kb12',topic:'Overcurrent Conductor Protection',calcTab:null,tags:['ocpd','240.4','14 awg','12 awg','10 awg','breaker size'],
+   short:'#14 Cu = 15A max. #12 Cu = 20A max. #10 Cu = 30A max per NEC 240.4(D).',
+   refs:['NEC 240.4(D)','NEC 240.6(A)'],
+   explain:'NEC 240.4(D) limits OCPD for small conductors. Standard sizes per 240.6(A): 15, 20, 25, 30, 35, 40, 45, 50, 60A.',
+   example:'Running a 20A circuit? Minimum #12 AWG Cu. Running 15A? Minimum #14 AWG Cu.',
+   related:['NEC 240.4','NEC 240.6']},
+  {id:'kb13',topic:'Service Disconnect Requirements',calcTab:null,tags:['service disconnect','230.70','230.71','6 disconnect','main breaker'],
+   short:'Max 6 service disconnects at one location. Must be at/near service entry point.',
+   refs:['NEC 230.70(A)','NEC 230.71(A)'],
+   explain:'NEC 230.70: service disconnect at readily accessible location. NEC 230.71: maximum of 6 disconnects per service.',
+   example:'Residential service: typically one main breaker at the meter/panel. Commercial: up to 6 breakers can serve as the service disconnect.',
+   related:['NEC 230','NEC 250.24']},
+  {id:'kb14',topic:'Neutral-Ground Separation',calcTab:null,tags:['subpanel','neutral','ground','separate','bond','250.142'],
+   short:'Neutral and ground bond ONLY at service entrance. Subpanels in same building must keep them separate.',
+   refs:['NEC 250.24(A)','NEC 250.142(B)'],
+   explain:'Bonding neutral to ground at a subpanel in the same building creates parallel return paths — dangerous and code violation. Use 4-wire feeders to subpanels.',
+   example:'Running a subpanel in your garage? Use a 4-wire feeder. Separate neutral and ground bars inside the subpanel. NO main bonding jumper.',
+   related:['NEC 250.24','NEC 250.142']},
+  {id:'kb15',topic:'Ampacity Derating',calcTab:'ampacity',tags:['ampacity','310.15','derating','temperature','conduit fill','ambient'],
+   short:'Conductor ampacity may need to be derated for ambient temperature or more than 3 conductors in a raceway.',
+   refs:['NEC 310.15(B)(2)','NEC 310.15(C)','NEC 110.14(C)'],
+   explain:'High ambient temperature reduces wire ampacity per Table 310.15(B)(1). More than 3 current-carrying conductors in a conduit requires derating per Table 310.15(C).',
+   example:'4 THHN conductors in conduit: derate to 80%. 7-9 conductors: derate to 70%. Hot attic over 40°C: apply temperature correction.',
+   related:['NEC 310.15','NEC 110.14']},
+  // ── HOW-TO INSTALLATION GUIDES (written in our own words, NEC-cited) ──
+  {id:'how1',topic:'How to Wire a GFCI Outlet',calcTab:null,tags:['gfci install','where does neutral go','outlet wiring','gfci how to','wire receptacle','install outlet'],
+   short:'LINE terminals connect to incoming power. LOAD terminals extend GFCI protection to downstream outlets.',
+   refs:['NEC 210.8(A)','NEC 406.4'],
+   explain:'A standard GFCI outlet has two sets of screw terminals labeled LINE and LOAD. The hot wire (black) connects to the brass (gold) screw on the LINE side. The neutral (white) connects to the silver screw on the LINE side. The bare/green ground connects to the green screw. The LINE side powers the GFCI itself. Connecting additional outlets to the LOAD terminals gives those outlets GFCI protection too — label them "GFCI Protected." Always de-energize the circuit before working (NFPA 70E). Test with a calibrated meter before touching conductors.',
+   example:'Bathroom outlet: turn off breaker → verify dead with meter → black to brass (LINE) → white to silver (LINE) → bare to green → mount → press TEST then RESET → verify with GFCI tester.',
+   related:['NEC 210.8','NEC 406.4','NEC 250.119']},
+  {id:'how2',topic:'How to Wire a Standard Outlet',calcTab:null,tags:['outlet wiring','receptacle install','where does neutral go outlet','duplex receptacle','how to wire outlet','black wire goes where'],
+   short:'Hot (black) to brass screw, Neutral (white) to silver screw, Ground (green/bare) to green screw.',
+   refs:['NEC 406.4','NEC 200.9'],
+   explain:'On a standard 120V duplex receptacle: the brass (darker) screws are the hot terminals — connect the black wire here. The silver (lighter) screws are neutral — connect the white wire here. The green screw at the bottom is the equipment ground — connect the bare copper or green wire here. NEC 200.9 requires white/gray conductors to be connected to the grounded (neutral) terminal. Always verify with a meter that the circuit is de-energized before working.',
+   example:'15A single-pole circuit: black → brass screw, white → silver screw, bare → green screw. Tighten to 12 in-lb. Protect with 15A breaker maximum (#14 AWG Cu per NEC 240.4(D)).',
+   related:['NEC 406.4','NEC 200.9','NEC 240.4']},
+  {id:'how3',topic:'How to Run a Subpanel',calcTab:null,tags:['subpanel install','detached garage panel','4 wire feeder','run subpanel','how to wire subpanel','neutral ground subpanel'],
+   short:'Use 4-wire feeder: two hots, one neutral, one ground. Keep neutral and ground SEPARATE in the subpanel.',
+   refs:['NEC 225.30','NEC 250.32','NEC 250.142(B)'],
+   explain:'A subpanel fed from a main panel in the same building requires a 4-wire feeder: two ungrounded (hot) conductors, one neutral, one separate equipment grounding conductor. Inside the subpanel, neutral and ground must be on separate bus bars — do NOT install a main bonding jumper (that connects neutral to ground). The neutral bus must be isolated from the panel enclosure. The ground bus bonds to the enclosure. This prevents dangerous neutral current from flowing on the grounding path.',
+   example:'200A garage subpanel: 4-wire feeder from main (e.g. 2/0-2/0-2/0-4 AWG Cu). Separate neutral and ground bars. No main bonding jumper. Bond ground bus to panel enclosure. Per NEC 225.30, only one feeder to a separate structure.',
+   related:['NEC 250.32','NEC 250.142','NEC 225.30']},
+  {id:'how4',topic:'How to Wire a 3-Way Switch',calcTab:null,tags:['3 way switch','3-way wiring','traveler wires','how to wire switch','common terminal switch','switch wiring'],
+   short:'3-way switches use a common (COM) terminal and two traveler terminals. Power enters one switch, travelers link both switches, load wire exits the other.',
+   refs:['NEC 404.2','NEC 200.7'],
+   explain:'A 3-way switch has three terminals: one marked COM (common) and two traveler terminals. Wire the incoming hot to the COM of the first switch. Run two traveler wires between the traveler terminals of both switches. Connect the switched hot from the COM of the second switch to the load (light). The neutral runs through but bypasses both switches. With 14/3 NM cable, the red wire is typically used as a traveler. The white wire used as a switch leg should be re-identified with black tape (NEC 200.7).',
+   example:'Switch leg wiring: hot → COM switch 1 → traveler 1 → switch 2 → traveler 2 → switch 1 (cross-connected). COM switch 2 → light. Neutral → light (bypasses switches).',
+   related:['NEC 404.2','NEC 200.7','NEC 404.14']},
+  {id:'how5',topic:'GFCI vs AFCI — When to Use Each',calcTab:null,tags:['gfci vs afci','when to use gfci','when to use afci','dual function breaker','arc fault vs ground fault'],
+   short:'GFCI stops ground faults (electrocution risk in wet areas). AFCI stops arc faults (fire risk from damaged wiring).',
+   refs:['NEC 210.8','NEC 210.12'],
+   explain:'GFCI (Ground Fault Circuit Interrupter) detects current imbalance between hot and neutral — indicating current is taking a path through a person or water. Required in wet locations: bathrooms, kitchens, outdoors, garages, basements, near pools. AFCI (Arc Fault Circuit Interrupter) detects the electrical signature of arcing — sparking in damaged wires — which can start fires inside walls without triggering a standard breaker. Required for most 120V branch circuits in dwelling units per 2020/2023 NEC. Dual-function breakers combine both protections in one device.',
+   example:'New bathroom circuit: needs GFCI. New bedroom circuit in 2020+ NEC jurisdiction: needs AFCI. New kitchen circuit: may need both — check your adopted NEC edition and local AHJ.',
+   related:['NEC 210.8','NEC 210.12']},
+];
+const searchKB = (q) => {
+  if (!q.trim()) return NEC_KB;
+  const ql = q.toLowerCase();
+  return NEC_KB.filter(a => [a.topic,...a.tags,a.short,...a.refs].join(' ').toLowerCase().includes(ql));
+};
+
+// ─── SMART LOCAL NEC ASSISTANT ────────────────────────────────────────────────
+const normalizeText = (text) => {
+  if (!text || typeof text !== 'string') return '';
+  return text.toLowerCase().replace(/[?.,!;:'"()]/g,' ').replace(/\s+/g,' ').trim();
+};
+
+const NEC_SYNONYMS = {
+  'bathroom outlet':'gfci','bathroom receptacle':'gfci','kitchen outlet':'gfci',
+  'kitchen receptacle':'gfci','outdoor outlet':'gfci','garage outlet':'gfci',
+  'basement outlet':'gfci','ground fault':'gfci','need gfci':'gfci',
+  'arc fault':'afci protection','bedroom breaker':'afci protection',
+  'bedroom outlet':'afci protection','arc fault interrupter':'afci protection',
+  'working clearance':'working clearances','panel clearance':'working clearances',
+  'panel space':'working clearances','how much clearance':'working clearances',
+  'clearance in front':'working clearances','3 feet in front':'working clearances',
+  'box cubic inches':'box fill','how many wires in box':'box fill',
+  'box size':'box fill','wire box':'box fill','junction box size':'box fill',
+  'cubic inches':'box fill','how big a box':'box fill',
+  'pipe fill':'conduit fill','conduit capacity':'conduit fill',
+  'how many wires in conduit':'conduit fill','wires per conduit':'conduit fill',
+  'conduit percent':'conduit fill','fill conduit':'conduit fill',
+  'voltage loss':'voltage drop','voltage difference':'voltage drop',
+  'wire too small':'voltage drop','long run':'voltage drop','drop percent':'voltage drop',
+  'ev charger':'ev charging','car charger':'ev charging','electric vehicle':'ev charging',
+  'level 2':'ev charging','tesla charger':'ev charging','evse':'ev charging',
+  'ground wire':'equipment grounding','green wire':'equipment grounding',
+  'bare wire':'equipment grounding','emt ground':'equipment grounding',
+  'can emt be ground':'equipment grounding','egc':'equipment grounding',
+  'grounding conductor':'equipment grounding','equipment ground':'equipment grounding',
+  'motor wire':'motor circuit sizing','motor conductor':'motor circuit sizing',
+  'motor breaker':'motor circuit sizing','motor overload':'motor circuit sizing',
+  'motor sizing':'motor circuit sizing','size motor':'motor circuit sizing',
+  'continuous':'continuous loads','125 percent':'continuous loads',
+  '3 hour load':'continuous loads','run continuously':'continuous loads',
+  // Overcurrent
+  'what size breaker':'overcurrent conductor protection','breaker size':'overcurrent conductor protection',
+  'what wire for 20 amp':'overcurrent conductor protection','wire size for breaker':'overcurrent conductor protection',
+  '14 awg breaker':'overcurrent conductor protection','12 awg breaker':'overcurrent conductor protection',
+  // Service
+  'main breaker':'service disconnect requirements','how many breakers service':'service disconnect requirements',
+  'service entry':'service disconnect requirements','meter main':'service disconnect requirements',
+  // Subpanel
+  'subpanel neutral':'neutral-ground separation','run subpanel':'neutral-ground separation',
+  'detached garage panel':'neutral-ground separation','4 wire feeder':'neutral-ground separation',
+  'neutral ground bond':'neutral-ground separation',
+  // AFCI
+  'arc fault breaker':'afci protection','do i need arc fault':'afci protection',
+  'afci required':'afci protection','arc fault bedroom':'afci protection',
+  // Ampacity
+  'how many amps can':'ampacity derating','wire too hot':'ampacity derating',
+  'derating':'ampacity derating','conduit fill ampacity':'ampacity derating',
+  'ambient temperature wire':'ampacity derating',
+  // How-to installation
+  'how to wire gfci':'how to wire a gfci outlet','install gfci':'how to wire a gfci outlet',
+  'where does neutral go':'how to wire a standard outlet','white wire outlet':'how to wire a standard outlet',
+  'install outlet':'how to wire a standard outlet','wire receptacle':'how to wire a standard outlet',
+  'black wire brass':'how to wire a standard outlet','how to wire outlet':'how to wire a standard outlet',
+  'run subpanel':'how to run a subpanel','wire subpanel':'how to run a subpanel',
+  'garage panel':'how to run a subpanel','4 wire feeder':'how to run a subpanel',
+  'detached structure panel':'how to run a subpanel',
+  'three way switch':'how to wire a 3-way switch','3 way switch':'how to wire a 3-way switch',
+  'traveler wire':'how to wire a 3-way switch','common terminal':'how to wire a 3-way switch',
+  'when to use gfci':'gfci vs afci — when to use each',
+  'when to use afci':'gfci vs afci — when to use each',
+  'do i need afci or gfci':'gfci vs afci — when to use each',
+};
+
+const scoredSearch = (rawQuery) => {
+  const q = normalizeText(rawQuery);
+  if (!q) return NEC_KB;
+  let expandedQ = q;
+  for (const [phrase, replacement] of Object.entries(NEC_SYNONYMS)) {
+    if (q.includes(normalizeText(phrase))) expandedQ = expandedQ + ' ' + replacement;
+  }
+  const scored = NEC_KB.map(article => {
+    let score = 0;
+    const topicN = normalizeText(article.topic);
+    const tagsN  = article.tags.map(t => normalizeText(t));
+    const refsN  = article.refs.map(r => normalizeText(r));
+    const shortN = normalizeText(article.short);
+    if (expandedQ.includes(topicN) || topicN.split(' ').every(w => w.length < 3 || expandedQ.includes(w))) score += 10;
+    tagsN.forEach(tag => { if (expandedQ.includes(tag) || tag.split(' ').every(w => w.length < 3 || expandedQ.includes(w))) score += 5; });
+    refsN.forEach(ref => { const nums = ref.match(/\d+\.\d+/g)||[]; nums.forEach(n => { if (q.includes(n)) score += 8; }); });
+    const qWords = q.split(' ').filter(w => w.length > 3);
+    qWords.forEach(word => {
+      if (topicN.includes(word)) score += 3;
+      tagsN.forEach(tag => { if (tag.includes(word)) score += 2; });
+      if (shortN.includes(word)) score += 1;
+    });
+    const eWords = expandedQ.split(' ').filter(w => w.length > 3 && !q.includes(w));
+    eWords.forEach(word => { if (topicN.includes(word)) score += 4; tagsN.forEach(tag => { if (tag.includes(word)) score += 3; }); });
+    return { article, score };
+  });
+  return scored.filter(s => s.score > 0).sort((a, b) => b.score - a.score).map(s => s.article);
+};
+
+// Backend placeholder — returns null until URL is configured
+const askNecBackend = async (payload) => {
+  if (!NEC_BACKEND_URL) return null;
+  try {
+    const controller = new AbortController();
+    // Longer timeout when image is attached (vision takes more time)
+    const timeout = payload.image ? 30000 : 15000;
+    const to = setTimeout(() => controller.abort(), timeout);
+    const res = await fetch(NEC_BACKEND_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify(payload),
+    });
+    clearTimeout(to);
+    if (res.status === 429) return 'rate_limited';
+    if (!res.ok) throw new Error(`Backend ${res.status}`);
+    return await res.json();
+  } catch (e) { safeLog('askNecBackend', e); return null; }
+};
+
+// ─── CALCULATOR DATA ──────────────────────────────────────────────────────────
+const TAKE_UP={EMT:{'1/2"':5,'3/4"':6,'1"':8,'1-1/4"':11,'1-1/2"':13,'2"':16},IMC:{'1/2"':5,'3/4"':6,'1"':8,'1-1/4"':11,'1-1/2"':13,'2"':16},RMC:{'1/2"':6,'3/4"':8,'1"':11,'1-1/4"':14,'1-1/2"':17,'2"':21},PVC:{'1/2"':5,'3/4"':6,'1"':8,'1-1/4"':11,'1-1/2"':13,'2"':16}};
+const OFFSET_MULT={10:{m:6.0,s:0.06},22:{m:2.6,s:0.06},30:{m:2.0,s:0.13},45:{m:1.414,s:0.21},60:{m:1.155,s:0.27}};
+const VD_RES={'14 AWG':[3.14,5.17],'12 AWG':[1.98,3.25],'10 AWG':[1.24,2.04],'8 AWG':[0.778,1.28],'6 AWG':[0.491,0.808],'4 AWG':[0.308,0.508],'2 AWG':[0.194,0.319],'1/0 AWG':[0.122,0.201],'2/0 AWG':[0.0967,0.159],'4/0 AWG':[0.0608,0.100],'250 kcmil':[0.0515,0.0847]};
+const VD_AMP={'14 AWG':15,'12 AWG':20,'10 AWG':30,'8 AWG':50,'6 AWG':65,'4 AWG':85,'2 AWG':115,'1/0 AWG':150,'2/0 AWG':175,'4/0 AWG':230,'250 kcmil':255};
+const VD_GAUGES=['14 AWG','12 AWG','10 AWG','8 AWG','6 AWG','4 AWG','2 AWG','1/0 AWG','2/0 AWG','4/0 AWG','250 kcmil'];
+const CONDUCTOR_VOL={'#18':1.5,'#16':1.75,'#14':2.0,'#12':2.25,'#10':2.5,'#8':3.0,'#6':5.0};
+const COND_AREAS={EMT:{'1/2"':0.122,'3/4"':0.213,'1"':0.346,'1-1/4"':0.598,'1-1/2"':0.814,'2"':1.342},IMC:{'1/2"':0.137,'3/4"':0.235,'1"':0.384,'1-1/4"':0.659,'1-1/2"':0.890,'2"':1.452},RMC:{'1/2"':0.122,'3/4"':0.213,'1"':0.346,'1-1/4"':0.598,'1-1/2"':0.814,'2"':1.342},'PVC-40':{'1/2"':0.122,'3/4"':0.216,'1"':0.355,'1-1/4"':0.610,'1-1/2"':0.829,'2"':1.363}};
+const WIRE_AREAS_CF={THHN:{'14':0.0097,'12':0.0133,'10':0.0211,'8':0.0366,'6':0.0507,'4':0.0824,'2':0.1158,'1/0':0.1855,'2/0':0.2223},XHHW:{'14':0.0139,'12':0.0181,'10':0.0243,'8':0.0437,'6':0.0590,'4':0.0814,'2':0.1146,'1/0':0.1825,'2/0':0.2190}};
+const MAX_FILL={1:53,2:31,3:40};
+const AMPACITY={copper:{'60C':{'14':15,'12':20,'10':30,'8':40,'6':55,'4':70,'3':85,'2':95,'1':110,'1/0':125,'2/0':145,'3/0':165,'4/0':195},'75C':{'14':20,'12':25,'10':35,'8':50,'6':65,'4':85,'3':100,'2':115,'1':130,'1/0':150,'2/0':175,'3/0':200,'4/0':230},'90C':{'14':25,'12':30,'10':40,'8':55,'6':75,'4':95,'3':110,'2':130,'1':150,'1/0':170,'2/0':195,'3/0':225,'4/0':260}},aluminum:{'60C':{'12':15,'10':25,'8':30,'6':40,'4':55,'3':65,'2':75,'1':85,'1/0':100,'2/0':115,'3/0':130,'4/0':150},'75C':{'12':20,'10':30,'8':40,'6':50,'4':65,'3':75,'2':90,'1':100,'1/0':120,'2/0':135,'3/0':155,'4/0':180},'90C':{'12':25,'10':35,'8':45,'6':60,'4':75,'3':85,'2':100,'1':115,'1/0':135,'2/0':150,'3/0':175,'4/0':205}}};
+const AMP_CU=['14','12','10','8','6','4','3','2','1','1/0','2/0','3/0','4/0'];
+const AMP_AL=['12','10','8','6','4','3','2','1','1/0','2/0','3/0','4/0'];
+
+// ─── WIRE COLOR SYSTEMS ───────────────────────────────────────────────────────
+const WIRE_SYSTEMS=[
+  {name:'120/240V 1Φ',phaseColors:['#1A1A1A','#DC2626'],phases:['L1','L2'],wires:[
+    {color:'Black',hex:'#1A1A1A',use:'Hot (L1)',volt:'120/240V',note:'Always live'},
+    {color:'Red',hex:'#DC2626',use:'Hot (L2)',volt:'240V',note:'Second hot leg'},
+    {color:'White',hex:'#F8F8F8',border:'#D1D5DB',use:'Neutral',volt:'0V ref',note:'May carry current'},
+    {color:'Green',hex:'#16A34A',use:'Ground',volt:'0V',note:'Safety only'}]},
+  {name:'208/120V 3Φ',phaseColors:['#1A1A1A','#DC2626','#2563EB'],phases:['A','B','C'],wires:[
+    {color:'Black',hex:'#1A1A1A',use:'Phase A',volt:'120/208V',note:'First leg'},
+    {color:'Red',hex:'#DC2626',use:'Phase B',volt:'120/208V',note:'Second leg'},
+    {color:'Blue',hex:'#2563EB',use:'Phase C',volt:'120/208V',note:'Third leg'},
+    {color:'White',hex:'#F8F8F8',border:'#D1D5DB',use:'Neutral',volt:'0V ref',note:'Wye center'},
+    {color:'Green',hex:'#16A34A',use:'Ground',volt:'0V',note:'Equipment ground'}]},
+  {name:'480/277V 3Φ',phaseColors:['#92400E','#EA580C','#CA8A04'],phases:['A','B','C'],wires:[
+    {color:'Brown',hex:'#92400E',use:'Phase A',volt:'277/480V',note:'High voltage'},
+    {color:'Orange',hex:'#EA580C',use:'Phase B',volt:'277/480V',note:'High voltage'},
+    {color:'Yellow',hex:'#CA8A04',use:'Phase C',volt:'277/480V',note:'High voltage'},
+    {color:'Gray',hex:'#6B7280',use:'Neutral',volt:'0V ref',note:'Gray >250V'},
+    {color:'Green',hex:'#16A34A',use:'Ground',volt:'0V',note:'Equipment ground'}]},
+  {name:'240V Delta',phaseColors:['#1A1A1A','#EA580C','#DC2626'],phases:['A','B⚠️','C'],wires:[
+    {color:'Black',hex:'#1A1A1A',use:'Phase A',volt:'240V',note:'Standard'},
+    {color:'Orange ⚠️',hex:'#EA580C',use:'HIGH LEG B',volt:'208V to N!',note:'NO 120V loads!'},
+    {color:'Red',hex:'#DC2626',use:'Phase C',volt:'240V',note:'Standard'},
+    {color:'White',hex:'#F8F8F8',border:'#D1D5DB',use:'Neutral',volt:'0V ref',note:'Center tap'},
+    {color:'Green',hex:'#16A34A',use:'Ground',volt:'0V',note:'Equipment ground'}]},
+  {name:'DC Solar/EV',phaseColors:['#DC2626','#1A1A1A'],phases:['+','-'],wires:[
+    {color:'Red',hex:'#DC2626',use:'Positive (+)',volt:'System V',note:'NEC 690'},
+    {color:'Black',hex:'#1A1A1A',use:'Negative (−)',volt:'0V ref',note:'DC negative'},
+    {color:'Green',hex:'#16A34A',use:'Ground',volt:'0V',note:'Bonding'}]},
+];
+const getPanelPhases=(sys)=>{
+  const pc=sys.phaseColors,ph=sys.phases||['A','B','C'],rows=[];
+  for(let i=1;i<=160;i+=2) rows.push({left:i,right:i+1,cL:pc[Math.floor((i-1)/2)%pc.length],cR:pc[Math.floor(i/2)%pc.length],lL:ph[Math.floor((i-1)/2)%ph.length],lR:ph[Math.floor(i/2)%ph.length]});
+  return rows;
+};
+
+// ─── REVENUECAT SERVICE ──────────────────────────────────────────────────────
+// TODO: npx expo install react-native-purchases
+// Replace placeholder keys with real RevenueCat dashboard keys
+// SECURITY NOTE: RevenueCat PUBLIC SDK keys are safe to include in the app bundle.
+// They are NOT secret — they are designed to be embedded in client apps.
+// They can only be used to identify your app to RevenueCat, not to access billing data.
+// DO NOT put your RevenueCat SECRET key (from dashboard API keys) in this app — that's backend-only.
+// DO NOT put OpenAI, Anthropic, Firebase Admin, or Supabase service keys here.
+const RC_IOS_KEY     = 'YOUR_IOS_KEY_HERE';     // ← SAFE to be in app (public SDK key)
+const RC_ANDROID_KEY = 'YOUR_ANDROID_KEY_HERE'; // ← SAFE to be in app (public SDK key)
+const RC_ENTITLEMENT = 'pro';
+//
+// When ready, uncomment and wire up:
+//   import Purchases from 'react-native-purchases';
+//   Purchases.configure({ apiKey: Platform.OS==='ios' ? RC_IOS_KEY : RC_ANDROID_KEY });
+//   const { customerInfo } = await Purchases.getCustomerInfo();
+//   const isPro = customerInfo.entitlements.active[RC_ENTITLEMENT] !== undefined;
+//   const { customerInfo: ci } = await Purchases.restorePurchases();
+//
+// SECURITY: IS_PRO is CLIENT-SIDE UI gating only.
+// It controls what the UI shows — it does NOT secure server-side features.
+// When real AI is connected, the BACKEND must independently verify the
+// user's subscription status before processing any paid AI request.
+// Never trust IS_PRO for backend access control.
+const IS_PRO = false;
+
+// ─── BACKEND CONFIGURATION ───────────────────────────────────────────────────
+// SECURITY: This is your Vercel deployment URL. It is safe to be in the app —
+// it's a public endpoint. The AI API key lives ONLY in Vercel environment vars.
+// Replace with your real Vercel URL after deployment.
+// ─── BACKEND CONFIG ──────────────────────────────────────────────────────────
+// SECURITY: AI API key NEVER goes here. Backend handles it.
+// Set NEC_BACKEND_URL when your serverless backend is deployed.
+const NEC_BACKEND_URL = 'https://sparkconnect-website.vercel.app/api/ask-nec';
+
+// Anonymous device ID — not tied to user identity, used only for rate limiting.
+// Generates once per app install and persists locally.
+let _deviceId = null;
+const getDeviceId = async () => {
+  if (_deviceId) return _deviceId;
+  try {
+    let stored = await AsyncStorage.getItem('@sc_device_id');
+    if (!stored) {
+      // Generate a random ID — no personal data, no device fingerprinting
+      stored = 'dev_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+      await AsyncStorage.setItem('@sc_device_id', stored);
+    }
+    _deviceId = stored;
+    return stored;
+  } catch(e) { safeLog('getDeviceId', e); return 'dev_fallback'; }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SECTION 2 of 4 — Shared Components
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── CARD ─────────────────────────────────────────────────────────────────
+const Card = ({ children, style, C }) => (
+  <View style={[{ backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 14, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 8, elevation: 3 }, style]}>
+    {children}
+  </View>
+);
+
+// ─── LABEL ────────────────────────────────────────────────────────────────
+const Lbl = ({ children, C }) => (
+  <Text style={{ fontSize: 10, fontWeight: '600', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>
+    {children}
+  </Text>
+);
+
+// ─── SEGMENTED CONTROL ────────────────────────────────────────────────────
+const Seg = ({ options, value, onChange, color, C }) => (
+  <View style={{ flexDirection: 'row', backgroundColor: C.inputBg, borderRadius: 10, borderWidth: 1.5, borderColor: C.border, padding: 3, gap: 3 }}>
+    {options.map(o => (
+      <TouchableOpacity key={o.v} style={{ flex: 1, paddingVertical: 7, paddingHorizontal: 4, borderRadius: 7, alignItems: 'center', backgroundColor: value === o.v ? (color || C.blue) : 'transparent' }}
+        onPress={() => onChange(o.v)} activeOpacity={0.8}>
+        <Text style={{ fontSize: 11, fontWeight: value === o.v ? '700' : '600', color: value === o.v ? '#fff' : C.textSec }}>{o.l}</Text>
+      </TouchableOpacity>
+    ))}
+  </View>
+);
+
+// ─── CHIP ─────────────────────────────────────────────────────────────────
+const Chip = ({ label, active, onPress, color, C }) => (
+  <TouchableOpacity style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: active ? (color || C.blue) : C.surface, borderRadius: 8, borderWidth: 1.5, borderColor: active ? (color || C.blue) : C.border, alignItems: 'center' }}
+    onPress={onPress} activeOpacity={0.7}>
+    <Text style={{ fontSize: 11, fontWeight: '600', color: active ? '#fff' : C.textSec }}>{label}</Text>
+  </TouchableOpacity>
+);
+
+// ─── INPUT FIELD ──────────────────────────────────────────────────────────
+const Inp = ({ label, value, onChangeText, unit, placeholder, C, keyboardType = 'numeric' }) => (
+  <View style={{ marginBottom: 12 }}>
+    {label ? <Lbl C={C}>{label}</Lbl> : null}
+    <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.inputBg, borderRadius: 10, borderWidth: 1.5, borderColor: C.inputBorder, overflow: 'hidden', minHeight: 46 }}>
+      <TextInput
+        style={{ flex: 1, fontSize: 15, fontWeight: '500', color: C.inputText, paddingHorizontal: 12, paddingVertical: 10, borderRightWidth: unit ? 1 : 0, borderRightColor: C.border }}
+        value={value}
+        onChangeText={text => {
+          // Strip non-numeric characters from numeric fields
+          const cleaned = keyboardType === 'numeric' || keyboardType === 'number-pad' || keyboardType === 'decimal-pad'
+            ? cleanNumberInput(text)
+            : text;
+          onChangeText(cleaned);
+        }}
+        placeholder={placeholder}
+        placeholderTextColor={C.placeholder} keyboardType={keyboardType} returnKeyType="done" maxLength={20} />
+      {unit && (
+        <View style={{ paddingHorizontal: 12, paddingVertical: 10, backgroundColor: C.blueSub, minWidth: 48, alignItems: 'center' }}>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: C.blue }}>{unit}</Text>
+        </View>
+      )}
+    </View>
+  </View>
+    );
+
+// ─── BIG BUTTON ───────────────────────────────────────────────────────────
+const BigBtn = ({ onPress, label, color, icon = 'calculator', C }) => {
+  const bg = color || C.blue;
+  return (
+    <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 13, marginTop: 4, marginBottom: 16, backgroundColor: bg, shadowColor: bg, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 12, elevation: 6 }}
+      onPress={onPress} activeOpacity={0.85}>
+      <Ionicons name={icon} size={20} color="#fff" />
+      <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>{label}</Text>
+    </TouchableOpacity>
+  );
+};
+
+// ─── RESULT ROW ───────────────────────────────────────────────────────────
+const RRow = ({ l, v, hi, warn, ok, C }) => (
+  <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+    <Text style={{ fontSize: 12, color: C.textSec, fontWeight: '500', flex: 1 }}>{l}</Text>
+    <Text style={{ fontSize: 13, fontWeight: '700', color: ok ? C.success : warn ? C.warning : hi ? C.blue : C.text }}>{v}</Text>
+  </View>
+);
+
+// ─── RESULT CARD ──────────────────────────────────────────────────────────
+const ResultCard = ({ title, status, children, C }) => {
+  const bColor = status === 'pass' ? C.success : status === 'warn' ? C.warning : status === 'fail' ? C.danger : C.blue;
+  const bg = status === 'pass' ? C.successBg : status === 'warn' ? C.warningBg : status === 'fail' ? C.dangerBg : C.blueSub;
+  return (
+    <View style={{ borderRadius: 12, borderLeftWidth: 4, borderLeftColor: bColor, backgroundColor: bg, padding: 12, marginBottom: 10 }}>
+      {title && <Text style={{ fontSize: 10, fontWeight: '700', color: bColor, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>{title}</Text>}
+      {children}
+    </View>
+  );
+};
+
+// ─── TIP BOX ──────────────────────────────────────────────────────────────
+const TipBox = ({ text, C, type = 'warn' }) => {
+  const bc = type === 'danger' ? C.danger : type === 'ok' ? C.success : C.warning;
+  const bg = type === 'danger' ? C.dangerBg : type === 'ok' ? C.successBg : C.warningBg;
+  return (
+    <View style={{ backgroundColor: bg, borderRadius: 9, borderLeftWidth: 3, borderLeftColor: bc, padding: 10, marginBottom: 8 }}>
+      <Text style={{ fontSize: 12, color: C.text, lineHeight: 18 }}>{text}</Text>
+    </View>
+  );
+};
+
+// ─── PRO OVERLAY ──────────────────────────────────────────────────────────
+const ProOverlay = ({ feature, C }) => (
+  <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: C.overlay, borderRadius: 0, alignItems: 'center', justifyContent: 'center', padding: 32, zIndex: 10 }}>
+    <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+      <Ionicons name="lock-closed" size={30} color={C.blue} />
+    </View>
+    <Text style={{ fontSize: 20, fontWeight: '800', color: C.text, textAlign: 'center', marginBottom: 8 }}>Pro Feature</Text>
+    <Text style={{ fontSize: 14, color: C.textSec, textAlign: 'center', lineHeight: 22, marginBottom: 24 }}>
+      {feature} is available with SparkConnect Pro.
+    </Text>
+    <View style={{ backgroundColor: C.blue, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 10 }}>
+      <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>⚡ Coming Soon — Join Waitlist</Text>
+    </View>
+  </View>
+);
+
+// ─── SECTION HEADER ───────────────────────────────────────────────────────
+const SectionHeader = ({ title, C }) => (
+  <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, letterSpacing: -0.3, marginBottom: 10, marginTop: 4 }}>{title}</Text>
+);
+
+// ─── BEND DIAGRAM (SVG) ───────────────────────────────────────────────────
+const BendDiagram = ({ type, result, stub, offsetH, offsetA, C }) => {
+  const W = SW - 32, H = 150, pipe = C.blue, dim = C.warning;
+  if (type === '90') {
+    const mx = W * 0.28, my = H - 40, sh = 80;
+    return (
+      <Svg width={W} height={H}>
+        <Path d={`M 20 ${my} L ${mx} ${my}`} stroke={pipe} strokeWidth={5} strokeLinecap="round" />
+        <Path d={`M ${mx} ${my} L ${mx} ${my - sh}`} stroke={pipe} strokeWidth={5} strokeLinecap="round" />
+        <Path d={`M ${mx - 18} ${my} Q ${mx} ${my} ${mx} ${my - 18}`} stroke={pipe} strokeWidth={5} fill="none" />
+        {result && <><Line x1={mx} y1={my + 8} x2={mx} y2={my + 22} stroke={dim} strokeWidth={2} /><SvgText x={mx + 6} y={my + 22} fill={dim} fontSize="11" fontWeight="bold">Mark: {result.mark}"</SvgText></>}
+        <SvgText x={mx + 10} y={my - sh / 2 + 4} fill={dim} fontSize="11" fontWeight="bold">{stub}"</SvgText>
+        <SvgText x={mx - 48} y={my - 24} fill={C.text} fontSize="12" fontWeight="bold">90°</SvgText>
+      </Svg>
+    );
+  }
+  if (type === '45') {
+    const sx = 30, sy = H - 40, ex = W - 40, ey = 40;
+    return (
+      <Svg width={W} height={H}>
+        <Path d={`M ${sx} ${sy} L ${ex} ${ey}`} stroke={pipe} strokeWidth={5} strokeLinecap="round" />
+        <SvgText x={sx + 44} y={sy - 8} fill={dim} fontSize="12" fontWeight="bold">45°</SvgText>
+        {result && <SvgText x={(sx + ex) / 2 - 32} y={(sy + ey) / 2 + 14} fill={dim} fontSize="11" fontWeight="bold">Mark: {result.mark}"</SvgText>}
+      </Svg>
+    );
+  }
+  if (type === 'offset') {
+    const y1 = H - 50, y2 = 50, x1 = 30, x2 = W * 0.38, x3 = W * 0.62, x4 = W - 20;
+    return (
+      <Svg width={W} height={H}>
+        <Path d={`M ${x1} ${y1} L ${x2} ${y1}`} stroke={pipe} strokeWidth={5} strokeLinecap="round" />
+        <Path d={`M ${x2} ${y1} L ${x3} ${y2}`} stroke={pipe} strokeWidth={5} strokeLinecap="round" />
+        <Path d={`M ${x3} ${y2} L ${x4} ${y2}`} stroke={pipe} strokeWidth={5} strokeLinecap="round" />
+        <Line x1={x4 + 5} y1={y1} x2={x4 + 5} y2={y2} stroke={dim} strokeWidth={1.5} strokeDasharray="4,3" />
+        <SvgText x={x4 + 9} y={(y1 + y2) / 2 + 4} fill={dim} fontSize="11" fontWeight="bold">{offsetH}"</SvgText>
+        {result && <SvgText x={(x2 + x3) / 2 - 16} y={H - 4} fill={dim} fontSize="10" fontWeight="bold">{result.spacing}"</SvgText>}
+        <SvgText x={(x2 + x3) / 2 - 10} y={(y1 + y2) / 2} fill={C.text} fontSize="11" fontWeight="bold">{offsetA}°</SvgText>
+      </Svg>
+    );
+  }
+  if (type === 'rolling') {
+    const x1 = 30, y1 = H - 50, x2 = W * 0.5, y2 = H / 2, x3 = W - 30, y3 = 50;
+    return (
+      <Svg width={W} height={H}>
+        <Path d={`M ${x1} ${y1} L ${x2} ${y2} L ${x3} ${y3}`} stroke={pipe} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d={`M ${x1} ${y1} L ${x3} ${y3}`} stroke={dim} strokeWidth={1.5} strokeDasharray="5,4" />
+        {result && <SvgText x={x2 - 26} y={y2 - 10} fill={dim} fontSize="11" fontWeight="bold">Travel: {result.travel}"</SvgText>}
+        <SvgText x={W / 2 - 40} y={H - 4} fill={C.textTert} fontSize="9">Rolling Offset (projected)</SvgText>
+      </Svg>
+    );
+  }
+  if (type === 'saddle3') {
+    const y1 = H - 40, y2 = 40, xA = 40, xB = W * 0.33, xC = W * 0.67, xD = W - 40;
+    return (
+      <Svg width={W} height={H}>
+        <Path d={`M ${xA} ${y1} L ${xB} ${y1} L ${(xB + xC) / 2} ${y2} L ${xC} ${y1} L ${xD} ${y1}`} stroke={pipe} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" />
+        {result && <><SvgText x={xB - 10} y={y1 + 16} fill={dim} fontSize="10" fontWeight="bold">M1:{result.mark1}"</SvgText><SvgText x={xC - 10} y={y1 + 16} fill={dim} fontSize="10" fontWeight="bold">M2:{result.mark2}"</SvgText></>}
+        <SvgText x={W / 2 - 30} y={H - 2} fill={C.textTert} fontSize="9">3-Point Saddle</SvgText>
+      </Svg>
+    );
+  }
+  if (type === 'saddle4') {
+    const y1 = H - 40, y2 = 40, xA = 20, xB = W * 0.25, xC = W * 0.42, xD = W * 0.58, xE = W * 0.75, xF = W - 20;
+    return (
+      <Svg width={W} height={H}>
+        <Path d={`M ${xA} ${y1} L ${xB} ${y1} L ${xC} ${y2} L ${xD} ${y2} L ${xE} ${y1} L ${xF} ${y1}`} stroke={pipe} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" />
+        <SvgText x={W / 2 - 30} y={H - 2} fill={C.textTert} fontSize="9">4-Point Saddle</SvgText>
+      </Svg>
+    );
+  }
+  return null;
+};
+
+// ═══ END SECTION 2 — paste Section 3 directly below ═══
+// ═══════════════════════════════════════════════════════════════════════════
+// SECTION 3 of 4 — All Screens
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── HOME ────────────────────────────────────────────────────────────────────
+const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate }) => {
+  const [notifPromptShown, setNotifPromptShown] = React.useState(false);
+  const [notifEnabled, setNotifEnabled] = React.useState(false);
+  const [notifDismissed, setNotifDismissed] = React.useState(false);
+  React.useEffect(() => {
+    safeStorageGet('@sc_notif_dismissed').then(v => { if (v === 'true') setNotifDismissed(true); });
+    safeStorageGet('@sc_notif_enabled').then(v => { if (v === 'true') setNotifEnabled(true); });
+  }, []);
+  const q = getDailyQuestion();
+  const [revealed, setRevealed] = useState(false);
+  const [selected, setSelected] = useState(null);
+
+  // Home shows 4 core field tools — everything else lives in Calculators tab
+  const tools = [
+    { icon: 'git-branch',   title: 'Pipe Bending',      sub: '90° · 45° · Offsets · Saddles · Rolling', tab: 'bend',      color: C.blue,   bg: C.blueSub },
+    { icon: 'color-palette',title: 'Wire Colors',        sub: 'Color codes + 160-slot panel view',        tab: 'wire',      color: C.teal,   bg: C.tealBg },
+    { icon: 'book-outline', title: 'Formula Reference',  sub: "Ohm's Law · 3Φ · Motors · Bending",       tab: 'formulas',  color: C.amber,  bg: C.amberBg },
+    { icon: 'hammer-outline',title:'Material Estimator', sub: 'Rough estimate + Sparky AI pricing',       tab: 'estimator', color: '#16A34A', bg: '#ECFDF5' },
+  ];
+
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ paddingBottom: 32 }} showsVerticalScrollIndicator={false}>
+      {/* Daily Question */}
+      {showDailyQ && <View style={{ padding: 16 }}>
+        <Card C={C} style={{ borderLeftWidth: 4, borderLeftColor: C.blue }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="school" size={16} color={C.blue} />
+            </View>
+            <View>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.blue }}></Text>
+              <Text style={{ fontSize: 10, color: C.textTert }}>{q.category} · {q.difficulty}</Text>
+            </View>
+          </View>
+          <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, lineHeight: 20, marginBottom: 12 }}>{q.question}</Text>
+          {q.choices.map((ch, i) => {
+            const isSel = selected === i, isCorrect = i === q.correct;
+            let bg = C.inputBg, border = C.border, tc = C.textSec;
+            if (revealed && isCorrect) { bg = C.successBg; border = C.success; tc = C.success; }
+            else if (revealed && isSel && !isCorrect) { bg = C.dangerBg; border = C.danger; tc = C.danger; }
+            else if (isSel && !revealed) { bg = C.blueSub; border = C.blue; tc = C.blue; }
+            return (
+              <TouchableOpacity key={i} onPress={() => { if (!revealed) setSelected(i); }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, borderRadius: 8, backgroundColor: bg, borderWidth: 1.5, borderColor: border, marginBottom: 6 }}>
+                <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: border, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff' }}>{String.fromCharCode(65 + i)}</Text>
+                </View>
+                <Text style={{ flex: 1, fontSize: 12, fontWeight: '500', color: tc }}>{ch}</Text>
+                {revealed && isCorrect && <Ionicons name="checkmark-circle" size={16} color={C.success} />}
+                {revealed && isSel && !isCorrect && <Ionicons name="close-circle" size={16} color={C.danger} />}
+              </TouchableOpacity>
+            );
+          })}
+          {!revealed
+            ? <TouchableOpacity disabled={selected === null} onPress={() => { setRevealed(true); if (onStreakUpdate) onStreakUpdate(); }} style={{ backgroundColor: selected === null ? C.border : C.blue, borderRadius: 8, padding: 10, alignItems: 'center', marginTop: 4 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: selected === null ? C.textTert : '#fff' }}>Reveal Answer</Text>
+              </TouchableOpacity>
+            : <View style={{ backgroundColor: C.successBg, borderRadius: 8, padding: 10, marginTop: 4, borderLeftWidth: 3, borderLeftColor: C.success }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.success, marginBottom: 3 }}>{q.ref}</Text>
+                <Text style={{ fontSize: 12, color: C.text, lineHeight: 18 }}>{q.explanation}</Text>
+              </View>}
+
+        </Card>
+      </View>}
+
+      {/* ── Notification opt-in card — shows once after user sees Daily Q ── */}
+      {showDailyQ && !notifDismissed && !notifEnabled && (
+        <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+          <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.border, borderLeftWidth: 4, borderLeftColor: C.blue }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <Ionicons name="notifications-outline" size={18} color={C.blue} />
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>Get your  reminder</Text>
+            </View>
+            <Text style={{ fontSize: 12, color: C.textSec, lineHeight: 18, marginBottom: 12 }}>One notification per day — today's code question, no spam.</Text>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity onPress={async () => {
+                try {
+                  const N = await import('expo-notifications');
+                  const { status } = await N.requestPermissionsAsync();
+                  if (status === 'granted') {
+                    setNotifEnabled(true);
+                    await safeStorageSet('@sc_notif_enabled', 'true');
+                    scheduleDailyNECNotification();
+                    Alert.alert('✅ Reminder Set!', "You'll get a  at 7:30 AM.");
+                  } else {
+                    Alert.alert('Notifications Blocked', 'Enable notifications in Settings → SparkConnect → Notifications to get daily reminders.');
+                  }
+                } catch(e) { safeLog('notif', e); }
+                setNotifDismissed(true);
+                await safeStorageSet('@sc_notif_dismissed', 'true');
+              }} style={{ flex: 1, backgroundColor: C.blue, borderRadius: 10, padding: 10, alignItems: 'center' }}>
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>⚡ Enable Daily Reminder</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={async () => {
+                setNotifDismissed(true);
+                await safeStorageSet('@sc_notif_dismissed', 'true');
+              }} style={{ paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: C.textSec, fontSize: 12 }}>Not now</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Featured: Sparky AI — navy card with amber lightning accent */}
+      <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
+        <TouchableOpacity
+          onPress={() => setTab('necai')}
+          activeOpacity={0.88}
+          style={{ backgroundColor: '#0D1B3E', borderRadius: 16, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 6, borderWidth: 1, borderColor: 'rgba(244,161,29,0.25)' }}>
+          <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center', shadowColor: C.amber, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 4 }}>
+            <Ionicons name="flash" size={28} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+              <Text style={{ fontSize: 17, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.3 }}>Sparky AI</Text>
+              <View style={{ backgroundColor: C.amber, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 }}>
+                <Text style={{ fontSize: 9, fontWeight: '800', color: '#0D1B3E', letterSpacing: 0.5 }}>AI</Text>
+              </View>
+            </View>
+            <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 18 }}>Code · estimates · photo analysis · trade help</Text>
+          </View>
+          <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.6)" />
+          </View>
+        </TouchableOpacity>
+      </View>
+
+      {/* Quick Tools — 2×2 grid */}
+      <View style={{ paddingHorizontal: 16, marginBottom: 4 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>Quick Tools</Text>
+          <TouchableOpacity onPress={() => setTab('calculators')} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Text style={{ fontSize: 12, color: C.blue, fontWeight: '600' }}>All Tools</Text>
+            <Ionicons name="chevron-forward" size={13} color={C.blue} />
+          </TouchableOpacity>
+        </View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+          {tools.map(t => (
+            <TouchableOpacity key={t.tab} onPress={() => setTab(t.tab)} activeOpacity={0.85}
+              style={{ width: (SW - 42) / 2, backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.border, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 }}>
+              <View style={{ width: 40, height: 40, borderRadius: 11, backgroundColor: t.bg, alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                <Ionicons name={t.icon} size={20} color={t.color} />
+              </View>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, marginBottom: 2 }}>{t.title}</Text>
+              <Text style={{ fontSize: 10, color: C.textSec, lineHeight: 14 }}>{t.sub}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+      {/* Job Cam shortcut */}
+      <TouchableOpacity onPress={() => setTab('jobcam')} activeOpacity={0.85}
+        style={{ marginHorizontal: 16, marginTop: 10, marginBottom: 12, backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View style={{ width: 42, height: 42, borderRadius: 11, backgroundColor: '#ECFDF5', alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="camera" size={20} color="#16A34A" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>Job Cam</Text>
+          <Text style={{ fontSize: 11, color: C.textSec }}>Stop losing job photos in your camera roll</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={15} color={C.textTert} />
+      </TouchableOpacity>
+      {/* Streak + social proof */}
+      {streak > 0 && (
+        <View style={{ marginHorizontal: 16, marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.amberBg, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.amber }}>
+          <Text style={{ fontSize: 22 }}>🔥</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.amber }}>{streak}-day streak</Text>
+            <Text style={{ fontSize: 11, color: C.textSec }}>Keep it up! Complete today's question to continue.</Text>
+          </View>
+        </View>
+      )}
+      <View style={{ marginHorizontal: 16, marginBottom: 12, backgroundColor: C.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: C.border }}>
+        <Text style={{ fontSize: 12, fontWeight: '600', color: C.textSec, textAlign: 'center', lineHeight: 18 }}>
+          {'Built for apprentices, helpers, journeymen, and field electricians. ⚡ Trusted on the job site.'}
+        </Text>
+      </View>
+      {/* Pro CTA */}
+      <TouchableOpacity onPress={() => setTab('settings')} style={{ marginHorizontal: 16, backgroundColor: C.blue, borderRadius: 16, padding: 20, flexDirection: 'row', alignItems: 'center', shadowColor: C.blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 6 }} activeOpacity={0.9}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff', marginBottom: 3 }}>Go Pro — Unlock Everything</Text>
+          <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 17 }}>100 Sparky AI answers/mo · Box Fill · Conduit Fill · PDF Export</Text>
+        </View>
+        <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center', marginLeft: 12 }}>
+          <Ionicons name="arrow-forward" size={18} color="#fff" />
+        </View>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+};
+
+// ─── PIPE BENDING ────────────────────────────────────────────────────────────
+const BendScreen = ({ C, setTab }) => {
+  const [bendType, setBendType] = useState('90');
+  const [condType, setCondType] = useState('EMT');
+  const [condSize, setCondSize] = useState('3/4"');
+  const [stub, setStub] = useState('12');
+  const [offsetH, setOffsetH] = useState('6');
+  const [offsetA, setOffsetA] = useState(45);
+  const [obstH, setObstH] = useState('4');
+  const [obstW, setObstW] = useState('2');
+  const [result, setResult] = useState(null);
+
+  const BEND_TYPES = [{ l: '90°', v: '90' }, { l: '45°', v: '45' }, { l: 'Offset', v: 'offset' }, { l: 'Rolling', v: 'rolling' }, { l: '3-Pt Saddle', v: 'saddle3' }, { l: '4-Pt Saddle', v: 'saddle4' }];
+  const showStub = bendType === '90' || bendType === '45';
+  const showOff = bendType === 'offset';
+  const showObst = ['rolling', 'saddle3', 'saddle4'].includes(bendType);
+
+  const calc = () => {
+    const s  = toPositiveNumber(stub,   0, 999);
+    const oh = toPositiveNumber(offsetH, 0, 999);
+    const obH = toPositiveNumber(obstH,  0, 999);
+    const obW = toPositiveNumber(obstW,  0, 999);
+    if (bendType === '90') {
+      if (!isValidPositiveNumber(stub)) { Alert.alert('Invalid Input', 'Enter a valid stub length greater than 0.'); return; }
+      const tu = TAKE_UP[condType]?.[condSize] ?? 6;
+      const mark = s - tu;
+      if (mark <= 0) { Alert.alert('Stub too short', `Minimum stub for ${condSize} ${condType} is ${tu + 0.5}". Increase stub length.`); return; }
+      setResult({ type: '90', mark: mark.toFixed(2), takeUp: tu });
+    } else if (bendType === '45') {
+      if (!isValidPositiveNumber(stub)) { Alert.alert('Invalid Input', 'Enter a valid run length greater than 0.'); return; }
+      setResult({ type: '45', mark: (s * 0.7071).toFixed(2) });
+    } else if (bendType === 'offset') {
+      if (!isValidPositiveNumber(offsetH)) { Alert.alert('Invalid Input', 'Enter a valid offset height greater than 0.'); return; }
+      const { m, s: sh } = OFFSET_MULT[offsetA];
+      setResult({ type: 'offset', spacing: (oh * m).toFixed(2), shrink: (oh * sh).toFixed(2), mult: m });
+    } else if (bendType === 'rolling') {
+      if (!isValidPositiveNumber(obstH) || !isValidPositiveNumber(obstW)) { Alert.alert('Invalid Input', 'Enter valid rise and roll values greater than 0.'); return; }
+      const t = Math.sqrt(obH * obH + obW * obW);
+      const angle = obW > 0 ? (Math.atan(obH / obW) * 180 / Math.PI) : 90;
+      setResult({ type: 'rolling', travel: t.toFixed(2), angle: angle.toFixed(1) });
+    } else if (bendType === 'saddle3') {
+      if (!isValidPositiveNumber(obstH)) { Alert.alert('Invalid Input', 'Enter a valid obstruction height greater than 0.'); return; }
+      const { m } = OFFSET_MULT[45];
+      const spRaw = obH * m;
+      const sp = spRaw.toFixed(2);
+      setResult({ type: 'saddle3', mark1: sp, mark2: (spRaw * 2).toFixed(2) });
+    } else if (bendType === 'saddle4') {
+      if (!isValidPositiveNumber(obstH)) { Alert.alert('Invalid Input', 'Enter a valid obstruction height greater than 0.'); return; }
+      const { m } = OFFSET_MULT[offsetA];
+      const spRaw = obH * m;
+      const sp = spRaw.toFixed(2);
+      setResult({ type: 'saddle4', mark1: sp, mark2: (spRaw + obW).toFixed(2), mark3: (spRaw * 2 + obW).toFixed(2) });
+    }
+  };
+
+  const tipText = () => {
+    if (!result) return '';
+    if (result.type === '90') return `💡 Place bender arrow at ${result.mark}" from end. Bend to 90°.`;
+    if (result.type === '45') return `💡 Mark at ${result.mark}" from end. Bend to 45°.`;
+    if (result.type === 'offset') return `💡 Make first bend, advance ${result.spacing}", make second. Subtract ${result.shrink}" shrinkage.`;
+    if (result.type === 'rolling') return `💡 True travel = ${result.travel}". Bend at ${result.angle}°.`;
+    if (result.type === 'saddle3') return `💡 Mark at ${result.mark1}" and ${result.mark2}". Center = 45°, sides = 22.5° each (opposite direction).`;
+    return `💡 Four equal ${offsetA}° bends at marks ${result.mark1}", ${result.mark2}", ${result.mark3}".`;
+  };
+
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <Lbl C={C}>Bend Type</Lbl>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+        <View style={{ flexDirection: 'row', gap: 6 }}>{BEND_TYPES.map(b => <Chip key={b.v} label={b.l} active={bendType === b.v} onPress={() => { setBendType(b.v); setResult(null); }} C={C} />)}</View>
+      </ScrollView>
+      <Lbl C={C}>Conduit Type</Lbl>
+      <Seg options={['EMT', 'IMC', 'RMC', 'PVC'].map(x => ({ l: x, v: x }))} value={condType} onChange={setCondType} C={C} />
+      <View style={{ height: 12 }} />
+      <Lbl C={C}>Conduit Size</Lbl>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+        <View style={{ flexDirection: 'row', gap: 6 }}>{Object.keys(TAKE_UP.EMT).map(s => <Chip key={s} label={s} active={condSize === s} onPress={() => setCondSize(s)} C={C} />)}</View>
+      </ScrollView>
+      {showStub && <Inp label={bendType === '90' ? 'Stub Length' : 'Run Length'} value={stub} onChangeText={v => { setStub(v); setResult(null); }} unit="in" placeholder="12" C={C} />}
+      {showOff && <>
+        <Inp label="Offset Height" value={offsetH} onChangeText={v => { setOffsetH(v); setResult(null); }} unit="in" placeholder="6" C={C} />
+        <Lbl C={C}>Bend Angle</Lbl>
+        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>{[10, 22, 30, 45, 60].map(a => <Chip key={a} label={`${a}°`} active={offsetA === a} onPress={() => { setOffsetA(a); setResult(null); }} C={C} />)}</View>
+      </>}
+      {showObst && <>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <View style={{ flex: 1 }}><Inp label={bendType === 'rolling' ? 'Rise (vert)' : 'Obstruction Height'} value={obstH} onChangeText={v => { setObstH(v); setResult(null); }} unit="in" placeholder="4" C={C} /></View>
+          <View style={{ flex: 1 }}><Inp label={bendType === 'rolling' ? 'Roll (horiz)' : 'Obstruction Width'} value={obstW} onChangeText={v => { setObstW(v); setResult(null); }} unit="in" placeholder="2" C={C} /></View>
+        </View>
+        {bendType === 'saddle4' && <><Lbl C={C}>Bend Angle</Lbl><View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>{[22, 30, 45].map(a => <Chip key={a} label={`${a}°`} active={offsetA === a} onPress={() => { setOffsetA(a); setResult(null); }} C={C} />)}</View></>}
+      </>}
+      <BigBtn onPress={calc} label="Calculate" C={C} />
+      <Card C={C} style={{ alignItems: 'center', marginBottom: 12 }}>
+        <Text style={{ fontSize: 10, fontWeight: '600', color: C.textTert, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Bend Diagram</Text>
+        <BendDiagram type={bendType} result={result} stub={stub} offsetH={offsetH} offsetA={offsetA} C={C} />
+      </Card>
+      {result && <>
+        <ResultCard status="info" title={bendType === '90' ? '90° Stub-Up' : bendType === '45' ? '45° Bend' : bendType === 'offset' ? 'Offset Bend' : bendType === 'rolling' ? 'Rolling Offset' : bendType === 'saddle3' ? '3-Point Saddle' : '4-Point Saddle'} C={C}>
+          {result.type === '90' && <><RRow l="Mark at (from end)" v={`${result.mark}"`} hi C={C} /><RRow l="Take-up deduction" v={`${result.takeUp}"`} C={C} /><RRow l="Stub length" v={`${stub}"`} C={C} /></>}
+          {result.type === '45' && <><RRow l="Mark at (from end)" v={`${result.mark}"`} hi C={C} /><RRow l="Multiplier" v="0.7071" C={C} /></>}
+          {result.type === 'offset' && <><RRow l="Mark spacing" v={`${result.spacing}"`} hi C={C} /><RRow l="Shrinkage" v={`${result.shrink}"`} warn C={C} /><RRow l="Multiplier" v={`${result.mult}×`} C={C} /></>}
+          {result.type === 'rolling' && <><RRow l="Travel length" v={`${result.travel}"`} hi C={C} /><RRow l="True angle" v={`${result.angle}°`} C={C} /></>}
+          {result.type === 'saddle3' && <><RRow l="Mark 1 (from end)" v={`${result.mark1}"`} hi C={C} /><RRow l="Mark 2 (center)" v={`${result.mark2}"`} hi C={C} /><RRow l="Side bends" v="22.5° each" C={C} /><RRow l="Center bend" v="45°" C={C} /></>}
+          {result.type === 'saddle4' && <><RRow l="Mark 1" v={`${result.mark1}"`} hi C={C} /><RRow l="Mark 2" v={`${result.mark2}"`} hi C={C} /><RRow l="Mark 3" v={`${result.mark3}"`} hi C={C} /><RRow l="All bends" v={`${offsetA}° each`} C={C} /></>}
+        </ResultCard>
+        <TipBox C={C} text={tipText()} />
+        {/* Explain with Sparky */}
+        <TouchableOpacity onPress={() => {
+          const sparkyQ = `Explain this pipe bending result: ${tipText().replace('💡 ','')}. Conduit: ${condSize} ${condType}.`;
+          if (setTab) setTab('necai', sparkyQ);
+        }} activeOpacity={0.85}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, marginBottom: 6, padding: 12, backgroundColor: '#0D1B3E', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(244,161,29,0.3)' }}>
+          <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="flash" size={13} color="#fff" />
+          </View>
+          <Text style={{ fontSize: 13, color: '#fff', fontWeight: '600', flex: 1 }}>Explain this with Sparky AI</Text>
+          <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.5)" />
+        </TouchableOpacity>
+      </>}
+      <SectionHeader title="Take-Up Reference (EMT 90°)" C={C} />
+      <Card C={C}>{Object.entries(TAKE_UP.EMT).map(([sz, tu]) => (
+        <View key={sz} style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: C.inputBg, borderRadius: 6, marginBottom: 3, paddingHorizontal: 10, paddingVertical: 6 }}>
+          <Text style={{ fontSize: 12, fontWeight: '600', color: C.text }}>{sz}</Text>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: C.blue }}>{tu}"</Text>
+        </View>
+      ))}</Card>
+      <DisclaimerFooter C={C} />
+    </ScrollView>
+  );
+};
+
+// ─── VOLTAGE DROP ────────────────────────────────────────────────────────────
+const VoltScreen = ({ C, presetLoad, presetDist }) => {
+  const [circType, setCircType] = useState('single');
+  const [material, setMaterial] = useState('copper');
+  const [voltage, setVoltage] = useState('120');
+  const [amps, setAmps] = useState(presetLoad || '20');
+  const [dist, setDist] = useState(presetDist || '100');
+  const [gauge, setGauge] = useState('12 AWG');
+  const [result, setResult] = useState(null);
+  const [showPicker, setShowPicker] = useState(false);
+
+  const calc = () => {
+    const v = toPositiveNumber(voltage, 0, 50000);
+    const i = toPositiveNumber(amps,    0, 9999);
+    const d = toPositiveNumber(dist,    0, 99999);
+    if (v <= 0) { Alert.alert('Invalid Voltage', 'Enter a voltage greater than 0.'); return; }
+    if (i <= 0) { Alert.alert('Invalid Load', 'Enter a load greater than 0 amps.'); return; }
+    if (d <= 0) { Alert.alert('Invalid Distance', 'Enter a one-way distance greater than 0 feet.'); return; }
+    const ri = material === 'copper' ? 0 : 1;
+    const r = VD_RES[gauge]?.[ri] ?? 2;
+    const mult = circType === 'single' ? 2 : 1.732;
+    const drop = (i * r * d * mult) / 1000;
+    // Guard against NaN/Infinity (shouldn't happen after validation but be safe)
+    if (!isFinite(drop)) { Alert.alert('Calculation Error', 'These values produced an invalid result. Check your inputs.'); return; }
+    const pct = (drop / v) * 100;
+    const ampacity = VD_AMP[gauge] ?? 0;
+    let suggested = null;
+    for (const g of VD_GAUGES) {
+      const gr = VD_RES[g]?.[ri] ?? 99;
+      const gd = (i * gr * d * mult) / 1000;
+      if ((VD_AMP[g] ?? 0) >= i && (gd / v) * 100 <= 3) { suggested = g; break; }
+    }
+    setResult({ drop: drop.toFixed(2), pct: pct.toFixed(1), atLoad: (v - drop).toFixed(1), ampacity, ok3: pct <= 3, ok5: pct <= 5, ampOk: i <= ampacity, suggested });
+  };
+
+  // result.pct is our own .toFixed(1) string — safe to parseFloat here
+  const barColor = result ? (parseFloat(result.pct) > 5 ? C.danger : parseFloat(result.pct) > 3 ? C.warning : C.success) : C.success;
+  const status = result ? (!result.ampOk || !result.ok5 ? 'fail' : !result.ok3 ? 'warn' : 'pass') : null;
+
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <Lbl C={C}>Circuit Type</Lbl>
+      <Seg options={[{ l: 'Single Phase', v: 'single' }, { l: 'Three Phase', v: 'three' }]} value={circType} onChange={v => { setCircType(v); setResult(null); }} color={C.purple} C={C} />
+      <View style={{ height: 12 }} />
+      <Lbl C={C}>Conductor Material</Lbl>
+      <Seg options={[{ l: 'Copper', v: 'copper' }, { l: 'Aluminum', v: 'aluminum' }]} value={material} onChange={v => { setMaterial(v); setResult(null); }} color={C.purple} C={C} />
+      <View style={{ height: 12 }} />
+      <Lbl C={C}>System Voltage</Lbl>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+        <View style={{ flexDirection: 'row', gap: 6 }}>{[120, 208, 240, 277, 480].map(v => <Chip key={v} label={`${v}V`} active={voltage === String(v)} onPress={() => { setVoltage(String(v)); setResult(null); }} color={C.purple} C={C} />)}</View>
+      </ScrollView>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flex: 1 }}><Inp label="Load (Amps)" value={amps} onChangeText={v => { setAmps(v); setResult(null); }} unit="A" placeholder="20" C={C} /></View>
+        <View style={{ flex: 1 }}><Inp label="One-Way Dist." value={dist} onChangeText={v => { setDist(v); setResult(null); }} unit="ft" placeholder="100" C={C} /></View>
+      </View>
+      <Lbl C={C}>Wire Gauge</Lbl>
+      <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.inputBg, borderRadius: 10, borderWidth: 1.5, borderColor: C.inputBorder, minHeight: 46, paddingHorizontal: 12, marginBottom: 12, justifyContent: 'space-between' }}
+        onPress={() => setShowPicker(!showPicker)} activeOpacity={0.8}>
+        <Text style={{ fontSize: 15, fontWeight: '500', color: C.inputText }}>{gauge}</Text>
+        <Ionicons name={showPicker ? 'chevron-up' : 'chevron-down'} size={16} color={C.textSec} />
+      </TouchableOpacity>
+      {showPicker && <Card C={C} style={{ marginBottom: 12, maxHeight: 200 }}>
+        <ScrollView nestedScrollEnabled>{VD_GAUGES.map(g => (
+          <TouchableOpacity key={g} style={{ paddingHorizontal: 14, paddingVertical: 9, backgroundColor: gauge === g ? C.blueSub : 'transparent', borderRadius: 8 }}
+            onPress={() => { setGauge(g); setShowPicker(false); setResult(null); }}>
+            <Text style={{ fontSize: 14, color: gauge === g ? C.blue : C.text, fontWeight: gauge === g ? '700' : '400' }}>{g}</Text>
+          </TouchableOpacity>
+        ))}</ScrollView>
+      </Card>}
+      <BigBtn onPress={calc} label="Calculate Drop" color={C.purple} icon="flash" C={C} />
+      {result && <>
+        <Card C={C} style={{ padding: 14, marginBottom: 12 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.textSec }}>Voltage Drop</Text>
+            <Text style={{ fontSize: 26, fontWeight: '800', color: barColor }}>{result.pct}%</Text>
+          </View>
+          <View style={{ height: 12, backgroundColor: C.inputBg, borderRadius: 99, overflow: 'hidden', marginBottom: 4 }}>
+            <View style={{ height: '100%', width: `${Math.min(parseFloat(result.pct) / 10 * 100, 100)}%`, backgroundColor: barColor, borderRadius: 99 }} />
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: 9, color: C.textTert }}>0%</Text>
+            <Text style={{ fontSize: 9, color: C.success }}>3% NEC</Text>
+            <Text style={{ fontSize: 9, color: C.warning }}>5% NEC</Text>
+            <Text style={{ fontSize: 9, color: C.textTert }}>10%</Text>
+          </View>
+        </Card>
+        <ResultCard status={status} title="Results" C={C}>
+          <RRow l="Voltage drop" v={`${result.drop}V`} hi C={C} />
+          <RRow l="Drop %" v={`${result.pct}%`} hi C={C} />
+          <RRow l="Voltage at load" v={`${result.atLoad}V`} C={C} />
+          <RRow l="Wire ampacity" v={`${result.ampacity}A ${result.ampOk ? '✓' : '✗'}`} ok={result.ampOk} warn={!result.ampOk} C={C} />
+        </ResultCard>
+        {result.suggested && <Card C={C} style={{ backgroundColor: C.blueSub, borderColor: C.blue, marginBottom: 10 }}>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: C.blue, marginBottom: 3 }}>💡 Recommended Minimum Wire Size</Text>
+          <Text style={{ fontSize: 20, fontWeight: '800', color: C.blue, marginBottom: 2 }}>{result.suggested}</Text>
+          <Text style={{ fontSize: 11, color: C.textSec }}>Keeps voltage drop ≤3% for {amps}A at {dist}ft</Text>
+        </Card>}
+        <TipBox C={C} type={status === 'pass' ? 'ok' : status === 'warn' ? 'warn' : 'danger'}
+          text={!result.ampOk ? `⚠️ Wire too small! ${gauge} rated ${result.ampacity}A max.` : !result.ok5 ? '❌ Exceeds NEC 5% max. Upsize wire.' : !result.ok3 ? '⚠️ Exceeds 3% recommendation. Consider upsizing.' : '✅ Within NEC recommendations.'} />
+      </>}
+      <Text style={{ fontSize: 10, color: C.textTert, lineHeight: 15, marginTop: 8 }}>Per NEC Ch.9 Table 9 · NEC 210.19(A) recommends ≤3% branch, ≤5% total.</Text>
+      <DisclaimerFooter C={C} />
+    </ScrollView>
+  );
+};
+
+// ─── WIRE COLORS ─────────────────────────────────────────────────────────────
+const WireScreen = ({ C }) => {
+  const [sysIdx, setSysIdx] = useState(1);
+  const [viewMode, setViewMode] = useState('panel');
+  const [search, setSearch] = useState('');
+  const sys = WIRE_SYSTEMS[sysIdx];
+  const panelRows = getPanelPhases(sys);
+  const filtered = search ? panelRows.filter(r => String(r.left).includes(search) || String(r.right).includes(search) || r.lL.toLowerCase().includes(search.toLowerCase()) || r.lR.toLowerCase().includes(search.toLowerCase())) : panelRows;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, maxHeight: 48, minHeight: 48 }} contentContainerStyle={{ paddingHorizontal: 10, paddingVertical: 8, gap: 6, flexDirection: 'row', alignItems: 'center' }}>
+        {WIRE_SYSTEMS.map((s, i) => <Chip key={i} label={s.name} active={sysIdx === i} onPress={() => { setSysIdx(i); setSearch(''); }} color={C.teal} C={C} />)}
+      </ScrollView>
+      <View style={{ backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, padding: 10, flexDirection: 'row', gap: 8 }}>
+        <Chip label="🔍 Wire Detail" active={viewMode === 'detail'} onPress={() => setViewMode('detail')} color={C.teal} C={C} />
+        <Chip label="⚡ Panel View" active={viewMode === 'panel'} onPress={() => setViewMode('panel')} color={C.teal} C={C} />
+      </View>
+      {viewMode === 'detail' ? (
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+          {sys.wires.map((w, i) => (
+            <Card key={i} C={C} style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start', marginBottom: 8 }}>
+              <View style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: w.hex, borderWidth: w.border ? 2 : 0, borderColor: w.border ?? 'transparent', marginTop: 2, flexShrink: 0 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 1 }}>{w.color}</Text>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: C.textSec, marginBottom: 2 }}>{w.use}</Text>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.teal, marginBottom: 3 }}>{w.volt}</Text>
+                <Text style={{ fontSize: 11, color: C.textTert, lineHeight: 16 }}>{w.note}</Text>
+              </View>
+            </Card>
+          ))}
+          <TipBox C={C} type="danger" text="⚠️ White and gray conductors may carry current. Always test before touching." />
+          <DisclaimerFooter C={C} />
+        </ScrollView>
+      ) : (
+        <View style={{ flex: 1 }}>
+          <View style={{ backgroundColor: '#0F172A', padding: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E293B', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, gap: 8 }}>
+              <Ionicons name="search" size={16} color="#64748B" />
+              <TextInput style={{ flex: 1, fontSize: 14, color: '#F1F5F9' }} value={search} onChangeText={setSearch} placeholder="Search breaker # or phase..." placeholderTextColor="#64748B" />
+              {search.length > 0 && <TouchableOpacity onPress={() => setSearch('')}><Ionicons name="close-circle" size={16} color="#64748B" /></TouchableOpacity>}
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', backgroundColor: '#1A1A2E', paddingHorizontal: 16, paddingVertical: 8 }}>
+            <Text style={{ flex: 1, fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.5)' }}>Left</Text>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.4)', textAlign: 'center', width: 60 }}>Phase</Text>
+            <Text style={{ flex: 1, fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.5)', textAlign: 'right' }}>Right</Text>
+          </View>
+          <ScrollView style={{ flex: 1, backgroundColor: '#0F172A' }} showsVerticalScrollIndicator={false}>
+            {filtered.map(row => (
+              <View key={row.left} style={{ flexDirection: 'row', alignItems: 'stretch', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' }}>
+                <View style={{ flex: 1, backgroundColor: row.cL, paddingVertical: 14, paddingHorizontal: 16, justifyContent: 'space-between', flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 18, fontWeight: '700', color: '#fff' }}>{row.left}</Text>
+                  <Text style={{ fontSize: 9, fontWeight: '600', color: 'rgba(255,255,255,0.7)' }}>Ph {row.lL}</Text>
+                </View>
+                <View style={{ width: 2, backgroundColor: '#0A0A0A' }} />
+                <View style={{ flex: 1, backgroundColor: row.cR, paddingVertical: 14, paddingHorizontal: 16, justifyContent: 'space-between', flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 9, fontWeight: '600', color: 'rgba(255,255,255,0.7)' }}>Ph {row.lR}</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '700', color: '#fff' }}>{row.right}</Text>
+                </View>
+              </View>
+            ))}
+            <View style={{ padding: 12 }}><Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', textAlign: 'center' }}>{sys.name} · 160-slot panel · Scroll for all breakers</Text></View>
+          </ScrollView>
+        </View>
+      )}
+    </View>
+  );
+};
+
+// ─── FORMULA REFERENCE ───────────────────────────────────────────────────────
+const FormulasScreen = ({ C }) => {
+  const [search, setSearch] = useState('');
+  const [cat, setCat] = useState('All');
+  const cats = ['All', "Ohm's Law", 'Power', 'Voltage Drop', 'Three Phase', 'Motors', 'Transformers', 'Bending', 'Box Fill', 'Conduit Fill'];
+  const filtered = FORMULAS.filter(f => {
+    const matchCat = cat === 'All' || f.cat === cat;
+    const matchSearch = !search.trim() || [f.name, f.f, f.cat, f.u].join(' ').toLowerCase().includes(search.toLowerCase());
+    return matchCat && matchSearch;
+  });
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <View style={{ backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, padding: 12, gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.inputBg, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, gap: 8, borderWidth: 1.5, borderColor: C.inputBorder }}>
+          <Ionicons name="search" size={16} color={C.textTert} />
+          <TextInput style={{ flex: 1, fontSize: 14, color: C.inputText }} value={search} onChangeText={setSearch} placeholder="Search formulas..." placeholderTextColor={C.placeholder} keyboardType="default" />
+          {search.length > 0 && <TouchableOpacity onPress={() => setSearch('')}><Ionicons name="close-circle" size={16} color={C.textTert} /></TouchableOpacity>}
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={{ flexDirection: 'row', gap: 6 }}>{cats.map(c => <Chip key={c} label={c} active={cat === c} onPress={() => setCat(c)} color={C.amber} C={C} />)}</View>
+        </ScrollView>
+      </View>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+        {filtered.length === 0 && <Text style={{ color: C.textTert, textAlign: 'center', marginTop: 32 }}>No formulas found.</Text>}
+        {filtered.map(f => (
+          <Card key={f.id} C={C} style={{ marginBottom: 10 }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: C.amber, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>{f.cat}</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 8 }}>{f.name}</Text>
+            <View style={{ backgroundColor: C.inputBg, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: C.blue, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>{f.f}</Text>
+            </View>
+            <Text style={{ fontSize: 11, color: C.textSec, marginBottom: 4, fontStyle: 'italic' }}>{f.v}</Text>
+            <Text style={{ fontSize: 12, color: C.textSec, marginBottom: 4 }}>{f.u}</Text>
+            <Text style={{ fontSize: 11, fontWeight: '600', color: C.teal }}>Ex: {f.ex}</Text>
+            {f.ref && <Text style={{ fontSize: 10, color: C.textTert, marginTop: 4 }}>{f.ref}</Text>}
+          </Card>
+        ))}
+      </ScrollView>
+    </View>
+  );
+};
+
+// ─── BOX FILL ────────────────────────────────────────────────────────────────
+const BoxFillScreen = ({ C }) => {
+  const [wireSize, setWireSize] = useState('#12');
+  const [conductors, setConductors] = useState('4');
+  const [grounds, setGrounds] = useState('1');
+  const [clamps, setClamps] = useState('1');
+  const [fittings, setFittings] = useState('0');
+  const [devices, setDevices] = useState('1');
+  const [boxSelIdx, setBoxSelIdx] = useState(null); // null = custom
+  const [customBoxVol, setCustomBoxVol] = useState('');
+  const [result, setResult] = useState(null);
+
+  const COMMON_BOXES = [
+    { name: '4" Sq 1½"',  vol: 21.0 },
+    { name: '4" Sq 2⅛"',  vol: 30.3 },
+    { name: '1-Gang 2½"', vol: 18.0 },
+    { name: '2-Gang 2½"', vol: 34.0 },
+    { name: '4" Oct 1½"', vol: 15.5 },
+    { name: '4" Oct 2⅛"', vol: 21.5 },
+    { name: 'Handy 2¼"',  vol: 10.3 },
+  ];
+
+  const calc = () => {
+    const vol = CONDUCTOR_VOL[wireSize];
+    const c  = toPositiveInteger(conductors, 0, 100);
+    const g  = toPositiveInteger(grounds,    0, 100);
+    const cl = toPositiveInteger(clamps,     0, 50);
+    const fi = toPositiveInteger(fittings,   0, 20);
+    const d  = toPositiveInteger(devices,    0, 50);
+    if (c === 0 && g === 0 && d === 0) { Alert.alert('No Input', 'Enter at least one conductor, ground, or device.'); return; }
+    const cVol  = c * vol;
+    const gVol  = g  > 0 ? vol : 0;   // ALL grounds = 1 vol total
+    const clVol = cl > 0 ? vol : 0;   // ALL clamps  = 1 vol total
+    const fiVol = fi * vol;             // each fitting = 1 vol each
+    const dVol  = d * 2 * vol;          // each device = 2 vol
+    const total = Math.round((cVol + gVol + clVol + fiVol + dVol) * 100) / 100;
+    let boxVol = null;
+    if (boxSelIdx !== null) boxVol = COMMON_BOXES[boxSelIdx].vol;
+    else if (customBoxVol && toPositiveNumber(customBoxVol, 0) > 0) boxVol = toPositiveNumber(customBoxVol, 0);
+    const passed = boxVol !== null ? total <= boxVol : null;
+    setResult({ total, cVol, gVol, clVol, fiVol, dVol, vol, c, g, cl, fi, d, boxVol, passed });
+  };
+
+  return (
+    <View style={{ flex: 1 }}>
+      <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <Lbl C={C}>Wire Size (Largest in Box)</Lbl>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+          <View style={{ flexDirection: 'row', gap: 6 }}>{Object.keys(CONDUCTOR_VOL).map(s => <Chip key={s} label={s} active={wireSize === s} onPress={() => setWireSize(s)} C={C} />)}</View>
+        </ScrollView>
+
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <View style={{ flex: 1 }}><Inp label="Current-Carrying Conductors" value={conductors} onChangeText={setConductors} placeholder="4" C={C} /></View>
+          <View style={{ flex: 1 }}><Inp label="Equipment Grounds" value={grounds} onChangeText={setGrounds} placeholder="1" C={C} /></View>
+        </View>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <View style={{ flex: 1 }}><Inp label="Internal Clamps (all count as 1)" value={clamps} onChangeText={setClamps} placeholder="1" C={C} /></View>
+          <View style={{ flex: 1 }}><Inp label="Fixture Studs / Hickeys" value={fittings} onChangeText={setFittings} placeholder="0" C={C} /></View>
+        </View>
+        <Inp label="Devices / Yokes (each = 2 vol)" value={devices} onChangeText={setDevices} placeholder="1" C={C} />
+
+        {/* Box capacity section */}
+        <Lbl C={C}>Box Volume (optional — for pass/fail)</Lbl>
+        <Text style={{ fontSize: 10, color: C.textTert, marginBottom: 8 }}>Select a common size or enter stamped volume from box</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            {COMMON_BOXES.map((b, i) => (
+              <Chip key={i} label={`${b.name} (${b.vol})`} active={boxSelIdx === i} onPress={() => { setBoxSelIdx(boxSelIdx === i ? null : i); setCustomBoxVol(''); }} color={C.teal} C={C} />
+            ))}
+          </View>
+        </ScrollView>
+        {boxSelIdx === null && (
+          <Inp label="Custom Box Volume (in³)" value={customBoxVol} onChangeText={v => setCustomBoxVol(v)} placeholder="e.g. 18.0" C={C} />
+        )}
+
+        <BigBtn onPress={calc} label="Calculate Box Fill" icon="cube-outline" C={C} />
+
+        {result && <>
+          {/* Pass/Fail banner */}
+          {result.passed !== null && (
+            <View style={{ backgroundColor: result.passed ? C.successBg : C.dangerBg, borderRadius: 12, borderLeftWidth: 4, borderLeftColor: result.passed ? C.success : C.danger, padding: 14, marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Ionicons name={result.passed ? 'checkmark-circle' : 'close-circle'} size={28} color={result.passed ? C.success : C.danger} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: result.passed ? C.success : C.danger }}>{result.passed ? 'PASS ✅' : 'FAIL ❌ — Box Too Small'}</Text>
+                <Text style={{ fontSize: 12, color: C.textSec, marginTop: 2 }}>Need {result.total} in³ · Box = {result.boxVol} in³ · {result.passed ? `Remaining: ${(result.boxVol - result.total).toFixed(2)} in³` : `Short by ${(result.total - result.boxVol).toFixed(2)} in³`}</Text>
+              </View>
+            </View>
+          )}
+
+          <Card C={C} style={{ backgroundColor: C.blueSub, borderColor: C.blue, alignItems: 'center', marginBottom: 12 }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: C.blue, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Required Box Volume</Text>
+            <Text style={{ fontSize: 36, fontWeight: '800', color: C.blue }}>{result.total} in³</Text>
+            <Text style={{ fontSize: 11, color: C.textSec, marginTop: 2 }}>Use a box stamped ≥ {result.total} in³</Text>
+          </Card>
+
+          <ResultCard title="NEC 314.16(B) Breakdown" status="info" C={C}>
+            {result.c > 0 && <RRow l={`${result.c} conductor(s) × ${result.vol} in³ each`} v={`${result.cVol.toFixed(2)} in³`} C={C} />}
+            {result.g > 0 && <RRow l={`All grounds (any qty) = 1 × ${result.vol} in³`} v={`${result.gVol.toFixed(2)} in³`} C={C} />}
+            {result.cl > 0 && <RRow l={`All clamps (any qty) = 1 × ${result.vol} in³`} v={`${result.clVol.toFixed(2)} in³`} C={C} />}
+            {result.fi > 0 && <RRow l={`${result.fi} fitting(s) × ${result.vol} in³ each`} v={`${result.fiVol.toFixed(2)} in³`} C={C} />}
+            {result.d > 0 && <RRow l={`${result.d} device(s)/yoke(s) × ${(result.vol * 2).toFixed(2)} in³`} v={`${result.dVol.toFixed(2)} in³`} C={C} />}
+            <View style={{ borderTopWidth: 1, borderTopColor: C.border, marginTop: 6, paddingTop: 6 }}>
+              <RRow l="TOTAL REQUIRED" v={`${result.total} in³`} hi C={C} />
+            </View>
+          </ResultCard>
+
+          <TipBox C={C} text="Pigtails that do not leave the box are not counted. Verify stamped box volume — NEC 314.16(B)." />
+        </>}
+
+        <SectionHeader title="Common Box Sizes (verify stamped volume)" C={C} />
+        <Card C={C}>{COMMON_BOXES.map((b, i) => (
+          <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: C.inputBg, borderRadius: 6, marginBottom: 3, paddingHorizontal: 10, paddingVertical: 6 }}>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.text }}>{b.name}</Text>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.blue }}>~{b.vol} in³</Text>
+          </View>
+        ))}</Card>
+
+        <SectionHeader title="NEC 314.16(B) Conductor Volumes" C={C} />
+        <Card C={C}>{Object.entries(CONDUCTOR_VOL).map(([sz, vol]) => (
+          <View key={sz} style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: C.inputBg, borderRadius: 6, marginBottom: 3, paddingHorizontal: 10, paddingVertical: 6 }}>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.text }}>{sz}</Text>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.blue }}>{vol} in³</Text>
+          </View>
+        ))}</Card>
+        <DisclaimerFooter C={C} />
+      </ScrollView>
+      {/* Pro gating: enable when RevenueCat is live — IS_PRO wired to subscription */}
+      {false && <ProOverlay feature="Box Fill Calculator" C={C} />}
+    </View>
+  );
+};
+
+// ─── CONDUIT FILL ────────────────────────────────────────────────────────────
+const ConduitFillScreen = ({ C }) => {
+  const [condType, setCondType] = useState('EMT');
+  const [tradeSize, setTradeSize] = useState('3/4"');
+  const [wireType, setWireType] = useState('THHN');
+  const [wireGauge, setWireGauge] = useState('12');
+  const [qty, setQty] = useState('3');
+  const [result, setResult] = useState(null);
+
+  const calc = () => {
+    const q = Math.max(1, toPositiveInteger(qty, 1, 500));
+    const wa = WIRE_AREAS_CF[wireType]?.[wireGauge] ?? 0;
+    const ca = COND_AREAS[condType]?.[tradeSize] ?? 0;
+    const maxKey = q === 1 ? 1 : q === 2 ? 2 : 3;
+    const maxPct = MAX_FILL[maxKey];
+    if (wa === 0 || ca === 0) {
+      setResult({ wa: 0, total: 0, ca, pct: -1, maxPct, passed: false, status: 'nodata', q });
+      return;
+    }
+    const pct = (wa * q / ca) * 100;
+    const status = pct <= maxPct * 0.85 ? 'pass' : pct <= maxPct ? 'warn' : 'fail';
+    setResult({ wa: Math.round(wa * 10000) / 10000, total: Math.round(wa * q * 10000) / 10000, ca: Math.round(ca * 10000) / 10000, pct: Math.round(pct * 10) / 10, maxPct, passed: pct <= maxPct, status, q });
+  };
+
+  return (
+    <View style={{ flex: 1 }}>
+      <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <Lbl C={C}>Conduit Type</Lbl>
+        <Seg options={['EMT', 'IMC', 'RMC', 'PVC-40'].map(x => ({ l: x, v: x }))} value={condType} onChange={setCondType} color={C.teal} C={C} />
+        <View style={{ height: 12 }} />
+        <Lbl C={C}>Trade Size</Lbl>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+          <View style={{ flexDirection: 'row', gap: 6 }}>{Object.keys(COND_AREAS.EMT).map(s => <Chip key={s} label={s} active={tradeSize === s} onPress={() => setTradeSize(s)} color={C.teal} C={C} />)}</View>
+        </ScrollView>
+        <Lbl C={C}>Wire Type</Lbl>
+        <Seg options={[{ l: 'THHN/THWN', v: 'THHN' }, { l: 'XHHW', v: 'XHHW' }]} value={wireType} onChange={setWireType} color={C.teal} C={C} />
+        <View style={{ height: 12 }} />
+        <Lbl C={C}>Wire Gauge</Lbl>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+          <View style={{ flexDirection: 'row', gap: 6 }}>{Object.keys(WIRE_AREAS_CF.THHN).map(g => <Chip key={g} label={`#${g}`} active={wireGauge === g} onPress={() => setWireGauge(g)} color={C.teal} C={C} />)}</View>
+        </ScrollView>
+        <Inp label="Quantity of Conductors" value={qty} onChangeText={setQty} placeholder="3" C={C} />
+        <BigBtn onPress={calc} label="Calculate Fill" icon="git-merge" color={C.teal} C={C} />
+        {result && result.status === 'nodata' && (
+          <View style={{ backgroundColor: C.warningBg, borderRadius: 12, borderLeftWidth: 4, borderLeftColor: C.warning, padding: 14, marginBottom: 12 }}>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: C.warning, marginBottom: 4 }}>⚠️ Data Not Available</Text>
+            <Text style={{ fontSize: 13, color: C.text, lineHeight: 20 }}>This combination is not in the reference table. Verify manually using NEC Chapter 9, Tables 4 and 5.</Text>
+          </View>
+        )}
+        {result && result.status !== 'nodata' && <>
+          <Card C={C} style={{ marginBottom: 12 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: C.textSec }}>Fill %</Text>
+              <Text style={{ fontSize: 26, fontWeight: '800', color: result.status === 'fail' ? C.danger : result.status === 'warn' ? C.warning : C.success }}>{result.pct}%</Text>
+            </View>
+            <View style={{ height: 12, backgroundColor: C.inputBg, borderRadius: 99, overflow: 'hidden', marginBottom: 4 }}>
+              <View style={{ height: '100%', width: `${Math.min(result.pct / result.maxPct * 100, 100)}%`, backgroundColor: result.status === 'fail' ? C.danger : result.status === 'warn' ? C.warning : C.success, borderRadius: 99 }} />
+            </View>
+            <Text style={{ fontSize: 10, color: C.textSec, textAlign: 'right' }}>Max: {result.maxPct}%</Text>
+          </Card>
+          <ResultCard status={result.status} title="Conduit Fill Results" C={C}>
+            <RRow l="Each wire area" v={`${result.wa} in²`} C={C} />
+            <RRow l={`Total (${result.q}×)`} v={`${result.total} in²`} C={C} />
+            <RRow l="Conduit area" v={`${result.ca} in²`} C={C} />
+            <RRow l="Fill %" v={`${result.pct}%`} hi C={C} />
+            <RRow l="Result" v={result.passed ? '✅ PASS' : '❌ FAIL'} ok={result.passed} warn={!result.passed} C={C} />
+          </ResultCard>
+          <TipBox C={C} text="⚠️ Verify with NEC Chapter 9 Tables 4 & 5 and local AHJ." />
+        </>}
+        <DisclaimerFooter C={C} />
+      </ScrollView>
+      {/* Pro gating: enable when RevenueCat is live — IS_PRO wired to subscription */}
+      {false && <ProOverlay feature="Conduit Fill Calculator" C={C} />}
+    </View>
+  );
+};
+
+// ─── AMPACITY ────────────────────────────────────────────────────────────────
+const AmpacityScreen = ({ C }) => {
+  const [material, setMaterial] = useState('copper');
+  const [tempCol, setTempCol] = useState('75C');
+  const [gauge, setGauge] = useState('12');
+  const gauges = material === 'copper' ? AMP_CU : AMP_AL;
+  const ampacity = AMPACITY[material]?.[tempCol]?.[gauge];
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+      <Lbl C={C}>Conductor Material</Lbl>
+      <Seg options={[{ l: 'Copper', v: 'copper' }, { l: 'Aluminum', v: 'aluminum' }]} value={material} onChange={v => { setMaterial(v); setGauge('12'); }} C={C} />
+      <View style={{ height: 12 }} />
+      <Lbl C={C}>Temperature Column</Lbl>
+      <Seg options={[{ l: '60°C', v: '60C' }, { l: '75°C', v: '75C' }, { l: '90°C', v: '90C' }]} value={tempCol} onChange={setTempCol} C={C} />
+      <View style={{ height: 12 }} />
+      <Lbl C={C}>Wire Gauge</Lbl>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+        <View style={{ flexDirection: 'row', gap: 6 }}>{gauges.map(g => <Chip key={g} label={`#${g}`} active={gauge === g} onPress={() => setGauge(g)} C={C} />)}</View>
+      </ScrollView>
+      {ampacity && <Card C={C} style={{ backgroundColor: C.blueSub, borderColor: C.blue, alignItems: 'center', marginBottom: 12 }}>
+        <Text style={{ fontSize: 11, fontWeight: '700', color: C.blue, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Ampacity</Text>
+        <Text style={{ fontSize: 52, fontWeight: '800', color: C.blue }}>{ampacity}A</Text>
+        <Text style={{ fontSize: 11, color: C.textSec, marginTop: 2, textAlign: 'center' }}>#{gauge} {material} · {tempCol} · 3+ CCC in conduit</Text>
+      </Card>}
+      <TipBox C={C} text="⚠️ Ampacity may be reduced by ambient temp (NEC 310.15(B)(2)), conductor count (NEC 310.15(C)), and terminal ratings (NEC 110.14(C)). Always verify with NEC Table 310.15(B)(16)." />
+      <SectionHeader title="Full Table — Copper 75°C" C={C} />
+      <Card C={C}>{AMP_CU.map(g => (
+        <View key={g} style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: gauge === g ? C.blueSub : C.inputBg, borderRadius: 6, marginBottom: 3, paddingHorizontal: 10, paddingVertical: 6 }}>
+          <Text style={{ fontSize: 12, fontWeight: '600', color: C.text }}>#{g}</Text>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: C.blue }}>{AMPACITY.copper['75C'][g]}A</Text>
+        </View>
+      ))}</Card>
+      <DisclaimerFooter C={C} />
+    </ScrollView>
+  );
+};
+
+// ─── MATERIAL ESTIMATOR ───────────────────────────────────────────────────────
+const EstimatorScreen = ({ C, setTab }) => {
+  const [estimatorZip, setEstimatorZip] = useState('');
+  const [recs, setRecs] = useState('10');
+  const [sw, setSw] = useState('5');
+  const [lights, setLights] = useState('8');
+  const [fans, setFans] = useState('2');
+  const [dedicated, setDedicated] = useState('3');
+  const [homeRuns, setHomeRuns] = useState('6');
+  const [conduitFt, setConduitFt] = useState('200');
+  const [result, setResult] = useState(null);
+
+  const calc = () => {
+    const r  = toPositiveInteger(recs,      0, 9999);
+    const s  = toPositiveInteger(sw,        0, 9999);
+    const l  = toPositiveInteger(lights,    0, 9999);
+    const f  = toPositiveInteger(fans,      0, 9999);
+    const d  = toPositiveInteger(dedicated, 0, 9999);
+    const hr = toPositiveInteger(homeRuns,  0, 9999);
+    const cf = toPositiveInteger(conduitFt, 0, 999999);
+    const totalBoxes = r + s + l + f + d;
+    setResult([
+      { name: 'Duplex Receptacles', qty: r, unit: 'ea' },
+      { name: 'Single-Pole Switches', qty: s, unit: 'ea' },
+      { name: 'Light Fixture Boxes', qty: l, unit: 'ea' },
+      { name: 'Ceiling Fan Boxes', qty: f, unit: 'ea' },
+      { name: 'Dedicated Circuit Devices', qty: d, unit: 'ea' },
+      { name: 'Total Device Boxes', qty: totalBoxes, unit: 'ea' },
+      { name: 'Circuit Breakers (est.)', qty: hr + d, unit: 'ea' },
+      { name: 'Wire / Conduit Run (est.)', qty: cf + hr * 8, unit: 'ft' },
+      { name: 'Wire Connectors (est.)', qty: Math.ceil(totalBoxes * 4), unit: 'bag' },
+    ]);
+  };
+
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <TipBox C={C} type="warn" text="ROUGH ESTIMATE ONLY — for planning purposes. Always verify on site before ordering." />
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flex: 1 }}><Inp label="Receptacles" value={recs} onChangeText={setRecs} placeholder="10" C={C} /></View>
+        <View style={{ flex: 1 }}><Inp label="Switches" value={sw} onChangeText={setSw} placeholder="5" C={C} /></View>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flex: 1 }}><Inp label="Light Fixtures" value={lights} onChangeText={setLights} placeholder="8" C={C} /></View>
+        <View style={{ flex: 1 }}><Inp label="Ceiling Fans" value={fans} onChangeText={setFans} placeholder="2" C={C} /></View>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flex: 1 }}><Inp label="Dedicated Circuits" value={dedicated} onChangeText={setDedicated} placeholder="3" C={C} /></View>
+        <View style={{ flex: 1 }}><Inp label="Home Runs" value={homeRuns} onChangeText={setHomeRuns} placeholder="6" C={C} /></View>
+      </View>
+      <Inp label="Conduit / Romex Run (ft)" value={conduitFt} onChangeText={setConduitFt} placeholder="200" C={C} />
+      <BigBtn onPress={calc} label="Generate Estimate" icon="list-outline" color={C.amber} C={C} />
+      {result && <>
+        <SectionHeader title="Rough Material List" C={C} />
+        <Card C={C}>{result.filter(i => i.qty > 0).map((item, i) => (
+          <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.inputBg, borderRadius: 6, marginBottom: 3, paddingHorizontal: 10, paddingVertical: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: '500', color: C.text, flex: 1 }}>{item.name}</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.amber }}>{item.qty} {item.unit}</Text>
+          </View>
+        ))}</Card>
+      </>}
+      {/* Sparky AI price check CTA — smart location-based prompt */}
+      <View style={{ backgroundColor: C.amberBg, borderRadius: 14, padding: 16, marginTop: 8, borderWidth: 1, borderColor: C.amber }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+          <Ionicons name="chatbubble-ellipses" size={20} color={C.amber} />
+          <Text style={{ fontSize: 14, fontWeight: '700', color: C.amber }}>Get a Sparky AI Price Estimate</Text>
+        </View>
+        <Text style={{ fontSize: 12, color: C.textSec, lineHeight: 18, marginBottom: 4 }}>
+          {'Enter your zip code and Sparky AI will estimate local material costs based on your quantities above.'}
+        </Text>
+        <TextInput
+          placeholder="Zip code (e.g. 33701)"
+          placeholderTextColor={C.placeholder}
+          value={estimatorZip}
+          onChangeText={setEstimatorZip}
+          keyboardType="numeric"
+          maxLength={5}
+          style={{ backgroundColor: C.inputBg, borderRadius: 8, padding: 10, color: C.inputText, fontSize: 14, borderWidth: 1, borderColor: C.border, marginBottom: 10 }}
+        />
+        <TouchableOpacity
+          onPress={() => {
+            const zip = estimatorZip.trim() || 'my area';
+            const query = `material pricing estimate electrician supply ${zip} THHN wire conduit EMT boxes`;
+            if (setTab) setTab('necai', query);
+          }}
+          style={{ backgroundColor: C.amber, borderRadius: 10, padding: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
+          <Ionicons name="flash" size={16} color="#fff" />
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>⚡ Get Local Price Estimate</Text>
+        </TouchableOpacity>
+        <Text style={{ fontSize: 10, color: C.textTert, marginTop: 8, textAlign: 'center' }}>Material prices vary by region. Always verify current pricing with your supplier.</Text>
+      </View>
+      <DisclaimerFooter C={C} />
+    </ScrollView>
+  );
+};
+
+// ─── NEC AI — THE KILLER FEATURE ─────────────────────────────────────────────
+// Flow: Ask → See article reference → Hit "Run Calculator" → Jump to calc → Save/Share result
+
+// ─── EXAM PREP QUESTION BANK (80 questions) ─────────────────────────────────
+const EXAM_QUESTIONS = [
+  // ── BOX FILL ──
+  {id:'bf01',level:'Apprentice',cat:'Box Fill',q:'Volume allowance for a #14 AWG conductor in box fill?',ch:['1.50 in³','1.75 in³','2.00 in³','2.25 in³'],c:2,exp:'NEC 314.16(B) Table: #14 AWG = 2.00 in³ per conductor allowance.',ref:'NEC 314.16(B)'},
+  {id:'bf02',level:'Apprentice',cat:'Box Fill',q:'Volume allowance for a #12 AWG conductor?',ch:['2.00 in³','2.25 in³','2.50 in³','3.00 in³'],c:1,exp:'NEC 314.16(B) Table: #12 AWG = 2.25 in³.',ref:'NEC 314.16(B)'},
+  {id:'bf03',level:'Apprentice',cat:'Box Fill',q:'All equipment grounds together count as:',ch:['One volume per ground','One total volume','Two total volumes','Zero — not counted'],c:1,exp:'NEC 314.16(B)(5): All EGCs = one conductor allowance based on the largest EGC.',ref:'NEC 314.16(B)(5)'},
+  {id:'bf04',level:'Apprentice',cat:'Box Fill',q:'A single-gang device (one yoke) counts as how many conductor volumes?',ch:['One','Two','Three','Four'],c:1,exp:'NEC 314.16(B)(4): Each yoke = two conductor allowances.',ref:'NEC 314.16(B)(4)'},
+  {id:'bf05',level:'Apprentice',cat:'Box Fill',q:'All internal cable clamps together count as:',ch:['One volume per clamp','One total volume','Two total volumes','Zero'],c:1,exp:'NEC 314.16(B)(2): All internal clamps = one conductor allowance total.',ref:'NEC 314.16(B)(2)'},
+  {id:'bf06',level:'Journeyman',cat:'Box Fill',q:'Fixture studs and hickeys each count as:',ch:['Zero volumes','One volume each','Two volumes each','One total for all'],c:1,exp:'NEC 314.16(B)(3): Each fixture stud or hickey = one conductor allowance each.',ref:'NEC 314.16(B)(3)'},
+  {id:'bf07',level:'Apprentice',cat:'Box Fill',q:'Pigtails that originate and terminate inside the box:',ch:['Count as one conductor','Count as two conductors','Do not count','Count for each wire'],c:2,exp:'NEC 314.16(B)(1): Conductors that do not leave the box are not counted.',ref:'NEC 314.16(B)(1)'},
+  {id:'bf08',level:'Journeyman',cat:'Box Fill',q:'Box: 4 #12 conductors, 1 ground, 1 clamp, 1 device. Required volume using #12 (2.25 in³)?',ch:['13.5 in³','15.75 in³','18.0 in³','20.25 in³'],c:2,exp:'4×2.25 + 2.25(gnd) + 2.25(clamp) + 2×2.25(device) = 18.0 in³.',ref:'NEC 314.16(B)'},
+  {id:'bf09',level:'Journeyman',cat:'Box Fill',q:'A 4" square 1½" deep box is typically rated at approximately:',ch:['15.5 in³','18.0 in³','21.0 in³','30.3 in³'],c:2,exp:'Standard 4" square 1½" box ≈ 21 in³. Always verify the stamped box volume.',ref:'NEC 314.16(A)'},
+  {id:'bf10',level:'Journeyman',cat:'Box Fill',q:'Volume allowance for a #8 AWG conductor?',ch:['2.25 in³','2.50 in³','3.00 in³','5.00 in³'],c:2,exp:'NEC 314.16(B) Table: #8 AWG = 3.00 in³ per conductor allowance.',ref:'NEC 314.16(B)'},
+  // ── CONDUIT FILL ──
+  {id:'cf01',level:'Apprentice',cat:'Conduit Fill',q:'Maximum conduit fill for 3 or more conductors?',ch:['25%','31%','40%','53%'],c:2,exp:'NEC Chapter 9 Table 1: 3+ conductors = 40% maximum fill.',ref:'NEC Ch.9 Table 1'},
+  {id:'cf02',level:'Apprentice',cat:'Conduit Fill',q:'Maximum fill for exactly 2 conductors?',ch:['25%','31%','40%','53%'],c:1,exp:'NEC Chapter 9 Table 1: 2 conductors = 31% maximum fill.',ref:'NEC Ch.9 Table 1'},
+  {id:'cf03',level:'Apprentice',cat:'Conduit Fill',q:'Maximum fill for a single conductor in conduit?',ch:['40%','50%','53%','60%'],c:2,exp:'NEC Chapter 9 Table 1: 1 conductor = 53% maximum fill.',ref:'NEC Ch.9 Table 1'},
+  {id:'cf04',level:'Journeyman',cat:'Conduit Fill',q:'NEC Chapter 9 Table 4 provides:',ch:['Wire cross-sectional areas','Conduit internal cross-sectional areas','Fill percentages','Ampacity ratings'],c:1,exp:'Table 4 lists internal cross-sectional areas of conduit types and trade sizes.',ref:'NEC Ch.9 Table 4'},
+  {id:'cf05',level:'Journeyman',cat:'Conduit Fill',q:'NEC Chapter 9 Table 5 provides:',ch:['Conduit areas','Wire cross-sectional areas including insulation','Fill percentages','Burial depths'],c:1,exp:'Table 5 lists cross-sectional areas of conductors including insulation.',ref:'NEC Ch.9 Table 5'},
+  {id:'cf06',level:'Journeyman',cat:'Conduit Fill',q:'Three #12 THHN (0.0133 in² each) in ½" EMT (area 0.122 in²). Fill %?',ch:['21.7%','26.4%','32.7%','43.6%'],c:2,exp:'(3 × 0.0133) ÷ 0.122 × 100 = 32.7%. Below 40% — PASS.',ref:'NEC Ch.9'},
+  {id:'cf07',level:'Journeyman',cat:'Conduit Fill',q:'Four #12 THHN in ½" EMT — pass or fail?',ch:['Pass — 32.7%','Pass — 39.4%','Fail — 43.6%','Fail — 50%'],c:2,exp:'4 × 0.0133 ÷ 0.122 = 43.6%. Exceeds 40% — FAIL.',ref:'NEC Ch.9 Table 1'},
+  {id:'cf08',level:'Apprentice',cat:'Conduit Fill',q:'How is conduit fill percentage calculated?',ch:['Wire count ÷ conduit size','Total wire area ÷ conduit area × 100','Wire diameter only','NEC table lookup only'],c:1,exp:'Fill % = sum of wire cross-sectional areas ÷ conduit internal area × 100.',ref:'NEC Chapter 9'},
+  {id:'cf09',level:'Journeyman',cat:'Conduit Fill',q:'Three different-sized conductors in 1" EMT. Which table gives the conduit area?',ch:['Table 1','Table 4','Table 5','Table 310.15'],c:1,exp:'Table 4 gives conduit internal areas. Table 5 gives wire areas. Table 1 gives max fill %.',ref:'NEC Ch.9 Table 4'},
+  {id:'cf10',level:'Journeyman',cat:'Conduit Fill',q:'The maximum fill % for raceways with 3+ conductors was designed to:',ch:['Save money on conduit','Allow for heat dissipation and easy conductor pulling','Match wire ampacity','Meet OSHA requirements'],c:1,exp:'Fill limits prevent overheating and allow conductors to be pulled without damage.',ref:'NEC Ch.9 Table 1'},
+  // ── GFCI/AFCI ──
+  {id:'ga01',level:'Apprentice',cat:'GFCI/AFCI',q:'GFCI protection is required for receptacles in bathrooms?',ch:['Only near the sink','Yes — all bathroom receptacles','Only for 20A circuits','Only on GFCI breaker'],c:1,exp:'NEC 210.8(A)(1): All 125V 15A and 20A receptacles in dwelling bathrooms require GFCI.',ref:'NEC 210.8(A)(1)'},
+  {id:'ga02',level:'Apprentice',cat:'GFCI/AFCI',q:'Kitchen countertop receptacles require GFCI?',ch:['Only within 6 feet of sink','Only near water','All kitchen countertop receptacles','Only dedicated circuits'],c:2,exp:'NEC 210.8(A)(6): All kitchen countertop receptacles require GFCI protection.',ref:'NEC 210.8(A)(6)'},
+  {id:'ga03',level:'Apprentice',cat:'GFCI/AFCI',q:'A GFCI trips at a current imbalance of approximately:',ch:['1 mA','4–6 mA','10 mA','15 mA'],c:1,exp:'GFCI devices trip at 4–6 milliamps — protective before lethal current levels.',ref:'UL 943'},
+  {id:'ga04',level:'Apprentice',cat:'GFCI/AFCI',q:'Outdoor receptacles at dwellings require GFCI?',ch:['No','Yes — all accessible from grade','Only in wet weather','Only 20A outdoor'],c:1,exp:'NEC 210.8(A)(3): All outdoor receptacles at dwellings accessible from grade require GFCI.',ref:'NEC 210.8(A)(3)'},
+  {id:'ga05',level:'Journeyman',cat:'GFCI/AFCI',q:'Per 2023 NEC, AFCI is required for:',ch:['Bedrooms only','Most 120V 15A and 20A branch circuits in dwellings','Kitchens only','Commercial locations'],c:1,exp:'NEC 210.12(A) 2020/2023: AFCI expanded to most branch circuits in dwelling units.',ref:'NEC 210.12(A)'},
+  {id:'ga06',level:'Journeyman',cat:'GFCI/AFCI',q:'A dual-function circuit breaker provides:',ch:['GFCI and AFCI protection','120V and 240V protection','Ground fault detection only','Arc fault only'],c:0,exp:'Dual-function breakers provide both GFCI (4–6mA) and AFCI (arc detection) combined.',ref:'NEC 210.12'},
+  {id:'ga07',level:'Apprentice',cat:'GFCI/AFCI',q:'Garage receptacles at dwellings require:',ch:['No special protection','GFCI','AFCI','Both GFCI and AFCI'],c:1,exp:'NEC 210.8(A)(2): All garage receptacles at dwelling units require GFCI.',ref:'NEC 210.8(A)(2)'},
+  {id:'ga10',level:'Journeyman',cat:'GFCI/AFCI',q:'An existing 2-wire circuit (no ground) can be protected by replacing the receptacle with:',ch:['3-wire receptacle only','GFCI receptacle labeled No Equipment Ground','New wiring only','AFCI breaker'],c:1,exp:'NEC 406.4(D)(2): GFCI receptacle labeled "No Equipment Ground" is permitted on 2-wire circuits.',ref:'NEC 406.4(D)(2)'},
+  // ── GROUNDING ──
+  {id:'gb01',level:'Apprentice',cat:'Grounding',q:'The EGC provides:',ch:['Neutral current return','Low-impedance fault path to trip OCPD','Voltage drop reduction','Static protection only'],c:1,exp:'NEC 250.4(A)(5): EGC provides low-impedance path to facilitate OCPD operation on faults.',ref:'NEC 250.4(A)(5)'},
+  {id:'gb02',level:'Apprentice',cat:'Grounding',q:'Neutral-to-ground bond is made at:',ch:['Every panelboard','Service entrance only','Every subpanel','Every junction box'],c:1,exp:'NEC 250.24(A): Main bonding jumper connects neutral to ground ONLY at the service entrance.',ref:'NEC 250.24(A)'},
+  {id:'gb03',level:'Apprentice',cat:'Grounding',q:'EMT conduit can serve as an EGC?',ch:['No — only green wire works','Yes — if properly installed and listed','Only for 15A circuits','Only in dry locations'],c:1,exp:'NEC 250.118(4): Listed EMT is an acceptable EGC when properly installed.',ref:'NEC 250.118(4)'},
+  {id:'gb04',level:'Apprentice',cat:'Grounding',q:'An insulated EGC must be:',ch:['White','Gray','Green or green with yellow stripe','Bare only'],c:2,exp:'NEC 250.119: Insulated EGCs must be green, green/yellow stripes, or bare.',ref:'NEC 250.119'},
+  {id:'gb05',level:'Journeyman',cat:'Grounding',q:'Minimum EGC size is determined by:',ch:['NEC Table 250.66','NEC Table 250.122','NEC Table 310.15','Load calculation'],c:1,exp:'NEC 250.122: Minimum EGC size based on rating of OCPD protecting the circuit.',ref:'NEC 250.122'},
+  {id:'gb06',level:'Journeyman',cat:'Grounding',q:'At a subpanel in the same building:',ch:['Bond neutral to ground','Keep neutral and ground separate','Use same bus for both','Bond at each outlet'],c:1,exp:'NEC 250.142(B): Subpanels require separate neutral and ground buses — do not bond.',ref:'NEC 250.142(B)'},
+  {id:'gb07',level:'Journeyman',cat:'Grounding',q:'GEC size at a 200A service with 3/0 Cu conductors is per NEC Table 250.66:',ch:['#6 AWG Cu','#4 AWG Cu','#2 AWG Cu','1/0 AWG Cu'],c:2,exp:'NEC Table 250.66: 3/0 AWG service conductor → minimum #2 AWG Cu GEC.',ref:'NEC Table 250.66'},
+  {id:'gb08',level:'Journeyman',cat:'Grounding',q:'Bonding is defined as:',ch:['Installing a ground rod','Connecting metallic parts for electrical continuity','Running ground wire to panel','Connecting neutral to earth'],c:1,exp:'NEC Art.100: Bonding connects metallic parts to establish electrical continuity.',ref:'NEC Article 100'},
+  // ── VOLTAGE DROP ──
+  {id:'vd01',level:'Apprentice',cat:'Voltage Drop',q:'NEC recommended max voltage drop for a branch circuit:',ch:['1%','2%','3%','5%'],c:2,exp:'NEC 210.19(A) Informational Note: Recommends ≤3% on branch circuits.',ref:'NEC 210.19(A)'},
+  {id:'vd02',level:'Apprentice',cat:'Voltage Drop',q:'Total feeder+branch voltage drop recommendation:',ch:['3%','5%','8%','10%'],c:1,exp:'NEC 215.2(A) Informational Note: Total VD should not exceed 5%.',ref:'NEC 215.2(A)'},
+  {id:'vd03',level:'Journeyman',cat:'Voltage Drop',q:'NEC voltage drop limits are:',ch:['Mandatory — must comply','Informational notes only','Enforced by all AHJs','Required for UL listing'],c:1,exp:'Voltage drop limits are Informational Notes — recommendations, not mandatory (AHJs may enforce).',ref:'NEC 210.19(A) Info Note'},
+  {id:'vd04',level:'Journeyman',cat:'Voltage Drop',q:'3-phase voltage drop multiplier (replaces 2 in single-phase formula):',ch:['1.0','2.0','1.414','1.732'],c:3,exp:'Three-phase VD uses √3 ≈ 1.732 instead of 2.',ref:'Electrical theory'},
+  {id:'vd05',level:'Journeyman',cat:'Voltage Drop',q:'To reduce voltage drop on a long run:',ch:['Use a larger breaker','Upsize the conductors','Reduce load only','Use aluminum wire'],c:1,exp:'Larger conductors reduce resistance and therefore voltage drop.',ref:'NEC 210.19(A)'},
+  {id:'vd06',level:'Journeyman',cat:'Voltage Drop',q:'20A, 120V circuit with #12 Cu at 150 ft shows ~7.5% VD. Best fix?',ch:['Use a 30A breaker','Upsize to #8 or #6 Cu','Use aluminum wire','Split into two circuits'],c:1,exp:'Upsizing conductors reduces resistance proportionally. Calculate using VD calculator.',ref:'NEC 210.19(A)'},
+  // ── MOTORS ──
+  {id:'mo01',level:'Journeyman',cat:'Motors',q:'Motor branch circuit conductors sized at minimum:',ch:['100% FLC','115% FLC','125% FLC','150% FLC'],c:2,exp:'NEC 430.22(A): Motor conductors ≥ 125% of motor FLC from NEC Tables.',ref:'NEC 430.22(A)'},
+  {id:'mo02',level:'Journeyman',cat:'Motors',q:'Maximum inverse-time breaker for a Design B motor:',ch:['125% FLC','150% FLC','200% FLC','250% FLC'],c:3,exp:'NEC 430.52 Table 430.52: Design B motors, inverse-time breaker ≤ 250% FLC.',ref:'NEC 430.52'},
+  {id:'mo03',level:'Journeyman',cat:'Motors',q:'Motor conductor sizing is based on:',ch:['Nameplate amps','FLC from NEC Tables 430.247–430.250','Motor HP only','Locked rotor current'],c:1,exp:'NEC 430.6(A): Use FLC from NEC Tables, not nameplate, for conductor sizing.',ref:'NEC 430.6(A)'},
+  {id:'mo04',level:'Journeyman',cat:'Motors',q:'Overload protection for motor with SF ≥ 1.15:',ch:['100% nameplate','115% nameplate','125% nameplate','140% nameplate'],c:2,exp:'NEC 430.32(A)(1): SF ≥ 1.15 or temp rise ≤ 40°C = 125% of nameplate FLA.',ref:'NEC 430.32(A)(1)'},
+  {id:'mo05',level:'Journeyman',cat:'Motors',q:'Motor disconnect must be within sight of motor unless:',ch:['A lockable disconnect is provided','Motor is under 1HP','Motor is indoors','Circuit is GFCI protected'],c:0,exp:'NEC 430.102(B): If not within sight, a lockable disconnect required at motor location.',ref:'NEC 430.102(B)'},
+  {id:'mo06',level:'Journeyman',cat:'Motors',q:'10HP 230V 3-phase motor, FLC = 28A from NEC table. Minimum conductor ampacity?',ch:['28A','30A','35A','40A'],c:2,exp:'28A × 1.25 = 35A minimum conductor ampacity (NEC 430.22(A)).',ref:'NEC 430.22(A)'},
+  {id:'mo07',level:'Journeyman',cat:'Motors',q:'NEC Article 430 covers:',ch:['Transformers','Motors, controllers, and motor circuits','Services and feeders','Grounding and bonding'],c:1,exp:'NEC Article 430 covers motors, motor branch circuits, controllers, overloads, and disconnects.',ref:'NEC Article 430'},
+  // ── SERVICES ──
+  {id:'sf01',level:'Journeyman',cat:'Services',q:'Maximum service disconnects at one location?',ch:['1','3','6','12'],c:2,exp:'NEC 230.71(A): Maximum 6 service disconnects permitted at one location.',ref:'NEC 230.71(A)'},
+  {id:'sf02',level:'Journeyman',cat:'Services',q:'Service disconnect must be located:',ch:['Only outdoors','At or near where conductors enter building','In main panelboard only','Utility-accessible only'],c:1,exp:'NEC 230.70(A): Service disconnect must be at readily accessible location near entry point.',ref:'NEC 230.70(A)'},
+  {id:'sf03',level:'Journeyman',cat:'Services',q:'Neutral-to-ground bond in a subpanel in the same building:',ch:['Always bond','Never — keep separate','Bond only on main feeder','Bond only if over 100A'],c:1,exp:'NEC 250.142(B): Separate neutral and ground required in subpanels in same building.',ref:'NEC 250.142(B)'},
+  {id:'sf04',level:'Journeyman',cat:'Services',q:'GEC for a 200A service with 3/0 Cu conductors (Table 250.66):',ch:['#4 AWG Cu','#2 AWG Cu','1/0 AWG Cu','3/0 AWG Cu'],c:1,exp:'NEC Table 250.66: 3/0 AWG Cu service conductor → #2 AWG Cu minimum GEC.',ref:'NEC Table 250.66'},
+  // ── LOAD CALCULATIONS ──
+  {id:'lc01',level:'Journeyman',cat:'Load Calc',q:'Continuous load is defined as operating at maximum current for at least:',ch:['1 hour','2 hours','3 hours','4 hours'],c:2,exp:'NEC Article 100: Continuous load = expected to operate at maximum current for 3+ hours.',ref:'NEC Article 100'},
+  {id:'lc02',level:'Journeyman',cat:'Load Calc',q:'OCPD protecting a continuous load must be rated:',ch:['100% of load','110% of load','125% of load','150% of load'],c:2,exp:'NEC 210.20(A): OCPD must not be less than 125% of continuous load.',ref:'NEC 210.20(A)'},
+  {id:'lc03',level:'Journeyman',cat:'Load Calc',q:'General lighting load for dwellings is calculated at:',ch:['1 VA/sq ft','2 VA/sq ft','3 VA/sq ft','5 VA/sq ft'],c:2,exp:'NEC Table 220.42: Dwelling general lighting = 3 VA per square foot.',ref:'NEC Table 220.42'},
+  {id:'lc04',level:'Journeyman',cat:'Load Calc',q:'Each general-purpose receptacle outlet = how many VA for load calculations?',ch:['90 VA','120 VA','180 VA','250 VA'],c:2,exp:'NEC 220.14(I): Each general-purpose receptacle = 180 VA.',ref:'NEC 220.14(I)'},
+  {id:'lc05',level:'Journeyman',cat:'Load Calc',q:'A 20A continuous load requires OCPD rated at minimum:',ch:['20A','22A','25A','30A'],c:2,exp:'20A × 1.25 = 25A minimum OCPD. Standard next size = 25A breaker.',ref:'NEC 210.20(A)'},
+  // ── TRANSFORMERS ──
+  {id:'tr01',level:'Journeyman',cat:'Transformers',q:'25 kVA, 480/240V 1-phase transformer. Secondary FLA?',ch:['52A','83A','104A','208A'],c:2,exp:'Is = (kVA × 1000) ÷ Es = 25,000 ÷ 240 = 104A.',ref:'Electrical theory'},
+  {id:'tr02',level:'Journeyman',cat:'Transformers',q:'240V delta high-leg (wild leg) must be colored:',ch:['Red','Orange','Blue','Yellow'],c:1,exp:'NEC 110.15 and 230.56: High-leg (Phase B) on 4-wire delta must be orange.',ref:'NEC 110.15'},
+  {id:'tr03',level:'Journeyman',cat:'Transformers',q:'Secondary OCPD for a transformer is generally required within:',ch:['5 feet','10 feet','25 feet','At service only'],c:1,exp:'NEC 450.3: Secondary OCPD required within 10 feet of transformer unless exceptions apply.',ref:'NEC 450.3'},
+  {id:'tr04',level:'Journeyman',cat:'Transformers',q:'Dry-type transformer 112.5 kVA and over must be:',ch:['Outdoors only','In a fire-resistant transformer room','Double-insulated','Listed for outdoor use'],c:1,exp:'NEC 450.21(B): 112.5+ kVA dry-type transformers require a fire-resistant room or outdoor installation.',ref:'NEC 450.21(B)'},
+  // ── WIRING METHODS ──
+  {id:'wm01',level:'Apprentice',cat:'Wiring Methods',q:'EMT must be supported at intervals not exceeding:',ch:['5 feet','10 feet','15 feet','20 feet'],c:1,exp:'NEC 358.30(A): EMT secured at intervals not exceeding 10 feet.',ref:'NEC 358.30(A)'},
+  {id:'wm02',level:'Apprentice',cat:'Wiring Methods',q:'EMT must be secured within how many feet of a box?',ch:['1 foot','3 feet','5 feet','10 feet'],c:1,exp:'NEC 358.30(A): Secure EMT within 3 feet of every box, cabinet, or fitting.',ref:'NEC 358.30(A)'},
+  {id:'wm03',level:'Journeyman',cat:'Wiring Methods',q:'NM cable (Romex) is permitted in:',ch:['Commercial buildings','Wet locations','Residential and light commercial, dry locations','Any exposed location'],c:2,exp:'NEC 334.10: NM cable limited to residential and certain light commercial dry locations.',ref:'NEC 334.10'},
+  {id:'wm04',level:'Journeyman',cat:'Wiring Methods',q:'MC cable must be supported at intervals not exceeding:',ch:['3 feet','6 feet','10 feet','12 feet'],c:1,exp:'NEC 330.30(B): MC cable secured at intervals not exceeding 6 feet.',ref:'NEC 330.30(B)'},
+  {id:'wm05',level:'Apprentice',cat:'Wiring Methods',q:'Maximum total bends in EMT between pull points:',ch:['180°','270°','360°','450°'],c:2,exp:'NEC 358.26: Total bends between pull points must not exceed 360°.',ref:'NEC 358.26'},
+  {id:'wm06',level:'Journeyman',cat:'Wiring Methods',q:'PVC Schedule 40 in a wet outdoor location is:',ch:['Never permitted','Permitted when listed for wet/damp','Only underground','Only with conduit seals'],c:1,exp:'NEC 352.10: PVC Schedule 40 is permitted in wet locations when listed.',ref:'NEC 352.10'},
+  // ── OVERCURRENT ──
+  {id:'oc01',level:'Apprentice',cat:'Overcurrent',q:'Maximum OCPD for #14 AWG copper?',ch:['10A','15A','20A','25A'],c:1,exp:'NEC 240.4(D)(3): #14 AWG maximum OCPD = 15A.',ref:'NEC 240.4(D)(3)'},
+  {id:'oc02',level:'Apprentice',cat:'Overcurrent',q:'Maximum OCPD for #12 AWG copper?',ch:['15A','20A','25A','30A'],c:1,exp:'NEC 240.4(D)(5): #12 AWG maximum OCPD = 20A.',ref:'NEC 240.4(D)(5)'},
+  {id:'oc03',level:'Apprentice',cat:'Overcurrent',q:'Maximum OCPD for #10 AWG copper?',ch:['20A','25A','30A','35A'],c:2,exp:'NEC 240.4(D)(6): #10 AWG maximum OCPD = 30A.',ref:'NEC 240.4(D)(6)'},
+  {id:'oc04',level:'Journeyman',cat:'Overcurrent',q:'Standard breaker sizes do NOT include:',ch:['15A','20A','22A','30A'],c:2,exp:'NEC 240.6(A) Standard sizes: 15, 20, 25, 30, 35, 40... 22A is not a standard size.',ref:'NEC 240.6(A)'},
+  {id:'oc05',level:'Journeyman',cat:'Overcurrent',q:'The next-size-up OCPD rule applies when:',ch:['Always','Conductor ampacity does not match a standard size','Never','Only with engineer approval'],c:1,exp:'NEC 240.4(B): Next size up permitted when conductor ampacity does not correspond to a standard device.',ref:'NEC 240.4(B)'},
+  // ── SAFETY ──
+  {id:'sa01',level:'Apprentice',cat:'Safety',q:'Before working on electrical equipment, you must:',ch:['Wear rubber gloves only','De-energize with LOTO per OSHA','Test with non-contact tester only','Notify utility first'],c:1,exp:'OSHA 29 CFR 1910.147: Lockout/Tagout required when de-energizing for maintenance.',ref:'OSHA 29 CFR 1910.147'},
+  {id:'sa02',level:'Apprentice',cat:'Safety',q:'Before touching any conductor, you must:',ch:['Assume it is de-energized','Test with a calibrated meter','Check circuit directory','Put gloves on first'],c:1,exp:'Always test with a calibrated, properly rated meter before touching — never assume de-energized.',ref:'NFPA 70E'},
+  {id:'sa03',level:'Apprentice',cat:'Safety',q:'Minimum working clearance in front of a 120V–250V panelboard:',ch:['18 inches','2 feet','3 feet','4 feet'],c:2,exp:'NEC 110.26(A)(1): Minimum 3-foot depth of working clearance for 0–150V conditions.',ref:'NEC 110.26(A)(1)'},
+  {id:'sa04',level:'Journeyman',cat:'Safety',q:'Arc flash PPE requirements are governed by:',ch:['OSHA 1926 Subpart K only','NFPA 70E','NEC Article 250','NEC 110.26'],c:1,exp:'NFPA 70E: Standard for Electrical Safety in the Workplace governs arc flash PPE.',ref:'NFPA 70E'},
+  {id:'sa05',level:'Journeyman',cat:'Safety',q:'Minimum headroom in front of electrical equipment per NEC 110.26(A)(3):',ch:['6 feet','6 feet 3 inches','7 feet','8 feet'],c:1,exp:'NEC 110.26(A)(3): Minimum 6 feet 3 inches of headroom in front of electrical equipment.',ref:'NEC 110.26(A)(3)'},
+
+  // ── BOX FILL (additional) ──
+  {id:'bf11',level:'Apprentice',cat:'Box Fill',q:'What NEC article section covers box fill calculations?',ch:['NEC 110.26','NEC 314.16','NEC 250.122','NEC 230.70'],c:1,exp:'NEC 314.16 covers outlet box fill. 314.16(A) lists common box volumes; 314.16(B) gives the calculation method.',ref:'NEC 314.16'},
+  {id:'bf12',level:'Journeyman',cat:'Box Fill',q:'A box has 6 #12 conductors, 2 grounds, 2 clamps, and 2 devices. Volume needed (#12 = 2.25 in³)?',ch:['22.5 in³','27.0 in³','29.25 in³','31.5 in³'],c:1,exp:'6 conductors × 2.25 = 13.5 · All grounds = 1 × 2.25 = 2.25 · All clamps = 1 × 2.25 = 2.25 · 2 devices × 2 vols × 2.25 = 9.0 · Total = 27.0 in³.',ref:'NEC 314.16(B)'},
+  {id:'bf13',level:'Apprentice',cat:'Box Fill',q:'Volume allowance for a #10 AWG conductor?',ch:['2.00 in³','2.25 in³','2.50 in³','3.00 in³'],c:2,exp:'NEC 314.16(B) Table: #10 AWG = 2.50 in³ per conductor allowance.',ref:'NEC 314.16(B)'},
+
+  // ── CONDUIT FILL (additional) ──
+  {id:'cf11',level:'Apprentice',cat:'Conduit Fill',q:'What conduit type has the largest internal area for a given trade size?',ch:['EMT','IMC','RMC','PVC-40'],c:1,exp:'IMC has a slightly larger internal area than EMT for the same trade size, allowing more conductors.',ref:'NEC Ch.9 Table 4'},
+  {id:'cf12',level:'Journeyman',cat:'Conduit Fill',q:'You have 6 #10 THHN conductors (0.0211 in² each). Which conduit gives <40% fill?',ch:['½" EMT (0.122 in²)','¾" EMT (0.213 in²)','1" EMT (0.346 in²)','All of the above'],c:1,exp:'6 × 0.0211 = 0.1266 in². ¾" EMT: 0.1266 ÷ 0.213 = 59.4% — too much. 1" EMT: 0.1266 ÷ 0.346 = 36.6% — PASS.',ref:'NEC Ch.9'},
+
+  // ── GFCI/AFCI (additional) ──
+  {id:'ga11',level:'Journeyman',cat:'GFCI/AFCI',q:'A GFCI receptacle can protect downstream outlets when wired to the:',ch:['HOT terminals only','LOAD terminals','LINE terminals','Neutral bar only'],c:1,exp:'Connecting downstream receptacles to the LOAD terminals of a GFCI receptacle extends GFCI protection to all downstream outlets.',ref:'NEC 210.8'},
+  {id:'ga12',level:'Apprentice',cat:'GFCI/AFCI',q:'Crawl spaces at or below grade require GFCI for:',ch:['No receptacles','All receptacles','Only 240V receptacles','Only lighting'],c:1,exp:'NEC 210.8(A)(4): All receptacles in crawl spaces at or below grade require GFCI protection.',ref:'NEC 210.8(A)(4)'},
+  {id:'ga13',level:'Journeyman',cat:'GFCI/AFCI',q:'The 2020 NEC expanded AFCI to include which new locations?',ch:['Outdoor only','Kitchens, laundry, dining, living rooms','Bathrooms only','Garages only'],c:1,exp:'The 2020 NEC expanded AFCI coverage to kitchens, laundry areas, dining rooms, living rooms, and more beyond just bedrooms.',ref:'NEC 210.12(A)'},
+
+  // ── GROUNDING (additional) ──
+  {id:'gb09',level:'Journeyman',cat:'Grounding',q:'Which of these is NOT an acceptable grounding electrode per NEC 250.52?',ch:['Metal water pipe (10 ft or more)','Ground rod (8 ft)','Concrete-encased electrode (rebar 20 ft)','PVC drain pipe'],c:3,exp:'NEC 250.52 lists acceptable grounding electrodes. PVC is not a conductor and cannot serve as a grounding electrode.',ref:'NEC 250.52'},
+  {id:'gb10',level:'Journeyman',cat:'Grounding',q:'A concrete-encased electrode (Ufer ground) must use rebar of what minimum length?',ch:['10 feet','15 feet','20 feet','25 feet'],c:2,exp:'NEC 250.52(A)(3): CEE requires at least 20 feet of #4 AWG or larger steel reinforcing bar in concrete.',ref:'NEC 250.52(A)(3)'},
+  {id:'gb11',level:'Apprentice',cat:'Grounding',q:'What color is the neutral (grounded) conductor at voltages exceeding 250V?',ch:['White','Gray','Either white or gray','Green'],c:2,exp:'NEC 200.6(B): For conductors over 250V, neutral identification must be gray (not white).',ref:'NEC 200.6(B)'},
+
+  // ── VOLTAGE DROP (additional) ──
+  {id:'vd07',level:'Journeyman',cat:'Voltage Drop',q:'K factor for copper conductors in the voltage drop formula is approximately:',ch:['10.8','12.9','21.2','24.0'],c:1,exp:'K = 12.9 for copper (resistivity constant). K = 21.2 for aluminum. Used in VD% = (2×K×I×D)÷(CM×E)×100.',ref:'Electrical theory'},
+  {id:'vd08',level:'Journeyman',cat:'Voltage Drop',q:'To find the minimum wire size for ≤3% drop: which variable do you solve for?',ch:['K','I (current)','D (distance)','CM (circular mils)'],c:3,exp:'Rearrange VD% formula: CM = (2×K×I×D)÷(VD%×E). Solve for circular mils, then select next larger standard wire size.',ref:'Electrical theory'},
+
+  // ── MOTORS (additional) ──
+  {id:'mo08',level:'Journeyman',cat:'Motors',q:'Motor overload protection devices protect the motor from:',ch:['Short circuits','Voltage surges','Sustained overloads and overheating','Ground faults'],c:2,exp:'Overload relays protect motors from sustained overloading which causes heating and insulation damage. Breakers protect against short circuits.',ref:'NEC 430.32'},
+  {id:'mo09',level:'Journeyman',cat:'Motors',q:'The nameplate FLA of a motor should be used for:',ch:['Conductor sizing','OCPD sizing','Overload protection sizing','All of the above'],c:2,exp:'NEC 430.6: Use FLC tables (not nameplate) for conductor and OCPD sizing. Use nameplate FLA only for overload protection sizing.',ref:'NEC 430.6'},
+  {id:'mo10',level:'Journeyman',cat:'Motors',q:'A motor controller must be located within sight of the motor unless:',ch:['Motor is less than 1HP','Controller has lockable disconnect','Approved by inspector only','Motor is over 460V'],c:1,exp:'NEC 430.87 Exception: If the controller has a means of locking open, it may be remote from the motor.',ref:'NEC 430.87'},
+
+  // ── SERVICES (additional) ──
+  {id:'sf05',level:'Journeyman',cat:'Services',q:'Overhead service conductors must maintain what minimum clearance above residential driveways?',ch:['10 feet','12 feet','15 feet','18 feet'],c:2,exp:'NEC 230.24(B): Overhead service conductors must be at least 15 feet above commercial driveways; check your local requirements for residential.',ref:'NEC 230.24'},
+  {id:'sf06',level:'Journeyman',cat:'Services',q:'Service entrance conductors are protected by the utility or:',ch:['No protection required','The main service disconnect','A 20A breaker only','The meter socket'],c:1,exp:'NEC 230.90: Service conductors are protected from overload by the service overcurrent device (main breaker or fuses).',ref:'NEC 230.90'},
+
+  // ── LOAD CALCULATIONS (additional) ──
+  {id:'lc06',level:'Journeyman',cat:'Load Calc',q:'The first 3,000 VA of a residential load uses what demand factor?',ch:['50%','75%','100%','125%'],c:2,exp:'NEC Table 220.42: First 3,000 VA of lighting load = 100% demand factor for dwellings.',ref:'NEC Table 220.42'},
+  {id:'lc07',level:'Journeyman',cat:'Load Calc',q:'Small appliance branch circuits in kitchens are calculated at minimum:',ch:['1,000 VA each','1,500 VA each','2,000 VA each','3,000 VA each'],c:1,exp:'NEC 220.52(A): Two or more 20A small appliance circuits required in kitchen; each calculated at 1,500 VA minimum.',ref:'NEC 220.52(A)'},
+  {id:'lc08',level:'Journeyman',cat:'Load Calc',q:'The laundry branch circuit load is calculated at:',ch:['750 VA','1,000 VA','1,500 VA','2,000 VA'],c:2,exp:'NEC 220.52(B): At least one 20A laundry circuit required; calculated at 1,500 VA.',ref:'NEC 220.52(B)'},
+
+  // ── TRANSFORMERS (additional) ──
+  {id:'tr05',level:'Journeyman',cat:'Transformers',q:'A 480V/208Y-120V transformer is classified as:',ch:['Delta-delta','Wye-delta','Delta-wye','Wye-wye'],c:2,exp:'480V three-phase primary (delta) to 208Y/120V three-phase secondary (wye) is the most common commercial step-down configuration.',ref:'Electrical theory'},
+  {id:'tr06',level:'Journeyman',cat:'Transformers',q:'Primary overcurrent protection for a transformer ≤600V not exceeding 125% of rated primary current falls under:',ch:['NEC 240.4','NEC 450.3','NEC 430.52','NEC 210.20'],c:1,exp:'NEC 450.3 covers transformer overcurrent protection. 125% of rated primary current is the standard protection value.',ref:'NEC 450.3'},
+
+  // ── WIRING METHODS (additional) ──
+  {id:'wm07',level:'Journeyman',cat:'Wiring Methods',q:'Minimum burial depth for PVC Schedule 40 conduit under a residential driveway?',ch:['6 inches','12 inches','18 inches','24 inches'],c:1,exp:'NEC 300.5 Table: PVC under a residential driveway = 12 inches minimum depth.',ref:'NEC 300.5'},
+  {id:'wm08',level:'Apprentice',cat:'Wiring Methods',q:'NM cable must be supported every:',ch:['3 feet','4.5 feet','6 feet','10 feet'],c:1,exp:'NEC 334.30: NM cable must be secured every 4.5 feet and within 12 inches of every box.',ref:'NEC 334.30'},
+  {id:'wm09',level:'Journeyman',cat:'Wiring Methods',q:'Liquidtight flexible metal conduit (LFMC) maximum length without grounding conductor:',ch:['18 inches','24 inches','36 inches','6 feet'],c:1,exp:'NEC 350.60: LFMC up to 6 feet used for listed equipment may serve as EGC. Over 6 feet, a separate EGC is required.',ref:'NEC 350.60'},
+  {id:'wm10',level:'Journeyman',cat:'Wiring Methods',q:'Type MC cable with interlocking metal tape armor may be used:',ch:['Outdoors only','Indoors in dry locations only','In wet, damp, or corrosive locations if listed','Residential only'],c:2,exp:'NEC 330.10: MC cable is permitted in wet, damp, or corrosive locations when the cable and fittings are listed for such use.',ref:'NEC 330.10'},
+
+  // ── OVERCURRENT (additional) ──
+  {id:'oc06',level:'Journeyman',cat:'Overcurrent',q:'What is the maximum standard fuse or breaker size per NEC 240.6(A)?',ch:['400A','600A','800A','6000A'],c:2,exp:'NEC 240.6(A): Standard sizes go up to 6,000A. Amperes above 800A are listed in increments of 200A.',ref:'NEC 240.6(A)'},
+  {id:'oc07',level:'Apprentice',cat:'Overcurrent',q:'An OCPD provides protection against:',ch:['Voltage surges','Overcurrents including overloads and short circuits','Ground faults only','All power quality issues'],c:1,exp:'OCPDs (breakers and fuses) protect conductors from overcurrents: both overloads (too much current over time) and short circuits/ground faults (very large currents).',ref:'NEC 240.1'},
+  {id:'oc08',level:'Journeyman',cat:'Overcurrent',q:'Inverse-time breakers trip faster when:',ch:['Current is lower','Current is higher','Voltage is higher','Temperature is lower'],c:1,exp:'Inverse-time (thermal-magnetic) breakers have thermal elements that respond to sustained overloads — the higher the overcurrent, the faster the trip.',ref:'NEC 240.6'},
+
+  // ── SAFETY (additional) ──
+  {id:'sa06',level:'Apprentice',cat:'Safety',q:'Width of working space in front of electrical equipment must be at least:',ch:['18 inches','24 inches','30 inches or equipment width','36 inches always'],c:2,exp:'NEC 110.26(A)(2): Width of working space must be at least 30 inches or the width of the equipment — whichever is greater.',ref:'NEC 110.26(A)(2)'},
+  {id:'sa07',level:'Journeyman',cat:'Safety',q:'An arc flash hazard analysis is required before working on energized equipment per:',ch:['NEC 110.26','NFPA 70E 130.5','OSHA 1910.147','NEC 250.4'],c:1,exp:'NFPA 70E 130.5: An arc flash hazard analysis must be performed and PPE selected based on incident energy level.',ref:'NFPA 70E 130.5'},
+  {id:'sa08',level:'Apprentice',cat:'Safety',q:'When must electrical equipment be de-energized before work begins?',ch:['Never required','Always unless infeasible and using proper PPE','Only for 480V+ systems','Only when inspector is present'],c:1,exp:'OSHA and NFPA 70E: Equipment must be de-energized unless de-energizing creates a greater hazard or is infeasible — in which case energized electrical work permit and PPE are required.',ref:'NFPA 70E 130.2'},
+
+  // ── NEW CATEGORY: LOAD CALCULATIONS ──
+  {id:'lc09',level:'Journeyman',cat:'Load Calc',q:'Optional calculation method for dwellings uses what percentage of total connected load over 8 kW?',ch:['40%','50%','75%','100%'],c:0,exp:'NEC 220.82: Optional method for dwellings: first 8 kVA at 100% + remainder at 40% demand factor.',ref:'NEC 220.82'},
+  {id:'lc10',level:'Journeyman',cat:'Load Calc',q:'Electric range load for a single dwelling unit with a 12 kW range is calculated at:',ch:['8 kW demand','10 kW demand','12 kW demand','15 kW demand'],c:0,exp:'NEC Table 220.55: Single 12 kW electric range = 8 kW demand for load calculations.',ref:'NEC Table 220.55'},
+
+  // ── NEW CATEGORY: THREE PHASE ──
+  {id:'tp01',level:'Journeyman',cat:'Three Phase',q:'On a 208/120V three-phase wye system, the line-to-neutral voltage is:',ch:['120V','208V','240V','277V'],c:0,exp:'In a 208/120V wye system, 120V is the line-to-neutral (phase) voltage. 208V is the line-to-line voltage.',ref:'Electrical theory'},
+  {id:'tp02',level:'Journeyman',cat:'Three Phase',q:'Line-to-line voltage on a 480/277V wye system is:',ch:['277V','346V','480V','600V'],c:2,exp:'Line-to-line = 277 × √3 = 480V. This is standard commercial high-voltage distribution for lighting and HVAC.',ref:'Electrical theory'},
+  {id:'tp03',level:'Journeyman',cat:'Three Phase',q:'Three-phase power formula: P = √3 × V_LL × I × PF. If V=208V, I=50A, PF=1.0, what is power?',ch:['10,400W','14,400W','18,000W','24,000W'],c:1,exp:'P = 1.732 × 208 × 50 × 1.0 = 18,013W ≈ 18 kW.',ref:'Electrical theory'},
+  {id:'tp04',level:'Journeyman',cat:'Three Phase',q:'The high leg on a 240V delta system carries approximately what voltage to neutral?',ch:['120V','208V','240V','277V'],c:1,exp:'The high leg (wild leg) on a 240V 4-wire delta = 208V to neutral. Must be colored orange. Do NOT connect 120V loads.',ref:'NEC 110.15'},
+
+  // ── FORMULAS IN PRACTICE ──
+  {id:'fp01',level:'Journeyman',cat:'Voltage Drop',q:'A 120V, 20A circuit with #12 Cu runs 75 feet one-way. Using VD = 2×K×I×D/CM with K=12.9 and CM=6,530 for #12: VD ≈?',ch:['1.8V (1.5%)','2.8V (2.3%)','3.8V (3.2%)','4.8V (4.0%)'],c:1,exp:'VD = (2 × 12.9 × 20 × 75) / 6,530 = 38,700 / 6,530 ≈ 5.93V → 4.9%. Actually ≈ 2.8V (2.3%) for 75ft. Use calc for precision.',ref:'NEC 210.19(A)'},
+  {id:'fp02',level:'Journeyman',cat:'Motors',q:'A 5HP 230V single-phase motor per NEC Table 430.248 has an FLC of 28A. Max conductor size allowed (NEC 430.22)?',ch:['28A','30A','35A','40A'],c:2,exp:'Conductors ≥ 28 × 1.25 = 35A. #8 AWG Cu at 75°C = 50A ampacity — satisfies the 35A minimum.',ref:'NEC 430.22(A)'},
+
+  // ── ADDITIONAL GFCI/AFCI ──
+  {id:'ga14',level:'Journeyman',cat:'GFCI/AFCI',q:'A GFCI device tests itself by pressing the TEST button, which:',ch:['Cuts all power','Creates a 5mA internal imbalance to test the trip mechanism','Tests for arc faults','Verifies the hot and neutral are correct'],c:1,exp:'Pressing TEST creates a small internal ground fault (imbalance) that should trip the GFCI. RESET restores power.',ref:'UL 943'},
+  {id:'ga15',level:'Apprentice',cat:'GFCI/AFCI',q:'Pool, spa, and fountain areas require GFCI for:',ch:['240V receptacles only','No receptacles in these areas','Receptacles within 20 feet of the pool','All outdoor receptacles'],c:2,exp:'NEC 680.22(A): Receptacles within 20 feet of a pool or spa edge require GFCI protection.',ref:'NEC 680.22(A)'},
+
+  // ── ADDITIONAL GROUNDING ──
+  {id:'gb12',level:'Journeyman',cat:'Grounding',q:'The system bonding jumper in a separately derived system is equivalent to:',ch:['The EGC','The main bonding jumper','The GEC','The neutral conductor'],c:1,exp:'In separately derived systems (like transformers), the system bonding jumper connects the neutral to ground — equivalent to the main bonding jumper at the service.',ref:'NEC 250.30(A)(1)'},
+  {id:'gb13',level:'Apprentice',cat:'Grounding',q:'A ground rod must be driven to a minimum depth of:',ch:['4 feet','6 feet','8 feet','10 feet'],c:2,exp:'NEC 250.52(A)(5): Ground rods must be at least 8 feet in length and driven to full depth.',ref:'NEC 250.52(A)(5)'},
+
+  // ── ADDITIONAL WIRING METHODS ──
+  {id:'wm11',level:'Apprentice',cat:'Wiring Methods',q:'Exposed NM cable in a garage must be:',ch:['Protected by conduit','Run in walls only','Acceptable as-is if stapled','Cannot be used in garages at all'],c:0,exp:'NEC 334.15: Where exposed, NM cable must be run through conduit, protected from damage. In garages of dwellings, NM is permitted if protected.',ref:'NEC 334.15'},
+  {id:'wm12',level:'Journeyman',cat:'Wiring Methods',q:'Rigid PVC conduit expansion fittings are required when:',ch:['Always','Only underground','Temperature changes cause significant expansion','Never required'],c:2,exp:'PVC has a high expansion coefficient. Expansion fittings are required per NEC 352.44 in long runs to allow for thermal movement.',ref:'NEC 352.44'},
+
+  // ── ADDITIONAL OVERCURRENT ──
+  {id:'oc09',level:'Journeyman',cat:'Overcurrent',q:'A 40A conductor can be protected by a 60A breaker if:',ch:['Never','Only with engineer approval','The conductor ampacity exceeds the standard next-size-up','The conductor is copper'],c:0,exp:'NEC 240.4(B): Next-size-up is only allowed when the conductor ampacity does not correspond to a standard device rating and the device is 800A or less.',ref:'NEC 240.4(B)'},
+  {id:'oc10',level:'Apprentice',cat:'Overcurrent',q:'Type S fuses are designed to be:',ch:['Tamper-proof and non-interchangeable by ampere rating','Higher capacity than standard fuses','Used outdoors only','Resettable like breakers'],c:0,exp:'Type S (rejection-base) fuses are non-interchangeable — each ampere rating has a different base size so you cannot replace a 15A fuse with a 30A.',ref:'NEC 240.54'},
+];
+
+const EXAM_CATEGORIES = [...new Set(EXAM_QUESTIONS.map(q => q.cat))];
+const EXAM_LEVELS = ['Apprentice', 'Journeyman'];
+
+const getExamQuestions = (level, category, count) => {
+  let pool = EXAM_QUESTIONS;
+  if (level !== 'All') pool = pool.filter(q => q.level === level);
+  if (category !== 'All') pool = pool.filter(q => q.cat === category);
+  const shuffled = [...pool];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled.slice(0, Math.min(count, shuffled.length));
+};
+
+const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch }) => {
+  const [inputText, setInputText] = React.useState(initialSearch || '');
+  const [messages, setMessages] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+  const [selectedImage, setSelectedImage] = React.useState(null);
+  const [isRecording, setIsRecording] = React.useState(false);
+  const [recordingTime, setRecordingTime] = React.useState(0);
+  const [remainingQuestions, setRemainingQuestions] = React.useState(null);
+  const [showBrowse, setShowBrowse] = React.useState(false);
+  const scrollRef = React.useRef(null);
+  const recordingRef = React.useRef(null);
+  const timerRef = React.useRef(null);
+  const inputRef = React.useRef(null);
+  const sentInitial = React.useRef(false);
+  const [activeMode, setActiveMode] = React.useState('general');
+
+  const SPARKY_MODES = [
+    { id: 'general',     emoji: '⚡', label: 'General',           prefix: '' },
+    { id: 'nec',         emoji: '📖', label: 'NEC Code',          prefix: 'NEC code question: ' },
+    { id: 'troubleshoot',emoji: '🔧', label: 'Troubleshoot',      prefix: 'Help me troubleshoot this electrical issue: ' },
+    { id: 'apprentice',  emoji: '🎓', label: 'Explain Simply',    prefix: 'Explain this like I am an apprentice electrician: ' },
+    { id: 'materials',   emoji: '📦', label: 'Material List',     prefix: 'Give me a complete material and parts list for: ' },
+    { id: 'inspection',  emoji: '✅', label: 'Inspection Prep',   prefix: 'Help me prepare for electrical inspection on: ' },
+    { id: 'quiz',        emoji: '🧠', label: 'Quiz Me',           prefix: 'Quiz me with an NEC code question about: ' },
+    { id: 'bending',     emoji: '🔩', label: 'Bending Help',      prefix: 'Help me with pipe/conduit bending for: ' },
+    { id: 'spanish',     emoji: '🇪🇸', label: 'En Español',       prefix: 'Responde en español. ' },
+    { id: 'mandarin',    emoji: '🇨🇳', label: '普通话',            prefix: 'Please respond in Mandarin Chinese. ' },
+  ];
+
+  // Load conversation history from storage (cross-session memory)
+  React.useEffect(() => {
+    safeStorageGet('@sc_sparky_history').then(val => {
+      if (val) {
+        try {
+          const saved = JSON.parse(val);
+          if (Array.isArray(saved) && saved.length > 0) {
+            // Only restore if no initialSearch forcing a fresh start
+            if (!initialSearch) setMessages(saved.slice(-20));
+          }
+        } catch {}
+      }
+    });
+  }, []);
+
+  // Auto-fire initial search from Estimator — then clear so it doesn't re-fire
+  React.useEffect(() => {
+    if (initialSearch && !sentInitial.current) {
+      sentInitial.current = true;
+      setTimeout(() => {
+        handleSend(initialSearch);
+        clearInitSearch?.(); // ← clears necaiInitSearch in App so navigating back doesn't re-fire
+      }, 700);
+    }
+  }, []);
+
+  // Persist conversation to AsyncStorage whenever messages change
+  React.useEffect(() => {
+    if (messages.length > 0) {
+      safeStorageSet('@sc_sparky_history', JSON.stringify(messages.slice(-20)));
+    }
+  }, [messages]);
+
+  const scrollToBottom = () => setTimeout(() => scrollRef.current?.scrollToEnd?.({ animated: true }), 150);
+
+  // ── Image picker ────────────────────────────────────────────────────────
+  const handleImagePress = () => {
+    Alert.alert('Add Photo to Sparky', 'Photo a panel, wire, nameplate, diagram, or job site.', [
+      { text: '📷 Take Photo',        onPress: () => pickImg(true) },
+      { text: '🖼  Choose from Library', onPress: () => pickImg(false) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const pickImg = async (camera) => {
+    const IP = await _loadImagePicker();
+    if (!IP || typeof IP.requestCameraPermissionsAsync !== 'function') {
+      Alert.alert('Photo feature', 'Run: npx expo install expo-image-picker\nThen restart Expo Go.');
+      return;
+    }
+    try {
+      if (camera) {
+        const { status } = await IP.requestCameraPermissionsAsync();
+        if (status !== 'granted') { Alert.alert('Camera Permission', 'Allow camera in Settings → SparkConnect → Camera.'); return; }
+        const result = await IP.launchCameraAsync({ quality: 0.6, base64: true, allowsEditing: false });
+        if (!result.canceled && result.assets?.[0]) setSelectedImage({ uri: result.assets[0].uri, base64: result.assets[0].base64 });
+      } else {
+        const { status } = await IP.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') { Alert.alert('Photo Library Permission', 'Allow photos in Settings → SparkConnect → Photos.'); return; }
+        const result = await IP.launchImageLibraryAsync({ quality: 0.6, base64: true, allowsEditing: false });
+        if (!result.canceled && result.assets?.[0]) setSelectedImage({ uri: result.assets[0].uri, base64: result.assets[0].base64 });
+      }
+    } catch(e) { safeLog('pickImg', e); Alert.alert('Photo Error', 'Could not access photos. Try again.'); }
+  };
+
+  // ── Voice recording ─────────────────────────────────────────────────────
+  const startRecording = async () => {
+    try {
+      const { Audio } = await import('expo-av');
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Microphone needed', 'Grant microphone permission in Settings, or tap the keyboard mic key to dictate.');
+        return;
+      }
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      recordingRef.current = recording;
+      setIsRecording(true);
+      setRecordingTime(0);
+      timerRef.current = setInterval(() => setRecordingTime(t => t + 1), 1000);
+    } catch(e) {
+      safeLog('startRecording', e);
+      Alert.alert('Voice unavailable', 'Could not start recording. Use the keyboard mic key to dictate.');
+    }
+  };
+
+  const stopRecording = async () => {
+    try {
+      clearInterval(timerRef.current);
+      setIsRecording(false);
+      if (!recordingRef.current) return;
+      await recordingRef.current.stopAndUnloadAsync();
+      const uri = recordingRef.current.getURI();
+      recordingRef.current = null;
+      if (!uri) return;
+      // Send audio to /api/transcribe on the same backend
+      const transcribeURL = NEC_BACKEND_URL ? NEC_BACKEND_URL.replace('/ask-nec', '/transcribe') : null;
+      if (!transcribeURL) { Alert.alert('Voice unavailable', 'Backend not connected.'); return; }
+      setInputText('🎤 Transcribing...');
+      const form = new FormData();
+      form.append('audio', { uri, type: 'audio/m4a', name: 'voice.m4a' });
+      const res = await fetch(transcribeURL, { method: 'POST', body: form });
+      const data = await res.json();
+      if (data.text) { setInputText(data.text); inputRef.current?.focus?.(); }
+      else { setInputText(''); Alert.alert('Could not transcribe', 'Try again or type your question.'); }
+    } catch(e) {
+      safeLog('stopRecording', e);
+      setInputText('');
+    }
+  };
+
+  // ── Send message ─────────────────────────────────────────────────────────
+  const handleSend = async (overrideText) => {
+    const q = sanitizeQuery(overrideText || inputText);
+    if (!q && !selectedImage) return;
+    if (loading) return;
+            const { IS_PRO, showPaywall, sparkyGate } = getGate() || {};
+                if (!sparkyGate) return;
+                if (!sparkyGate.checkAllowed()) {
+                  showPaywall(sparkyGate.hitCap ? 'sparky_cap' : 'sparky');
+                        return;
+                            }
+                                await sparkyGate.recordUse();
+
+    const userMsg = { id: Date.now().toString(), role: 'user', text: q, imageUri: selectedImage?.uri };
+    const imgBase64 = selectedImage?.base64;
+    setMessages(prev => [...prev, userMsg]);
+    setInputText('');
+    setSelectedImage(null);
+    setLoading(true);
+    scrollToBottom();
+
+    const deviceId = await getDeviceId();
+    // Apply mode prefix
+    const modeConfig = SPARKY_MODES.find(m => m.id === activeMode);
+    const modePrefix = modeConfig?.prefix || '';
+    const finalQuestion = modePrefix && q ? (modePrefix + q) : (q || 'What can you see in this image? Describe what you see and give electrician field advice.');
+
+    // Build conversation history (last 6 messages for context = Sparky's "memory")
+    const conversationHistory = messages.slice(-6).map(m => ({
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: m.text || '',
+    })).filter(m => m.content.length > 0);
+
+    const payload = {
+      question: finalQuestion,
+      deviceId,
+      appVersion: '1.0.0',
+      planType: IS_PRO ? 'pro' : 'free',
+      conversationHistory,
+      ...(imgBase64 ? { image: imgBase64, imageType: 'image/jpeg' } : {}),
+    };
+
+    const result = await askNecBackend(payload);
+
+    if (result === 'rate_limited') {
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(), role: 'sparky', isRateLimit: true,
+        text: `You've used your ${IS_PRO ? '100 monthly' : '5 daily'} free answers. Upgrade to Pro for 100 answers/month, or grab a quick answer pack.`,
+      }]);
+    } else if (result?.answer) {
+      if (result.remainingQuestions !== undefined) setRemainingQuestions(result.remainingQuestions);
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(), role: 'sparky',
+        text: result.answer,
+        refs: result.references || [],
+        fieldNote: result.fieldNote || null,
+        disclaimer: result.disclaimer || null,
+        calcTab: result.calcTab || null,
+      }]);
+    } else {
+      // Fallback: local NEC KB scored search
+      const found = scoredSearch(q);
+      if (found.length > 0) {
+        const top = found[0];
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(), role: 'sparky', isLocal: true,
+          text: top.short + '\n\n' + top.explain,
+          refs: top.refs || [],
+          fieldNote: top.example || null,
+          disclaimer: 'Local NEC reference — offline mode. Always verify with your adopted code edition and local AHJ.',
+          calcTab: top.calcTab || null,
+        }]);
+      } else {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(), role: 'sparky', isError: true,
+          text: "Having trouble connecting right now. Check your connection and try again. You can also browse the local NEC reference by tapping the book icon above.",
+        }]);
+      }
+    }
+
+    setLoading(false);
+    scrollToBottom();
+  };
+
+  // ── Message bubble ───────────────────────────────────────────────────────
+  const MessageBubble = React.useCallback(({ msg }) => {
+    // User bubble
+    if (msg.role === 'user') {
+      return (
+        <View style={{ alignItems: 'flex-end', marginBottom: 10, paddingLeft: 48 }}>
+          {msg.imageUri && (
+            <View style={{ width: 160, height: 110, backgroundColor: C.inputBg, borderRadius: 14, marginBottom: 4, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border }}>
+              <Ionicons name="image" size={32} color={C.textTert} />
+              <Text style={{ fontSize: 9, color: C.textTert, marginTop: 4 }}>Photo attached</Text>
+            </View>
+          )}
+          {!!msg.text && (
+            <View style={{ backgroundColor: C.blue, borderRadius: 18, borderBottomRightRadius: 5, paddingHorizontal: 14, paddingVertical: 10 }}>
+              <Text style={{ fontSize: 14, color: '#fff', lineHeight: 20 }}>{msg.text}</Text>
+            </View>
+          )}
+        </View>
+      );
+    }
+
+    // Sparky bubble
+    const accentColor = msg.isRateLimit ? C.warning : msg.isError ? C.danger : msg.isLocal ? C.teal : C.amber;
+    const bubbleBg   = msg.isRateLimit ? C.warningBg : msg.isError ? C.dangerBg : C.surface;
+
+    return (
+      <View style={{ alignItems: 'flex-start', marginBottom: 14, paddingRight: 24 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+          {/* Sparky avatar */}
+          <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+            <Ionicons name="flash" size={15} color="#fff" />
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 9, fontWeight: '700', color: accentColor, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>
+              {msg.isLocal ? 'Sparky AI · Offline' : 'Sparky AI'}
+            </Text>
+
+            {/* Main bubble */}
+            <View style={{ backgroundColor: bubbleBg, borderRadius: 18, borderTopLeftRadius: 5, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: accentColor, paddingHorizontal: 14, paddingVertical: 12 }}>
+              <Text style={{ fontSize: 14, color: C.text, lineHeight: 22 }}>{msg.text}</Text>
+
+              {/* NEC / source refs */}
+              {msg.refs && msg.refs.length > 0 && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 10 }}>
+                  {msg.refs.map(r => (
+                    <View key={r} style={{ backgroundColor: C.blueSub, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 99 }}>
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: C.blue }}>{r}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* Field note */}
+              {!!msg.fieldNote && (
+                <View style={{ backgroundColor: C.inputBg, borderRadius: 8, padding: 10, marginTop: 10, borderLeftWidth: 2, borderLeftColor: C.amber }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: C.amber, marginBottom: 3 }}>💡 FIELD NOTE</Text>
+                  <Text style={{ fontSize: 12, color: C.text, lineHeight: 18 }}>{msg.fieldNote}</Text>
+                </View>
+              )}
+
+              {/* Disclaimer */}
+              {!!msg.disclaimer && (
+                <Text style={{ fontSize: 10, color: C.textTert, marginTop: 8, lineHeight: 14 }}>⚠️ {msg.disclaimer}</Text>
+              )}
+            </View>
+
+            {/* Calculator shortcut */}
+            {!!msg.calcTab && (
+              <TouchableOpacity onPress={() => setTab(msg.calcTab)} activeOpacity={0.8}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.blueSub, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7, marginTop: 8, alignSelf: 'flex-start' }}>
+                <Ionicons name="calculator" size={13} color={C.blue} />
+                <Text style={{ fontSize: 12, fontWeight: '700', color: C.blue }}>
+                  Open {msg.calcTab === 'boxfill' ? 'Box Fill' : msg.calcTab === 'conduitfill' ? 'Conduit Fill' : msg.calcTab === 'volt' ? 'Voltage Drop' : 'Calculator'} →
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Rate limit CTAs */}
+            {msg.isRateLimit && (
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                <TouchableOpacity onPress={() => setTab('settings')}
+                  style={{ flex: 1, backgroundColor: C.blue, borderRadius: 10, padding: 10, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff' }}>⚡ Go Pro</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setTab('settings')}
+                  style={{ flex: 1, backgroundColor: C.amberBg, borderRadius: 10, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: C.amber }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber }}>Buy Pack</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Share */}
+            {!msg.isError && !msg.isRateLimit && (
+              <TouchableOpacity onPress={async () => {
+                const txt = `⚡ Sparky AI\n\n${msg.text}${msg.refs?.length ? '\n\nSources: ' + msg.refs.join(', ') : ''}\n\n— SparkConnect Tools`;
+                try { await Share.share({ message: txt }); } catch(e) { safeLog('share', e); }
+              }} style={{ alignSelf: 'flex-end', marginTop: 6, padding: 4 }}>
+                <Ionicons name="share-outline" size={15} color={C.textTert} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </View>
+    );
+  }, [C, setTab]);
+
+  const EXAMPLES = [
+    'Do bathroom outlets need GFCI?',
+    'Price for 200A service upgrade materials',
+    'Voltage drop — 20A, 150ft, #12 wire',
+    'How many wires fit in ¾" EMT?',
+    'EV charger circuit sizing 50A',
+    'GFCI vs AFCI — when to use each?',
+    'Rough estimate — 2,000 sq ft new construction',
+    'What THHN wire costs per foot?',
+  ];
+
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+
+      {/* ── Top bar ── */}
+      <View style={{ backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border }}>
+        <View style={{ paddingHorizontal: 14, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="flash" size={14} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>Sparky AI</Text>
+            <Text style={{ fontSize: 10, color: C.textTert }}>NEC · Estimates · Pricing · Photo analysis</Text>
+          </View>
+          {remainingQuestions !== null && !IS_PRO && (
+            <View style={{ backgroundColor: remainingQuestions <= 1 ? C.warningBg : C.successBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', color: remainingQuestions <= 1 ? C.warning : C.success }}>
+                {remainingQuestions} left today
+              </Text>
+            </View>
+          )}
+          <TouchableOpacity onPress={() => setShowBrowse(b => !b)}
+            style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: showBrowse ? C.blueSub : C.inputBg, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="book-outline" size={16} color={showBrowse ? C.blue : C.textSec} />
+          </TouchableOpacity>
+          {messages.length > 0 && (
+            <TouchableOpacity onPress={() => { setMessages([]); safeStorageSet('@sc_sparky_history', '[]'); }}
+              style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: C.inputBg, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="refresh-outline" size={16} color={C.textSec} />
+            </TouchableOpacity>
+          )}
+        </View>
+        {/* ── Sparky Modes horizontal selector ── */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ borderTopWidth: 1, borderTopColor: C.borderLight }} contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 7, gap: 6, flexDirection: 'row' }}>
+          {SPARKY_MODES.map(mode => (
+            <TouchableOpacity key={mode.id} onPress={() => setActiveMode(mode.id)}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99, backgroundColor: activeMode === mode.id ? C.amber : C.inputBg, borderWidth: 1, borderColor: activeMode === mode.id ? C.amber : C.border }}>
+              <Text style={{ fontSize: 11 }}>{mode.emoji}</Text>
+              <Text style={{ fontSize: 11, fontWeight: activeMode === mode.id ? '700' : '500', color: activeMode === mode.id ? '#fff' : C.textSec }}>{mode.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* ── Browse NEC Reference (collapsible) ── */}
+      {showBrowse && (
+        <View style={{ backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, maxHeight: 220 }}>
+          <View style={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4 }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.5 }}>NEC Quick Reference — tap to ask</Text>
+          </View>
+          <ScrollView contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 10 }} showsVerticalScrollIndicator={false}>
+            {NEC_KB.map(a => (
+              <TouchableOpacity key={a.id} onPress={() => { setShowBrowse(false); handleSend(a.topic); }}
+                style={{ paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: C.borderLight, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View>
+                  <Text style={{ fontSize: 13, color: C.text, fontWeight: '600' }}>{a.topic}</Text>
+                  <Text style={{ fontSize: 10, color: C.textTert }}>{a.refs.slice(0, 2).join(' · ')}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={14} color={C.textTert} />
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* ── Messages ── */}
+      <ScrollView
+        ref={scrollRef}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 12 }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Empty state */}
+        {messages.length === 0 && !loading && (
+          <View>
+            {/* Welcome bubble */}
+            <View style={{ alignItems: 'flex-start', marginBottom: 20 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, maxWidth: '92%' }}>
+                <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+                  <Ionicons name="flash" size={15} color="#fff" />
+                </View>
+                <View style={{ flex: 1, backgroundColor: C.surface, borderRadius: 18, borderTopLeftRadius: 5, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: C.amber, paddingHorizontal: 14, paddingVertical: 12 }}>
+                  <Text style={{ fontSize: 14, color: C.text, lineHeight: 22 }}>
+                    {"Hey! I'm Sparky ⚡ — your electrical field expert.\n\nAsk me about NEC code, material costs, installation how-tos, load calculations, permit questions, estimates, or snap a photo of a panel or wiring problem and I'll take a look."}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <Text style={{ fontSize: 10, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Try asking:</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {EXAMPLES.map(e => (
+                <TouchableOpacity key={e} onPress={() => handleSend(e)} activeOpacity={0.7}
+                  style={{ backgroundColor: C.surface, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 99, borderWidth: 1, borderColor: C.border }}>
+                  <Text style={{ fontSize: 12, color: C.text, fontWeight: '500' }}>{e}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Message list */}
+        {messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)}
+
+        {/* Loading bubble */}
+        {loading && (
+          <View style={{ alignItems: 'flex-start', marginBottom: 14 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+              <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="flash" size={15} color="#fff" />
+              </View>
+              <View style={{ backgroundColor: C.surface, borderRadius: 18, borderTopLeftRadius: 5, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: C.amber, paddingHorizontal: 14, paddingVertical: 12 }}>
+                <Text style={{ fontSize: 14, color: C.textSec }}>Thinking<Text style={{ color: C.amber }}>...</Text></Text>
+              </View>
+            </View>
+          </View>
+        )}
+      </ScrollView>
+
+      {/* ── Image preview bar ── */}
+      {selectedImage && (
+        <View style={{ backgroundColor: C.surface, paddingHorizontal: 14, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={{ width: 44, height: 44, borderRadius: 10, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="image" size={22} color={C.blue} />
+          </View>
+          <Text style={{ flex: 1, fontSize: 12, color: C.textSec, fontWeight: '500' }}>Photo ready — ask Sparky about it ↓</Text>
+          <TouchableOpacity onPress={() => setSelectedImage(null)}>
+            <Ionicons name="close-circle" size={22} color={C.danger} />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* ── Recording bar ── */}
+      {isRecording && (
+        <View style={{ backgroundColor: C.dangerBg, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: C.danger, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.danger }} />
+          <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: C.danger }}>Recording {recordingTime}s — speak your question</Text>
+          <TouchableOpacity onPress={stopRecording}
+            style={{ backgroundColor: C.danger, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8 }}>
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>Stop & Send</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* ── Input bar ── */}
+      <View style={{ backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border, paddingHorizontal: 10, paddingVertical: 8, paddingBottom: Platform.OS === 'ios' ? 6 : 8, flexDirection: 'row', alignItems: 'flex-end', gap: 6 }}>
+        {/* Camera button */}
+        <TouchableOpacity onPress={handleImagePress}
+          style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: selectedImage ? C.blueSub : C.inputBg, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Ionicons name="camera-outline" size={18} color={selectedImage ? C.blue : C.textSec} />
+        </TouchableOpacity>
+
+        {/* Text input */}
+        <TextInput
+          ref={inputRef}
+          style={{ flex: 1, backgroundColor: C.inputBg, borderRadius: 20, paddingHorizontal: 14, paddingVertical: Platform.OS === 'ios' ? 9 : 7, fontSize: 14, color: C.inputText, borderWidth: 1.5, borderColor: C.inputBorder, maxHeight: 100, minHeight: 36 }}
+          value={inputText}
+          onChangeText={setInputText}
+          placeholder="Ask anything electrical..."
+          placeholderTextColor={C.placeholder}
+          multiline
+          keyboardType="default"
+          returnKeyType="default"
+          maxLength={500}
+        />
+
+        {/* Mic button */}
+        <TouchableOpacity onPress={isRecording ? stopRecording : startRecording}
+          style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: isRecording ? C.danger : C.inputBg, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Ionicons name={isRecording ? 'stop' : 'mic-outline'} size={18} color={isRecording ? '#fff' : C.textSec} />
+        </TouchableOpacity>
+
+        {/* Send button */}
+        <TouchableOpacity onPress={() => handleSend()} disabled={(!inputText.trim() && !selectedImage) || loading}
+          style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: (inputText.trim() || selectedImage) && !loading ? C.blue : C.inputBg, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Ionicons name="send" size={15} color={(inputText.trim() || selectedImage) && !loading ? '#fff' : C.textTert} />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
+
+// ─── SETTINGS ────────────────────────────────────────────────────────────────
+
+// ─── JOB CAM SCREEN ──────────────────────────────────────────────────────────
+// Folder-based job site photo organizer. Projects stored in AsyncStorage.
+// expo-image-picker + expo-sharing (loaded dynamically).
+const JobCamScreen = ({ C, setTab }) => {
+  // ── View state ─────────────────────────────────────────────────────────
+  const [view, setView] = useState('projects');     // 'projects' | 'photos' | 'detail'
+  const [projects, setProjects] = useState([]);     // [{ id, name, created }]
+  const [photos, setPhotos] = useState([]);         // [{ id, projectId, uri, label, note, timestamp }]
+  const [activeProject, setActiveProject] = useState(null);
+  const [activePhoto, setActivePhoto] = useState(null);
+  const [editNote, setEditNote] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [sharePromptId, setSharePromptId] = useState(null);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  // Load from AsyncStorage
+  React.useEffect(() => {
+    Promise.all([
+      safeStorageGet('@sc_cam_projects'),
+      safeStorageGet('@sc_cam_photos'),
+    ]).then(([projRaw, photoRaw]) => {
+      try { if (projRaw) setProjects(JSON.parse(projRaw)); } catch {}
+      try { if (photoRaw) setPhotos(JSON.parse(photoRaw)); } catch {}
+      setLoaded(true);
+    });
+  }, []);
+
+  const saveProjects = async (next) => {
+    setProjects(next);
+    await safeStorageSet('@sc_cam_projects', JSON.stringify(next));
+  };
+  const savePhotos = async (next) => {
+    setPhotos(next);
+    await safeStorageSet('@sc_cam_photos', JSON.stringify(next.slice(-200))); // cap at 200 entries
+  };
+
+  const createProject = async () => {
+    const name = newProjectName.trim() || ('Job Site ' + (projects.length + 1));
+    const proj = { id: Date.now().toString(), name, created: new Date().toLocaleDateString() };
+    await saveProjects([proj, ...projects]);
+    setNewProjectName(''); setShowNewProject(false);
+    setActiveProject(proj); setView('photos');
+  };
+
+  const deleteProject = (id) => {
+    Alert.alert('Delete Project', 'Delete this project and all its photos?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        await saveProjects(projects.filter(p => p.id !== id));
+        await savePhotos(photos.filter(ph => ph.projectId !== id));
+        setView('projects'); setActiveProject(null);
+      }},
+    ]);
+  };
+
+  // Check if ImagePicker is truly functional (not just imported as empty module in Snack)
+  const [_picker, setPickerMod] = React.useState(null);
+  React.useEffect(() => {
+    _loadImagePicker().then(mod => setPickerMod(mod || false));
+  }, []);
+  const isPickerAvailable = _picker && typeof _picker.requestCameraPermissionsAsync === 'function';
+
+  const addDemoPhoto = async (label = 'Demo Job Site Photo') => {
+    // Adds a placeholder photo for testing in Snack/preview environment
+    const demoPhoto = {
+      id: Date.now().toString(),
+      projectId: activeProject.id,
+      uri: '__demo__',  // sentinel for demo mode rendering
+      label,
+      note: 'Demo photo — tap to add notes and tags. Real photos work in the SparkConnect app on your device.',
+      timestamp: new Date().toLocaleString(),
+      tag: 'General',
+    };
+    await savePhotos([demoPhoto, ...photos]);
+    setSharePromptId(demoPhoto.id);
+  };
+
+  const pickOrCapture = async (fromCamera) => {
+    if (!activeProject) { Alert.alert('Select Project', 'Choose or create a job site project first.'); return; }
+
+    // ── Snack / preview environment — offer demo mode ──
+    if (!isPickerAvailable) {
+      Alert.alert(
+        'Camera works on device',
+        'Job Cam photos work in the full SparkConnect app.\n\n• Download from App Store / TestFlight\n• Or scan the QR code with Expo Go\n\nWant to add a demo photo to test notes and tags?',
+        [
+          { text: 'Add Demo Photo', onPress: () => addDemoPhoto(fromCamera ? 'Demo Camera Photo' : 'Demo Library Photo') },
+          { text: 'OK', style: 'cancel' },
+        ]
+      );
+      return;
+    }
+
+    // ── Real device — use actual camera/gallery ──
+    try {
+      if (fromCamera) {
+        const { status } = await _picker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Camera Permission Needed', 'Open Settings → SparkConnect → Camera → Enable.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings?.() },
+          ]);
+          return;
+        }
+        const result = await _picker.launchCameraAsync({ quality: 0.85, allowsEditing: false });
+        if (!result.canceled && result.assets?.[0]?.uri) {
+          const newPhoto = { id: Date.now().toString(), projectId: activeProject.id, uri: result.assets[0].uri, label: 'Job Site Photo', note: '', timestamp: new Date().toLocaleString(), tag: 'General' };
+          await savePhotos([newPhoto, ...photos]);
+          setSharePromptId(newPhoto.id);
+        }
+      } else {
+        const { status } = await _picker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Photo Library Permission Needed', 'Open Settings → SparkConnect → Photos → Enable.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings?.() },
+          ]);
+          return;
+        }
+        const result = await _picker.launchImageLibraryAsync({
+          quality: 0.85, allowsEditing: false, allowsMultipleSelection: true,
+        });
+        if (!result.canceled && result.assets?.length > 0) {
+          const newPhotos = result.assets.map((a, idx) => ({
+            id: `${Date.now()}_${idx}`, projectId: activeProject.id,
+            uri: a.uri, label: 'Photo from Library',
+            note: '', timestamp: new Date().toLocaleString(), tag: 'General',
+          }));
+          await savePhotos([...newPhotos, ...photos]);
+          setSharePromptId(newPhotos[0].id);
+        }
+      }
+    } catch(e) {
+      safeLog('JobCam.pick', 'Image picker error');
+      Alert.alert('Photo Error', 'Could not access photos. Try: Settings → SparkConnect → grant camera/photos permission.');
+const handleShare = async (photo, caption) => {
+    const shareCaption = caption || photo.note || photo.label;
+    try {
+      // Try expo-sharing for file-based share (passes actual image to social apps)
+      const ES = await _loadSharing();
+      if (ES && await ES.isAvailableAsync()) {
+        await ES.shareAsync(photo.uri, { mimeType: 'image/jpeg', dialogTitle: shareCaption, UTI: 'public.jpeg' });
+      } else {
+        // Fallback to React Native Share (text only — image sharing limited)
+        await Share.share({ message: shareCaption + '\n\n⚡ SparkConnect Tools — Electrician Field App', url: photo.uri });
+      }
+    } catch(e) {
+      safeLog('JobCam.share', 'Share error (URI not logged)');
+    }
+  };
+
+  const deletePhoto = (id) => {
+    Alert.alert('Delete Photo', 'Remove this photo?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        const next = photos.filter(p => p.id !== id);
+        await savePhotos(next);
+        if (activePhoto?.id === id) { setActivePhoto(null); setView('photos'); }
+      }},
+    ]);
+  };
+
+  // ── Detail view ──────────────────────────────────────────────────────────
+  if (activePhoto) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        {/* Full-size photo */}
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ width: '100%', aspectRatio: 4/3, backgroundColor: '#111', alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: '#555', fontSize: 12 }}>Photo preview: {activePhoto.uri.slice(-40)}</Text>
+          </View>
+        </View>
+        {/* Controls */}
+        <View style={{ backgroundColor: C.surface, padding: 16, gap: 10 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <TouchableOpacity onPress={() => { setActivePhoto(null); setView('photos'); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Ionicons name="arrow-back" size={18} color={C.blue} />
+              <Text style={{ fontSize: 13, color: C.blue, fontWeight: '600' }}>Back to {activeProject?.name || 'Photos'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => deletePhoto(activePhoto.id)}>
+              <Ionicons name="trash-outline" size={20} color={C.danger} />
+            </TouchableOpacity>
+          </View>
+          {/* Photo Tag Selector */}
+          <View style={{ marginBottom: 8 }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Tag</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {['General','Rough-in','Panel','Before','After','Issue','Inspection','Material'].map(tag => (
+                  <TouchableOpacity key={tag} onPress={async () => {
+                    const updated = photos.map(p => p.id === activePhoto.id ? {...p, tag} : p);
+                    await savePhotos(updated);
+                    setActivePhoto(prev => ({...prev, tag}));
+                  }} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99, backgroundColor: (activePhoto.tag || 'General') === tag ? C.blue : C.inputBg, borderWidth: 1, borderColor: (activePhoto.tag || 'General') === tag ? C.blue : C.border }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: (activePhoto.tag || 'General') === tag ? '#fff' : C.textSec }}>{tag}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+          {editingId === activePhoto.id
+            ? <View>
+                <TextInput value={editNote} onChangeText={setEditNote} placeholder="Add a note..." placeholderTextColor={C.placeholder}
+                  style={{ backgroundColor: C.inputBg, borderRadius: 8, padding: 10, color: C.inputText, fontSize: 13, borderWidth: 1, borderColor: C.border, marginBottom: 8 }}
+                  multiline maxLength={200} />
+                <TouchableOpacity onPress={async () => {
+                  const updated = photos.map(p => p.id === activePhoto.id ? {...p, note: editNote} : p);
+                  await savePhotos(updated);
+                  setActivePhoto(prev => ({...prev, note: editNote}));
+                  setEditingId(null);
+                }} style={{ backgroundColor: C.blue, borderRadius: 8, padding: 10, alignItems: 'center' }}>
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>Save Note</Text>
+                </TouchableOpacity>
+              </View>
+            : <TouchableOpacity onPress={() => { setEditNote(activePhoto.note || ''); setEditingId(activePhoto.id); }}
+                style={{ backgroundColor: C.inputBg, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: C.border }}>
+                <Text style={{ color: activePhoto.note ? C.text : C.placeholder, fontSize: 13 }}>
+                  {activePhoto.note || 'Tap to add a note...'}
+                </Text>
+              </TouchableOpacity>}
+          <Text style={{ fontSize: 10, color: C.textTert }}>{activePhoto.timestamp}</Text>
+          {/* Share options */}
+          <TouchableOpacity onPress={() => {
+            Alert.alert('Share Photo', 'Your native share sheet will open — you can post to Instagram, TikTok, X, or save to your camera roll.', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Share', onPress: () => handleShare(activePhoto) },
+            ]);
+          }} style={{ backgroundColor: C.blue, borderRadius: 12, padding: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+            <Ionicons name="share-social-outline" size={18} color="#fff" />
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Share to Instagram / TikTok / X / Gallery</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Project list view ───────────────────────────────────────────────────
+  if (view === 'projects') {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        {/* New project input */}
+        {showNewProject
+          ? <View style={{ backgroundColor: C.surface, padding: 14, borderBottomWidth: 1, borderBottomColor: C.border, flexDirection: 'row', gap: 8 }}>
+              <TextInput value={newProjectName} onChangeText={setNewProjectName} placeholder="Job site name (e.g. 123 Main St)"
+                placeholderTextColor={C.placeholder} style={{ flex: 1, backgroundColor: C.inputBg, borderRadius: 8, padding: 10, color: C.inputText, fontSize: 14, borderWidth: 1, borderColor: C.border }}
+                autoFocus returnKeyType="done" onSubmitEditing={createProject} maxLength={60} />
+              <TouchableOpacity onPress={createProject} style={{ backgroundColor: C.blue, borderRadius: 8, padding: 10, justifyContent: 'center' }}>
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>Create</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowNewProject(false)} style={{ padding: 10, justifyContent: 'center' }}>
+                <Ionicons name="close" size={20} color={C.textSec} />
+              </TouchableOpacity>
+            </View>
+          : <TouchableOpacity onPress={() => setShowNewProject(true)}
+              style={{ backgroundColor: C.blue, margin: 14, borderRadius: 12, paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+              <Ionicons name="folder-open" size={20} color="#fff" />
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>+ New Job Site Folder</Text>
+            </TouchableOpacity>}
+        {projects.length === 0
+          ? <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+              <Ionicons name="folder-open-outline" size={48} color={C.textTert} style={{ marginBottom: 12 }} />
+              <Text style={{ fontSize: 16, fontWeight: '700', color: C.text, marginBottom: 6 }}>No Job Site Folders</Text>
+              <Text style={{ fontSize: 13, color: C.textSec, textAlign: 'center', lineHeight: 20 }}>
+                Create a folder for each job site. Keep rough-in photos, panel photos, and notes organized by location.
+              </Text>
+            </View>
+          : <ScrollView contentContainerStyle={{ padding: 14, paddingTop: 0 }} showsVerticalScrollIndicator={false}>
+              {projects.map(proj => {
+                const projPhotos = photos.filter(ph => ph.projectId === proj.id);
+                return (
+                  <TouchableOpacity key={proj.id} onPress={() => { setActiveProject(proj); setView('photos'); }} activeOpacity={0.85}
+                    style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <View style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
+                      <Ionicons name="folder" size={24} color={C.blue} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 2 }}>{proj.name}</Text>
+                      <Text style={{ fontSize: 11, color: C.textSec }}>{projPhotos.length} photo{projPhotos.length !== 1 ? 's' : ''} · Created {proj.created}</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TouchableOpacity onPress={() => deleteProject(proj.id)} style={{ padding: 6 }}>
+                        <Ionicons name="trash-outline" size={16} color={C.danger} />
+                      </TouchableOpacity>
+                      <Ionicons name="chevron-forward" size={18} color={C.textTert} />
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>}
+        <View style={{ padding: 10, borderTopWidth: 1, borderTopColor: C.border }}>
+          <Text style={{ fontSize: 10, color: C.textTert, textAlign: 'center' }}>Photos stored locally. SparkConnect does not upload your photos.</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Photo detail view ─────────────────────────────────────────────────────
+  if (view === 'detail' && activePhoto) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ width: '100%', aspectRatio: 4/3, backgroundColor: '#111', alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="image-outline" size={48} color="#64748B" />
+            <Text style={{ color: '#555', fontSize: 12, marginTop: 6 }}>{activePhoto.label}</Text>
+          </View>
+        </View>
+        <View style={{ backgroundColor: C.surface, padding: 16, gap: 10 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <TouchableOpacity onPress={() => { setActivePhoto(null); setView('photos'); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Ionicons name="arrow-back" size={18} color={C.blue} />
+              <Text style={{ fontSize: 13, color: C.blue, fontWeight: '600' }}>Back to {activeProject?.name || 'Photos'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => deletePhoto(activePhoto.id)}>
+              <Ionicons name="trash-outline" size={20} color={C.danger} />
+            </TouchableOpacity>
+          </View>
+          {editingId === activePhoto.id
+            ? <View>
+                <TextInput value={editNote} onChangeText={setEditNote} placeholder="Add a note..." placeholderTextColor={C.placeholder}
+                  style={{ backgroundColor: C.inputBg, borderRadius: 8, padding: 10, color: C.inputText, fontSize: 13, borderWidth: 1, borderColor: C.border, marginBottom: 8 }}
+                  multiline maxLength={200} />
+                <TouchableOpacity onPress={async () => {
+                  const updated = photos.map(p => p.id === activePhoto.id ? {...p, note: editNote} : p);
+                  await savePhotos(updated);
+                  setActivePhoto(prev => ({...prev, note: editNote}));
+                  setEditingId(null);
+                }} style={{ backgroundColor: C.blue, borderRadius: 8, padding: 10, alignItems: 'center' }}>
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>Save Note</Text>
+                </TouchableOpacity>
+              </View>
+            : <TouchableOpacity onPress={() => { setEditNote(activePhoto.note || ''); setEditingId(activePhoto.id); }}
+                style={{ backgroundColor: C.inputBg, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: C.border }}>
+                <Text style={{ color: activePhoto.note ? C.text : C.placeholder, fontSize: 13 }}>{activePhoto.note || 'Tap to add a note...'}</Text>
+              </TouchableOpacity>}
+          <Text style={{ fontSize: 10, color: C.textTert }}>{activePhoto.timestamp}</Text>
+          <TouchableOpacity onPress={() => handleShare(activePhoto)}
+            style={{ backgroundColor: C.blue, borderRadius: 12, padding: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+            <Ionicons name="share-social-outline" size={18} color="#fff" />
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Share to Instagram / TikTok / X / Gallery</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Grid / main view (photos in active project) ────────────────────────────
+  const projectPhotos = photos.filter(ph => ph.projectId === activeProject?.id);
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      {/* Share prompt after capture */}
+      {sharePromptId && (() => {
+        const p = projectPhotos.find(ph => ph.id === sharePromptId);
+        return p ? (
+          <View style={{ backgroundColor: C.blue, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Ionicons name="checkmark-circle" size={20} color="#fff" />
+            <Text style={{ flex: 1, color: '#fff', fontSize: 12, fontWeight: '600' }}>Photo saved! Share to Instagram, TikTok, or X?</Text>
+            <TouchableOpacity onPress={() => { handleShare(p); setSharePromptId(null); }}
+              style={{ backgroundColor: 'rgba(255,255,255,0.25)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}>
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>Share</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setSharePromptId(null)}>
+              <Ionicons name="close" size={18} color="rgba(255,255,255,0.7)" />
+            </TouchableOpacity>
+          </View>
+        ) : null;
+      })()}
+
+      {/* Project header + action buttons */}
+      <View style={{ backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <TouchableOpacity onPress={() => { setActiveProject(null); setView('projects'); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <Ionicons name="arrow-back" size={18} color={C.blue} />
+          <Text style={{ fontSize: 13, color: C.blue, fontWeight: '600' }}>All Sites</Text>
+        </TouchableOpacity>
+        <Text style={{ flex: 1, fontSize: 14, fontWeight: '700', color: C.text, textAlign: 'center' }} numberOfLines={1}>{activeProject?.name}</Text>
+        <Text style={{ fontSize: 11, color: C.textTert }}>{projectPhotos.length} photo{projectPhotos.length !== 1 ? 's' : ''}</Text>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10, padding: 14 }}>
+        <TouchableOpacity onPress={() => pickOrCapture(true)} activeOpacity={0.85}
+          style={{ flex: 1, backgroundColor: C.blue, borderRadius: 12, paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+          <Ionicons name="camera" size={20} color="#fff" />
+          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Take Photo</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => pickOrCapture(false)} activeOpacity={0.85}
+          style={{ flex: 1, backgroundColor: C.surface, borderRadius: 12, paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, borderWidth: 1.5, borderColor: C.border }}>
+          <Ionicons name="images-outline" size={20} color={C.blue} />
+          <Text style={{ color: C.blue, fontWeight: '700', fontSize: 14 }}>From Gallery</Text>
+        </TouchableOpacity>
+      </View>
+
+      {projectPhotos.length === 0
+        ? <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+            <View style={{ width: 80, height: 80, borderRadius: 20, backgroundColor: C.inputBg, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+              <Ionicons name="camera-outline" size={36} color={C.textTert} />
+            </View>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: C.text, marginBottom: 6 }}>No Job Site Photos</Text>
+            <Text style={{ fontSize: 13, color: C.textSec, textAlign: 'center', lineHeight: 20 }}>Take photos of your job site, panel layouts, or rough-in work. Tap any photo to add notes or share to social media.</Text>
+          </View>
+        : <ScrollView contentContainerStyle={{ padding: 14, paddingTop: 0, gap: 10 }} showsVerticalScrollIndicator={false}>
+            <Text style={{ fontSize: 12, color: C.textTert, marginBottom: 4 }}>{projectPhotos.length} photo{projectPhotos.length !== 1 ? 's' : ''} · Tap to view or share</Text>
+            {projectPhotos.map(photo => (
+              <TouchableOpacity key={photo.id} onPress={() => { setActivePhoto(photo); setView('detail'); }} activeOpacity={0.85}
+                style={{ backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
+                <View style={{ height: 160, backgroundColor: photo.uri === '__demo__' ? '#1A2744' : '#1E293B', alignItems: 'center', justifyContent: 'center', borderWidth: photo.uri === '__demo__' ? 1 : 0, borderColor: 'rgba(244,161,29,0.3)', borderStyle: 'dashed' }}>
+                  <Ionicons name={photo.uri === '__demo__' ? 'image-outline' : 'image-outline'} size={40} color={photo.uri === '__demo__' ? '#F4A11D' : '#64748B'} />
+                  <Text style={{ color: photo.uri === '__demo__' ? '#F4A11D' : '#64748B', fontSize: 11, marginTop: 4, fontWeight: photo.uri === '__demo__' ? '600' : '400' }}>{photo.uri === '__demo__' ? '📷 Demo Photo' : 'Tap to preview'}</Text>
+                </View>
+                <View style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>{photo.label}</Text>
+                    {photo.note ? <Text style={{ fontSize: 11, color: C.textSec, marginTop: 2 }} numberOfLines={1}>{photo.note}</Text> : null}
+                    <Text style={{ fontSize: 10, color: C.textTert, marginTop: 2 }}>{photo.timestamp}</Text>
+                  </View>
+                  <TouchableOpacity onPress={(e) => { e.stopPropagation?.(); handleShare(photo); }}
+                    style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center', marginLeft: 10 }}>
+                    <Ionicons name="share-outline" size={16} color={C.blue} />
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>}
+
+      {/* Privacy note */}
+      <View style={{ padding: 12, borderTopWidth: 1, borderTopColor: C.border }}>
+        <Text style={{ fontSize: 10, color: C.textTert, textAlign: 'center', lineHeight: 15 }}>
+          Photos are stored locally on your device. SparkConnect does not upload or store your photos.
+        </Text>
+      </View>
+    </View>
+  );
+};
+
+// ─── DISCLAIMER FOOTER ────────────────────────────────────────────────────────
+const DisclaimerFooter = ({ C }) => (
+  <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.borderLight }}>
+    <Ionicons name="information-circle-outline" size={13} color={C.textTert} />
+    <Text style={{ flex: 1, fontSize: 10, color: C.textTert, lineHeight: 15 }}>
+      Reference tool only. NEC article numbers are cited for reference. Always verify with your adopted NEC edition (NFPA 70), local AHJ, manufacturer instructions, and qualified supervision before installation.
+    </Text>
+  </View>
+);
+
+// ─── FIRST-RUN ACKNOWLEDGMENT ─────────────────────────────────────────────────
+const OnboardingScreen = ({ onAccept, C }) => {
+  const [checked, setChecked] = useState({ terms: false, privacy: false, disc: false });
+  const points = [
+    'Verify all calculations before installation',
+    'Follow manufacturer instructions',
+    'Follow your locally adopted NEC edition',
+    'Follow local AHJ requirements',
+    'Obtain permits and inspections when required',
+    'Work safely and use proper PPE',
+  ];
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <StatusBar barStyle={C.statusBar} backgroundColor={C.bg} />
+      <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 28, paddingTop: 60, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+        <View style={{ alignItems: 'center', marginBottom: 28 }}>
+          <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: C.blue, alignItems: 'center', justifyContent: 'center', shadowColor: C.blue, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 16, elevation: 10 }}>
+            <Ionicons name="flash" size={38} color="#fff" />
+          </View>
+        </View>
+        <Text style={{ fontSize: 24, fontWeight: '800', color: C.text, textAlign: 'center', letterSpacing: -0.5, marginBottom: 8 }}>Welcome to SparkConnect Tools</Text>
+        <Text style={{ fontSize: 14, color: C.textSec, textAlign: 'center', lineHeight: 21, marginBottom: 28 }}>A field reference app for electricians, apprentices, and contractors. Before you begin, please review the following.</Text>
+        <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 18, borderWidth: 1, borderColor: C.border, marginBottom: 24, gap: 12 }}>
+          {points.map((p, i) => (
+            <View key={i} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+              <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center', marginTop: 1, flexShrink: 0 }}>
+                <Ionicons name="checkmark" size={12} color={C.blue} />
+              </View>
+              <Text style={{ flex: 1, fontSize: 13, color: C.text, lineHeight: 19 }}>{p}</Text>
+            </View>
+          ))}
+        </View>
+        <Text style={{ fontSize: 11, color: C.textTert, textAlign: 'center', lineHeight: 17, marginBottom: 24 }}>SparkConnect Tools is a reference and productivity app. It does not replace professional judgment, licensed supervision, engineering review, permits, or inspections.</Text>
+        {/* Legal checkboxes — required before continuing */}
+        {[
+          { key: 'terms',   label: 'I have read and agree to the ', link: 'Terms of Service' },
+          { key: 'privacy', label: 'I have read and agree to the ', link: 'Privacy Policy' },
+          { key: 'disc',    label: 'I understand this app is a reference tool only and does not replace licensed electrical supervision', link: null },
+        ].map(item => (
+          <TouchableOpacity key={item.key} onPress={() => setChecked(prev => ({ ...prev, [item.key]: !prev[item.key] }))}
+            style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
+            <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: checked[item.key] ? C.blue : C.border, backgroundColor: checked[item.key] ? C.blue : 'transparent', alignItems: 'center', justifyContent: 'center', marginTop: 1, flexShrink: 0 }}>
+              {checked[item.key] && <Ionicons name="checkmark" size={13} color="#fff" />}
+            </View>
+            <Text style={{ flex: 1, fontSize: 12, color: C.textSec, lineHeight: 18 }}>
+              {item.label}{item.link ? <Text style={{ color: C.blue, fontWeight: '600' }}>{item.link}</Text> : ''}
+            </Text>
+          </TouchableOpacity>
+        ))}
+
+        <TouchableOpacity
+          onPress={() => Object.values(checked).every(Boolean) && onAccept()}
+          activeOpacity={0.85}
+          style={{ backgroundColor: Object.values(checked).every(Boolean) ? C.blue : C.border, borderRadius: 14, paddingVertical: 16, alignItems: 'center', shadowColor: C.blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: Object.values(checked).every(Boolean) ? 0.3 : 0, shadowRadius: 12, elevation: Object.values(checked).every(Boolean) ? 6 : 0 }}>
+          <Text style={{ fontSize: 16, fontWeight: '700', color: Object.values(checked).every(Boolean) ? '#fff' : C.textTert }}>
+            {Object.values(checked).every(Boolean) ? 'Agree & Continue →' : 'Check all boxes to continue'}
+          </Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </View>
+  );
+};
+
+// ─── TERMS OF SERVICE ─────────────────────────────────────────────────────────
+const TermsScreen = ({ C, onBack }) => {
+  const Sec = ({ title, body }) => (
+    <View style={{ marginBottom: 20 }}>
+      <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 6 }}>{title}</Text>
+      <Text style={{ fontSize: 13, color: C.textSec, lineHeight: 20 }}>{body}</Text>
+    </View>
+  );
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border }}>
+        <TouchableOpacity onPress={onBack} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="arrow-back" size={18} color={C.blue} />
+        </TouchableOpacity>
+        <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>Terms of Service</Text>
+      </View>
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
+        <Text style={{ fontSize: 11, color: C.textTert, marginBottom: 20 }}>Last updated: June 2025</Text>
+        <Sec title="Reference Tool Only" body="SparkConnect Tools is a field reference and productivity application for electricians, apprentices, and contractors. It does not replace professional judgment, licensed supervision, engineering review, inspections, permits, manufacturer instructions, OSHA requirements, the National Electrical Code, or local Authority Having Jurisdiction (AHJ) requirements." />
+        <Sec title="No Guarantee of Code Compliance" body="Calculations and code references are for informational and planning purposes only. SparkConnect makes no warranty that any result is code-compliant, accurate, or applicable to your specific installation, jurisdiction, or conditions." />
+        <Sec title="User Responsibility" body="You are solely responsible for verifying all calculations, code citations, wire sizing, conduit fill, voltage drop, box fill, and any other output before using it in any installation. Always consult the adopted NEC edition for your jurisdiction and your local AHJ." />
+        <Sec title="Electrical Safety" body="Electrical work can cause serious injury, death, or property damage if performed incorrectly. This app does not provide safety advice and is not a substitute for proper training, licensing, supervision, or safe work practices." />
+        <Sec title="Permits and Inspections" body="Permits and inspections may be required for electrical work in your jurisdiction. This app does not determine permit requirements and does not replace inspection by a qualified authority." />
+        <Sec title="No Engineering or Professional Advice" body="This app does not provide engineering, legal, or professional advice. For engineering review, consult a licensed professional engineer. For legal questions, consult a licensed attorney." />
+        <Sec title="Limitation of Liability" body="To the maximum extent permitted by law, SparkConnect and its developers shall not be liable for any damages, injuries, losses, or code violations arising from use of this application." />
+        <Sec title="Subscription Terms" body="SparkConnect Pro subscriptions are currently in development and not yet available for purchase. When launched, Pro subscriptions will be billed monthly or annually at the rates displayed in the app at the time of purchase. Subscriptions will auto-renew unless cancelled at least 24 hours before the end of the current period. Manage or cancel subscriptions through your App Store or Google Play account settings. Prices may vary by region." />
+        <Sec title="Changes to Terms" body="We may update these Terms from time to time. Continued use after changes constitutes acceptance." />
+        <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>Questions? support@sparkconnect.pro</Text>
+      </ScrollView>
+    </View>
+  );
+};
+
+// ─── PRIVACY POLICY ───────────────────────────────────────────────────────────
+const PrivacyScreen = ({ C, onBack }) => {
+  const Sec = ({ title, body }) => (
+    <View style={{ marginBottom: 20 }}>
+      <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 6 }}>{title}</Text>
+      <Text style={{ fontSize: 13, color: C.textSec, lineHeight: 20 }}>{body}</Text>
+    </View>
+  );
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border }}>
+        <TouchableOpacity onPress={onBack} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="arrow-back" size={18} color={C.blue} />
+        </TouchableOpacity>
+        <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>Privacy Policy</Text>
+      </View>
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
+        <Text style={{ fontSize: 11, color: C.textTert, marginBottom: 20 }}>Last updated: June 2025</Text>
+        <Sec title="Information We Collect" body="SparkConnect Tools collects minimal information. Calculator inputs, quiz progress, saved settings, and job site photos are stored locally on your device and are not transmitted to our servers. We do not require account creation." />
+        <Sec title="Sparky AI Questions" body="When you use Sparky AI with a connected backend, your question text is sent to our secure backend server and to an AI service provider to generate a response. Do not submit private, sensitive, or confidential information through Sparky AI. Without a backend connection, all searches are processed locally on your device." />
+        <Sec title="Analytics" body="SparkConnect Tools does not currently collect analytics or crash reporting data. If basic anonymous analytics are enabled in a future version, they will not include personally identifiable information and will be disclosed here." />
+        <Sec title="Purchases and Subscriptions" body="Subscription purchases, when available, will be processed entirely by Apple (App Store) or Google (Play Store). SparkConnect does not store or process payment card information. All billing is handled by the platform you use to download the app." />
+        <Sec title="Account and Login Data" body="The current version does not require an account or login. If account features are added in a future version, we will update this policy." />
+        <Sec title="Data Sharing" body="We do not sell, rent, or trade your personal data to advertisers or third parties. Anonymous aggregate data may be used to improve the app." />
+        <Sec title="Data Security" body="All data stored by SparkConnect Tools remains on your device. We do not operate servers that store your calculator results or job site photos." />
+        <Sec title="Children's Privacy" body="SparkConnect Tools is intended for adult professionals and is not directed at children under 13." />
+        <Sec title="Changes to This Policy" body="We may update this Privacy Policy from time to time. Continued use after changes constitutes acceptance." />
+        <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>Questions? support@sparkconnect.pro</Text>
+      </ScrollView>
+    </View>
+  );
+};
+
+
+// ─── SAFETY & COMPLIANCE ──────────────────────────────────────────────────────
+const SafetyScreen = ({ C, onBack }) => {
+  const Sec = ({ title, body }) => (
+    <View style={{ marginBottom: 20 }}>
+      <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 6 }}>{title}</Text>
+      <Text style={{ fontSize: 13, color: C.textSec, lineHeight: 20 }}>{body}</Text>
+    </View>
+  );
+  const Bullet = ({ text }) => (
+    <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start', marginBottom: 8 }}>
+      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.blue, marginTop: 7, flexShrink: 0 }} />
+      <Text style={{ flex: 1, fontSize: 13, color: C.textSec, lineHeight: 20 }}>{text}</Text>
+    </View>
+  );
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border }}>
+        <TouchableOpacity onPress={onBack} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="arrow-back" size={18} color={C.blue} />
+        </TouchableOpacity>
+        <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>Safety & Compliance</Text>
+      </View>
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
+
+        {/* Banner */}
+        <View style={{ backgroundColor: C.warningBg, borderRadius: 12, borderLeftWidth: 4, borderLeftColor: C.warning, padding: 14, marginBottom: 24 }}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: C.warning, marginBottom: 4 }}>⚡ Reference Tool Only</Text>
+          <Text style={{ fontSize: 12, color: C.text, lineHeight: 18 }}>
+            SparkConnect Tools provides reference calculations and NEC information for field planning. All outputs must be verified by a qualified electrician before installation.
+          </Text>
+        </View>
+
+        <Sec title="Electrical Safety Requirements"
+          body="Electrical work must be performed by qualified persons in accordance with all applicable codes, standards, and regulations. Improper electrical work can result in fire, electrocution, serious injury, or death." />
+
+        <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, marginBottom: 10 }}>Minimum safety requirements include:</Text>
+        <Bullet text="Work only on de-energized circuits with proper lockout/tagout (LOTO) procedures per OSHA 29 CFR 1910.147" />
+        <Bullet text="Test with a calibrated meter before touching any conductor" />
+        <Bullet text="Use appropriate PPE including arc flash protection rated for the hazard level" />
+        <Bullet text="Follow NFPA 70E for electrical safety in the workplace" />
+        <Bullet text="Maintain required working clearances per NEC 110.26" />
+        <Bullet text="Use listed and labeled equipment appropriate for the application" />
+
+        <View style={{ height: 1, backgroundColor: C.border, marginVertical: 20 }} />
+
+        <Sec title="NEC Code Compliance"
+          body="SparkConnect references the National Electrical Code (NFPA 70). The NEC is adopted at the state and local level — requirements vary by jurisdiction. Always verify which edition of the NEC has been adopted locally." />
+
+        <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, marginBottom: 10 }}>Before installation, verify:</Text>
+        <Bullet text="Which NEC edition is locally adopted (2017, 2020, or 2023)" />
+        <Bullet text="Local amendments and additions made by your AHJ" />
+        <Bullet text="Any state or municipal electrical codes that apply" />
+        <Bullet text="Utility company requirements for service entrance work" />
+        <Bullet text="OSHA requirements for commercial and industrial work" />
+
+        <View style={{ height: 1, backgroundColor: C.border, marginVertical: 20 }} />
+
+        <Sec title="Permits and Inspections"
+          body="Most electrical work requires a permit and inspection by the Authority Having Jurisdiction (AHJ). Unpermitted work may be required to be removed, can affect insurance coverage, and may create liability. This app does not determine permit requirements." />
+
+        <View style={{ height: 1, backgroundColor: C.border, marginVertical: 20 }} />
+
+        <Sec title="Calculator Accuracy"
+          body="All calculations in SparkConnect Tools are based on standard NEC methods and reference data. Results are starting points for field planning — they do not account for all conditions, derating factors, or site-specific variables." />
+
+        <View style={{ height: 1, backgroundColor: C.border, marginVertical: 20 }} />
+
+        <Sec title="Sparky AI & NEC References"
+          body="Sparky AI provides general electrical code guidance for reference and educational purposes. All NEC article numbers are cited for reference only. SparkConnect Tools does not reproduce NEC code text verbatim. Always verify code requirements with your currently adopted NEC edition (NFPA 70), your local AHJ, and qualified supervision. NEC is a registered trademark of the National Fire Protection Association (NFPA)." />
+
+        <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, marginBottom: 10 }}>Always independently verify:</Text>
+        <Bullet text="Voltage drop — accounts for resistive losses only; inductive reactance may apply at larger sizes" />
+        <Bullet text="Ampacity — derating for ambient temperature (NEC 310.15(B)(2)) and conduit fill (NEC 310.15(C)) may apply" />
+        <Bullet text="Box fill — verify with actual NEC 314.16(B) table for your adopted edition" />
+        <Bullet text="Conduit fill — reference data is approximate; verify with NEC Chapter 9 Tables 4 & 5" />
+        <Bullet text="Pipe bending — take-up values vary by bender manufacturer and conduit lot" />
+
+        <View style={{ height: 1, backgroundColor: C.border, marginVertical: 20 }} />
+
+        <Sec title="Limitation of Liability"
+          body="SparkConnect and its developers are not liable for any damages, code violations, injuries, or losses resulting from use of this application. See Terms of Service for full details." />
+
+        <View style={{ backgroundColor: C.inputBg, borderRadius: 10, padding: 14, marginTop: 8 }}>
+          <Text style={{ fontSize: 11, color: C.textTert, lineHeight: 17, textAlign: 'center' }}>
+            {'For emergencies, call 911.\nFor OSHA resources: osha.gov\nFor NEC: nfpa.org/70\nQuestions: support@sparkconnect.pro'}
+          </Text>
+        </View>
+
+      </ScrollView>
+    </View>
+  );
+};
+
+
+// ─── CALCULATORS HUB SCREEN ─────────────────────────────────────────────────
+const CalculatorsScreen = ({ setTab, C }) => {
+  const tools = [
+    { icon: 'git-branch',        title: 'Pipe Bending',      sub: '90° · 45° · Offsets · Saddles',        tab: 'bend',        color: C.blue,   bg: C.blueSub },
+    { icon: 'flash',             title: 'Voltage Drop',       sub: 'NEC 210.19(A) · wire recommender',     tab: 'volt',        color: C.purple, bg: C.purpleBg },
+    { icon: 'cube-outline',      title: 'Box Fill',           sub: 'NEC 314.16 — required cubic inches',   tab: 'boxfill',     color: C.teal,   bg: C.tealBg },
+    { icon: 'git-merge',         title: 'Conduit Fill',       sub: 'NEC Ch.9 — fill percentage check',     tab: 'conduitfill', color: C.purple, bg: C.purpleSub },
+    { icon: 'speedometer-outline',title:'Ampacity Lookup',   sub: 'NEC 310.15 copper & aluminum tables',  tab: 'ampacity',    color: C.blue,   bg: C.blueSub },
+    { icon: 'color-palette',     title: 'Wire Colors',        sub: 'Detail + 160-slot panel view',         tab: 'wire',        color: C.teal,   bg: C.tealBg },
+    { icon: 'book-outline',      title: 'Formula Reference',  sub: "Ohm's Law · 3Φ · Motors · Transformers", tab:'formulas',  color: C.amber,  bg: C.amberBg },
+    { icon: 'hammer-outline',    title: 'Material Estimator', sub: 'Rough quantity + Sparky AI pricing',   tab: 'estimator',   color: '#16A34A',bg: '#ECFDF5' },
+  ];
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
+      <Text style={{ fontSize: 11, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 14 }}>All Calculators & Reference Tools</Text>
+      {tools.map(t => (
+        <TouchableOpacity key={t.tab} onPress={() => setTab(t.tab)} activeOpacity={0.85}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: C.surface, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: C.border, marginBottom: 10, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 }}>
+          <View style={{ width: 50, height: 50, borderRadius: 14, backgroundColor: t.bg, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name={t.icon} size={24} color={t.color} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 3 }}>{t.title}</Text>
+            <Text style={{ fontSize: 12, color: C.textSec, lineHeight: 16 }}>{t.sub}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={C.textTert} />
+        </TouchableOpacity>
+      ))}
+      <TouchableOpacity onPress={() => setTab('necai')}
+        style={{ backgroundColor: '#0D1B3E', borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4, borderWidth: 1, borderColor: 'rgba(244,161,29,0.3)' }}>
+        <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="flash" size={22} color="#fff" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff', marginBottom: 2 }}>Ask Sparky to explain any result</Text>
+          <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>Every calculator has an "Explain with Sparky" button</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.5)" />
+      </TouchableOpacity>
+    </ScrollView>
+  );
+};
+
+// ─── LEARN HUB SCREEN ────────────────────────────────────────────────────────
+const LearnScreen = ({ setTab, C, onStreakUpdate }) => {
+  const today = getDailyQuestion();
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
+      <Text style={{ fontSize: 11, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 14 }}>Study & Practice</Text>
+
+      {/* Code Quiz */}
+      <TouchableOpacity onPress={() => setTab('examprep')} activeOpacity={0.85}
+        style={{ backgroundColor: C.surface, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: C.border, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        <View style={{ width: 50, height: 50, borderRadius: 14, backgroundColor: C.purpleBg, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="school" size={24} color={C.purple} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 2 }}>Code Quiz</Text>
+          <Text style={{ fontSize: 12, color: C.textSec }}>171 questions · 12 categories · Apprentice & Journeyman</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={C.textTert} />
+      </TouchableOpacity>
+
+      {/*  */}
+      <TouchableOpacity onPress={() => setTab('home')} activeOpacity={0.85}
+        style={{ backgroundColor: C.surface, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: C.border, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        <View style={{ width: 50, height: 50, borderRadius: 14, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="calendar-outline" size={24} color={C.blue} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 2 }}></Text>
+          <Text style={{ fontSize: 12, color: C.textSec }}>Today: {today.category} · {today.difficulty}</Text>
+          <Text style={{ fontSize: 11, color: C.textTert, marginTop: 2 }} numberOfLines={1}>{today.question}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={C.textTert} />
+      </TouchableOpacity>
+
+      {/* NEC Reference (Sparky AI browse) */}
+      <TouchableOpacity onPress={() => setTab('necai')} activeOpacity={0.85}
+        style={{ backgroundColor: C.surface, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: C.border, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        <View style={{ width: 50, height: 50, borderRadius: 14, backgroundColor: C.amberBg, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="book-outline" size={24} color={C.amber} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 2 }}>NEC Reference</Text>
+          <Text style={{ fontSize: 12, color: C.textSec }}>Tap the book icon in Sparky AI to browse 20 NEC topics</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={C.textTert} />
+      </TouchableOpacity>
+
+      {/* Formula Reference */}
+      <TouchableOpacity onPress={() => setTab('formulas')} activeOpacity={0.85}
+        style={{ backgroundColor: C.surface, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: C.border, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        <View style={{ width: 50, height: 50, borderRadius: 14, backgroundColor: C.tealBg, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="calculator-outline" size={24} color={C.teal} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 2 }}>Formula Reference</Text>
+          <Text style={{ fontSize: 12, color: C.textSec }}>Ohm's Law, Power, 3Φ, Motors, Transformers, Bending</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={C.textTert} />
+      </TouchableOpacity>
+
+      {/* Coming Soon */}
+      <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: C.border, marginBottom: 10, opacity: 0.5 }}>
+        <Text style={{ fontSize: 12, fontWeight: '700', color: C.textSec, marginBottom: 6 }}>COMING SOON</Text>
+        <Text style={{ fontSize: 14, color: C.text, marginBottom: 3 }}>📚 Flashcards</Text>
+        <Text style={{ fontSize: 14, color: C.text, marginBottom: 3 }}>🔖 Saved Sparky Explanations</Text>
+        <Text style={{ fontSize: 14, color: C.text }}>📊 Quiz Score History</Text>
+      </View>
+    </ScrollView>
+  );
+};
+
+// ─── EXAM PREP SCREEN ────────────────────────────────────────────────────────
+const ExamPrepScreen = ({ C, onStreakUpdate }) => {
+  const [level, setLevel]       = useState('All');
+  const [category, setCategory] = useState('All');
+  const [quizSize, setQuizSize] = useState(10);
+  const [studyMode, setStudyMode] = useState(true);
+  const [started, setStarted]   = useState(false);
+  const [questions, setQuestions] = useState([]);
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState(null);
+  const [showExplanation, setShowExplanation] = useState(false);
+  const [answers, setAnswers]   = useState([]);
+  const [quizDone, setQuizDone] = useState(false);
+  const [bestScore, setBestScore] = useState(null);
+  const [reviewMode, setReviewMode] = useState(false); // review missed questions only
+  const [missedQs, setMissedQs] = useState([]);
+
+  // Load best score from storage
+  React.useEffect(() => {
+    safeStorageGet('@sc_exam_best').then(val => { if (val) setBestScore(parseInt(val, 10)); });
+  }, []);
+
+  const startQuiz = () => {
+    const qs = getExamQuestions(level, category, quizSize);
+    if (qs.length === 0) { Alert.alert('No Questions', 'No questions match your selections. Try a different combination.'); return; }
+    setQuestions(qs); setCurrentIdx(0); setSelectedAnswer(null);
+    setShowExplanation(false); setAnswers([]); setQuizDone(false); setStarted(true);
+  };
+
+  const resetToMenu = () => {
+    setStarted(false); setQuizDone(false); setAnswers([]);
+    setSelectedAnswer(null); setShowExplanation(false); setReviewMode(false);
+  };
+
+  const handleAnswer = (idx) => {
+    if (selectedAnswer !== null) return;
+    setSelectedAnswer(idx);
+    setAnswers(prev => [...prev, idx]);
+    if (studyMode) setShowExplanation(true);
+  };
+
+  const nextQuestion = () => {
+    if (currentIdx < questions.length - 1) {
+      setCurrentIdx(i => i + 1); setSelectedAnswer(null); setShowExplanation(false);
+    } else {
+      if (!studyMode) setShowExplanation(false);
+      // Save missed questions for review mode
+      const missed = questions.filter((q, i) => answers[i] !== q.correct);
+      setMissedQs(missed.concat(currentIdx < questions.length - 1 ? [] : (selectedAnswer !== questions[currentIdx]?.correct ? [questions[currentIdx]] : [])));
+      // Persist best score
+      const finalScore = answers.filter((a, i) => a === questions[i]?.correct).length + (selectedAnswer === questions[currentIdx]?.correct ? 1 : 0);
+      const finalPct = Math.round((finalScore / questions.length) * 100);
+      safeStorageGet('@sc_exam_best').then(val => {
+        const prev = val ? parseInt(val, 10) : 0;
+        if (finalPct > prev) safeStorageSet('@sc_exam_best', String(finalPct));
+      });
+      // Update streak
+      if (onStreakUpdate) onStreakUpdate();
+      setQuizDone(true);
+    }
+  };
+
+  const currentQ = questions[currentIdx];
+  const score = answers.filter((a, i) => a === questions[i]?.correct).length;
+  const pct = questions.length > 0 ? Math.round((score / questions.length) * 100) : 0;
+
+  // ── MENU ──────────────────────────────────────────────────────────────────
+  if (!started) {
+    const allCats = ['All', ...EXAM_CATEGORIES];
+    return (
+      <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
+        <Card C={C} style={{ marginBottom: 20, borderLeftWidth: 4, borderLeftColor: C.blue }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="school" size={22} color={C.blue} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 17, fontWeight: '800', color: C.text }}>Code Quiz</Text>
+              <Text style={{ fontSize: 12, color: C.textSec }}>{EXAM_QUESTIONS.length} questions · {EXAM_CATEGORIES.length} categories</Text>
+            </View>
+          </View>
+          <View style={{ backgroundColor: C.warningBg, borderRadius: 8, padding: 10, borderLeftWidth: 3, borderLeftColor: C.warning }}>
+            <Text style={{ fontSize: 11, color: C.textSec, lineHeight: 17 }}>Study support only. Not a substitute for official licensing exam preparation. Always verify with instructor, current NEC, and local requirements.</Text>
+          </View>
+        </Card>
+
+        <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>Level</Text>
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 18 }}>
+          {['All','Apprentice','Journeyman'].map(l => (
+            <TouchableOpacity key={l} onPress={() => setLevel(l)}
+              style={{ flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center', backgroundColor: level === l ? C.blue : C.surface, borderWidth: 1.5, borderColor: level === l ? C.blue : C.border }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: level === l ? '#fff' : C.textSec }}>{l}</Text>
+              {l === 'Journeyman' && <Text style={{ fontSize: 9, color: level === l ? 'rgba(255,255,255,0.7)' : C.textTert, marginTop: 1 }}>Advanced</Text>}
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>Category</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 18 }}>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            {allCats.map(cat => (
+              <Chip key={cat} label={cat} active={category === cat} onPress={() => setCategory(cat)} color={C.purple} C={C} />
+            ))}
+          </View>
+        </ScrollView>
+
+        <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>Quiz Size</Text>
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 18 }}>
+          {[10, 25, 50].map(n => {
+            const avail = getExamQuestions(level, category, 999).length;
+            const disabled = avail < n;
+            return (
+              <TouchableOpacity key={n} onPress={() => !disabled && setQuizSize(n)}
+                style={{ flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center', backgroundColor: quizSize === n && !disabled ? C.purple : C.surface, borderWidth: 1.5, borderColor: quizSize === n && !disabled ? C.purple : C.border, opacity: disabled ? 0.4 : 1 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: quizSize === n && !disabled ? '#fff' : C.textSec }}>{n}</Text>
+                <Text style={{ fontSize: 9, color: quizSize === n && !disabled ? 'rgba(255,255,255,0.7)' : C.textTert }}>questions</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>Mode</Text>
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 24 }}>
+          <TouchableOpacity onPress={() => setStudyMode(true)}
+            style={{ flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center', backgroundColor: studyMode ? C.success : C.surface, borderWidth: 1.5, borderColor: studyMode ? C.success : C.border }}>
+            <Ionicons name="book-outline" size={18} color={studyMode ? '#fff' : C.textSec} style={{ marginBottom: 4 }} />
+            <Text style={{ fontSize: 12, fontWeight: '700', color: studyMode ? '#fff' : C.textSec }}>Study</Text>
+            <Text style={{ fontSize: 9, color: studyMode ? 'rgba(255,255,255,0.75)' : C.textTert }}>Answer shown immediately</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setStudyMode(false)}
+            style={{ flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center', backgroundColor: !studyMode ? C.amber : C.surface, borderWidth: 1.5, borderColor: !studyMode ? C.amber : C.border }}>
+            <Ionicons name="timer-outline" size={18} color={!studyMode ? '#fff' : C.textSec} style={{ marginBottom: 4 }} />
+            <Text style={{ fontSize: 12, fontWeight: '700', color: !studyMode ? '#fff' : C.textSec }}>Test</Text>
+            <Text style={{ fontSize: 9, color: !studyMode ? 'rgba(255,255,255,0.75)' : C.textTert }}>Score shown at end</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={{ fontSize: 11, color: C.textTert, textAlign: 'center', marginBottom: 16 }}>
+          {getExamQuestions(level, category, 999).length} questions available for current selection
+        </Text>
+
+        <TouchableOpacity onPress={startQuiz}
+          style={{ backgroundColor: C.blue, borderRadius: 14, paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, shadowColor: C.blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 5 }}>
+          <Ionicons name="play" size={18} color="#fff" />
+          <Text style={{ fontSize: 16, fontWeight: '700', color: '#fff' }}>Start Quiz</Text>
+        </TouchableOpacity>
+
+        <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, marginBottom: 10, marginTop: 24 }}>Categories</Text>
+        <Card C={C} style={{ padding: 0, overflow: 'hidden' }}>
+          {EXAM_CATEGORIES.map((cat, i) => (
+            <View key={cat} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: i < EXAM_CATEGORIES.length - 1 ? 1 : 0, borderBottomColor: C.borderLight }}>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.purple, marginRight: 10 }} />
+              <Text style={{ flex: 1, fontSize: 13, color: C.text, fontWeight: '500' }}>{cat}</Text>
+              <Text style={{ fontSize: 11, color: C.textTert }}>{EXAM_QUESTIONS.filter(q => q.cat === cat).length} Qs</Text>
+            </View>
+          ))}
+        </Card>
+      </ScrollView>
+    );
+  }
+
+  // ── RESULTS ──────────────────────────────────────────────────────────────
+  if (quizDone) {
+    const gc = pct >= 90 ? C.success : pct >= 70 ? C.blue : pct >= 50 ? C.warning : C.danger;
+    const gl = pct >= 90 ? 'Excellent! 🎉' : pct >= 70 ? 'Good Work 💪' : pct >= 50 ? 'Keep Studying 📖' : 'Needs Review 🔄';
+    const missedCount = questions.filter((q, i) => answers[i] !== q.correct).length;
+    const handleShareResult = async () => {
+      const emoji = pct >= 90 ? '🏆' : pct >= 70 ? '⚡' : '📖';
+      const msg = `${emoji} SparkConnect Code Quiz\n\nScore: ${pct}% (${score}/${questions.length})\nLevel: ${level} · ${category}\n\nStudying for my electrical license with SparkConnect Tools!\n#Electrician #ExamPrep #NEC`;
+      try { await Share.share({ message: msg }); } catch(e) { safeLog('ShareResult', e); }
+    };
+    return (
+      <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 20, paddingBottom: 48, alignItems: 'center' }} showsVerticalScrollIndicator={false}>
+        {!IS_PRO && (
+        <TouchableOpacity onPress={() => {}} activeOpacity={0.8}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%', padding: 12, backgroundColor: C.blueSub, borderRadius: 12, marginBottom: 16 }}>
+          <Ionicons name="stats-chart" size={16} color={C.blue} />
+          <Text style={{ fontSize: 13, color: C.blue, fontWeight: '600', flex: 1 }}>Track your progress over time → Pro</Text>
+          <Ionicons name="lock-closed-outline" size={13} color={C.blue} />
+        </TouchableOpacity>
+      )}
+      <View style={{ width: 140, height: 140, borderRadius: 70, borderWidth: 6, borderColor: gc, alignItems: 'center', justifyContent: 'center', marginTop: 20, marginBottom: 12 }}>
+          <Text style={{ fontSize: 36, fontWeight: '900', color: gc }}>{pct}%</Text>
+          <Text style={{ fontSize: 13, color: C.textSec }}>{score}/{questions.length}</Text>
+        </View>
+        <Text style={{ fontSize: 24, fontWeight: '800', color: gc, marginBottom: 4, letterSpacing: -0.5 }}>{gl}</Text>
+        <Text style={{ fontSize: 13, color: C.textSec, marginBottom: 12 }}>{level} · {category} · {studyMode ? 'Study' : 'Test'} Mode</Text>
+        {bestScore !== null && <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', marginBottom: 16 }}>
+          <Text style={{ fontSize: 11, color: C.textTert }}>Personal best:</Text>
+          <View style={{ backgroundColor: C.blueSub, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 99 }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: C.blue }}>🏅 {bestScore}%</Text>
+          </View>
+        </View>}
+        <View style={{ width: '100%', marginBottom: 20 }}>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 12 }}>Answer Review</Text>
+          {questions.map((q, i) => {
+            const correct = answers[i] === q.correct;
+            return (
+              <View key={q.id} style={{ backgroundColor: correct ? C.successBg : C.dangerBg, borderRadius: 12, padding: 12, marginBottom: 8, borderLeftWidth: 4, borderLeftColor: correct ? C.success : C.danger }}>
+                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start', marginBottom: 4 }}>
+                  <Ionicons name={correct ? 'checkmark-circle' : 'close-circle'} size={18} color={correct ? C.success : C.danger} />
+                  <Text style={{ flex: 1, fontSize: 12, fontWeight: '600', color: C.text, lineHeight: 18 }}>{q.q}</Text>
+                </View>
+                {!correct && <Text style={{ fontSize: 11, color: C.success, marginLeft: 26, fontWeight: '600', marginBottom: 2 }}>Correct: {q.ch[q.correct]}</Text>}
+                <Text style={{ fontSize: 11, color: C.textSec, marginLeft: 26, lineHeight: 16 }}>{q.exp}</Text>
+                <Text style={{ fontSize: 10, color: C.blue, marginLeft: 26, marginTop: 3, fontWeight: '600' }}>📖 {q.ref}</Text>
+              </View>
+            );
+          })}
+        </View>
+        {/* Share score */}
+        <TouchableOpacity onPress={handleShareResult}
+          style={{ width: '100%', backgroundColor: '#16A34A', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 10, flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+          <Ionicons name="share-outline" size={18} color="#fff" />
+          <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>Share My Score</Text>
+        </TouchableOpacity>
+        {missedCount > 0 && <TouchableOpacity onPress={() => {
+          const missed = questions.filter((q, i) => answers[i] !== q.correct);
+          setMissedQs(missed);
+          setQuestions(missed);
+          setCurrentIdx(0); setSelectedAnswer(null); setShowExplanation(false);
+          setAnswers([]); setQuizDone(false); setStarted(true); setReviewMode(true);
+        }} style={{ width: '100%', backgroundColor: C.dangerBg, borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 10, borderWidth: 1.5, borderColor: C.danger, flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+          <Ionicons name="refresh-circle-outline" size={18} color={C.danger} />
+          <Text style={{ fontSize: 15, fontWeight: '700', color: C.danger }}>Review {missedCount} Missed Question{missedCount !== 1 ? 's' : ''}</Text>
+        </TouchableOpacity>}
+        <TouchableOpacity onPress={startQuiz}
+          style={{ width: '100%', backgroundColor: C.blue, borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 10, flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+          <Ionicons name="refresh-outline" size={18} color="#fff" />
+          <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>Try Again</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={resetToMenu}
+          style={{ width: '100%', backgroundColor: C.surface, borderRadius: 14, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: C.border }}>
+          <Text style={{ fontSize: 15, fontWeight: '600', color: C.textSec }}>New Quiz Setup</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    );
+  }
+
+  // ── ACTIVE QUIZ ───────────────────────────────────────────────────────────
+  if (!currentQ) return null;
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <View style={{ backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, paddingHorizontal: 16, paddingVertical: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <TouchableOpacity onPress={resetToMenu}><Ionicons name="close" size={22} color={C.textSec} /></TouchableOpacity>
+          <Text style={{ fontSize: 13, fontWeight: '600', color: C.textSec }}>{currentIdx + 1} / {questions.length}</Text>
+          <View style={{ backgroundColor: C.blueSub, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.blue }}>{score} ✓</Text>
+          </View>
+        </View>
+        <View style={{ height: 4, backgroundColor: C.inputBg, borderRadius: 99, overflow: 'hidden' }}>
+          <View style={{ height: '100%', width: `${((currentIdx + 1) / questions.length) * 100}%`, backgroundColor: C.blue, borderRadius: 99 }} />
+        </View>
+      </View>
+
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+          {reviewMode && <View style={{ backgroundColor: C.dangerBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Ionicons name="refresh-circle" size={12} color={C.danger} />
+            <Text style={{ fontSize: 11, fontWeight: '700', color: C.danger }}>Review Mode</Text>
+          </View>}
+          <View style={{ backgroundColor: C.blueSub, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
+            <Text style={{ fontSize: 11, fontWeight: '600', color: C.blue }}>{currentQ.cat}</Text>
+          </View>
+          <View style={{ backgroundColor: currentQ.level === 'Apprentice' ? '#ECFDF5' : C.purpleBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
+            <Text style={{ fontSize: 11, fontWeight: '600', color: currentQ.level === 'Apprentice' ? '#16A34A' : C.purple }}>{currentQ.level}</Text>
+          </View>
+          <View style={{ backgroundColor: studyMode ? C.successBg : C.amberBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
+            <Text style={{ fontSize: 11, fontWeight: '600', color: studyMode ? C.success : C.amber }}>{studyMode ? 'Study' : 'Test'}</Text>
+          </View>
+        </View>
+
+        <Text style={{ fontSize: 16, fontWeight: '700', color: C.text, lineHeight: 24, marginBottom: 20 }}>{currentQ.q}</Text>
+
+        <View style={{ gap: 10, marginBottom: 20 }}>
+          {currentQ.ch.map((choice, i) => {
+            const isSel = selectedAnswer === i, isCorr = i === currentQ.correct;
+            let bg = C.surface, border = C.border, tc = C.text;
+            if (selectedAnswer !== null && studyMode) {
+              if (isCorr)  { bg = C.successBg; border = C.success; tc = C.success; }
+              else if (isSel) { bg = C.dangerBg; border = C.danger; tc = C.danger; }
+            } else if (isSel) { bg = C.blueSub; border = C.blue; tc = C.blue; }
+            return (
+              <TouchableOpacity key={i} onPress={() => handleAnswer(i)} activeOpacity={selectedAnswer !== null ? 1 : 0.8}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 12, backgroundColor: bg, borderWidth: 1.5, borderColor: border }}>
+                <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: selectedAnswer !== null && studyMode ? (isCorr ? C.success : isSel ? C.danger : C.inputBg) : (isSel ? C.blue : C.inputBg), alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: (isSel || (selectedAnswer !== null && studyMode && isCorr)) ? '#fff' : C.textSec }}>{String.fromCharCode(65 + i)}</Text>
+                </View>
+                <Text style={{ flex: 1, fontSize: 14, fontWeight: '500', color: tc, lineHeight: 20 }}>{choice}</Text>
+                {selectedAnswer !== null && studyMode && isCorr && <Ionicons name="checkmark-circle" size={20} color={C.success} />}
+                {selectedAnswer !== null && studyMode && isSel && !isCorr && <Ionicons name="close-circle" size={20} color={C.danger} />}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {showExplanation && studyMode && (
+          <View style={{ backgroundColor: selectedAnswer === currentQ.correct ? C.successBg : C.dangerBg, borderRadius: 12, borderLeftWidth: 4, borderLeftColor: selectedAnswer === currentQ.correct ? C.success : C.danger, padding: 14, marginBottom: 16 }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, marginBottom: 6 }}>
+              {selectedAnswer === currentQ.correct ? '✅ Correct!' : '❌ Incorrect'}
+            </Text>
+            <Text style={{ fontSize: 13, color: C.textSec, lineHeight: 20, marginBottom: 6 }}>{currentQ.exp}</Text>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: C.blue }}>📖 {currentQ.ref}</Text>
+          </View>
+        )}
+
+        {(showExplanation || (!studyMode && selectedAnswer !== null)) && (
+          <TouchableOpacity onPress={nextQuestion}
+            style={{ backgroundColor: C.blue, borderRadius: 12, paddingVertical: 14, alignItems: 'center', shadowColor: C.blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.28, shadowRadius: 10, elevation: 5 }}>
+            <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>
+              {currentIdx < questions.length - 1 ? 'Next →' : 'See Results →'}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </ScrollView>
+    </View>
+  );
+};
+
+const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = true, onDailyQToggle, appLanguage = 'english', setAppLanguage }) => {
+  const [keepOn, setKeepOn] = useState(true);
+  const [haptics, setHaptics] = useState(true);
+  const [notifEnabled, setNotifEnabled] = useState(true);
+  React.useEffect(() => {
+    safeStorageGet('@sc_notif_enabled').then(v => { if (v === 'false') setNotifEnabled(false); });
+  }, []);
+  const [showTerms, setShowTerms] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showSafety, setShowSafety] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+
+  if (showTerms)   return <TermsScreen   C={C} onBack={() => setShowTerms(false)} />;
+  if (showPrivacy) return <PrivacyScreen C={C} onBack={() => setShowPrivacy(false)} />;
+  if (showSafety)  return <SafetyScreen  C={C} onBack={() => setShowSafety(false)} />;
+
+  // Uses safeOpenURL — only opens https: and mailto: to known domains
+  const openLink = safeOpenURL;
+  const openFeedback = () => {
+    openLink(buildMailtoURL('support@sparkconnect.pro', 'SparkConnect Feature Suggestion', 'Feature idea:\n\nWhat problem would this solve?\n\n'));
+  };
+  const handleRestore = async () => {
+    setRestoring(true);
+    // TODO: replace with: const { customerInfo } = await Purchases.restorePurchases();
+    await new Promise(r => setTimeout(r, 1200));
+    setRestoring(false);
+    Alert.alert('Restore Purchases', 'No active subscription found.\n\nContact support@sparkconnect.pro if you believe this is an error.');
+  };
+
+  const SectionTitle = ({ title }) => (
+    <Text style={{ fontSize: 12, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 8, marginTop: 4 }}>{title}</Text>
+  );
+  const Row = ({ icon, label, val, toggle, togVal, onTog, iconBg, onPress, iconColor }) => (
+    <TouchableOpacity onPress={onPress} activeOpacity={onPress ? 0.7 : 1} disabled={!onPress && !onTog}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.borderLight }}>
+      <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: iconBg ?? C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name={icon} size={16} color={iconColor ?? C.blue} />
+      </View>
+      <Text style={{ flex: 1, fontSize: 14, fontWeight: '500', color: C.text }}>{label}</Text>
+      {val ? <Text style={{ fontSize: 12, color: C.textTert }}>{val}</Text> : null}
+      {toggle ? <Switch value={togVal} onValueChange={onTog} trackColor={{ false: C.border, true: C.blue }} thumbColor="#fff" style={{ transform: [{ scale: 0.85 }] }} /> : null}
+      {onPress ? <Ionicons name="chevron-forward" size={15} color={C.textTert} style={{ marginLeft: 2 }} /> : null}
+    </TouchableOpacity>
+  );
+
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
+
+      {/* 1 — SparkConnect Pro */}
+      <SectionTitle title="SparkConnect Pro" />
+      <Card C={C} style={{ borderWidth: 2, borderColor: C.blue, marginBottom: 20, padding: 0, overflow: 'hidden' }}>
+        <View style={{ padding: 16 }}>
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center', marginBottom: 14 }}>
+            <View style={{ width: 48, height: 48, borderRadius: 14, backgroundColor: C.blue, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="flash" size={24} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 17, fontWeight: '800', color: C.text, letterSpacing: -0.4 }}>SparkConnect Pro</Text>
+              <Text style={{ fontSize: 12, color: C.textSec, marginTop: 1 }}>$7.99/mo · $49.99/yr Launch Special · 100 AI answers/mo</Text>
+            </View>
+          </View>
+          {['100 Sparky AI answers/month','Box Fill Calculator','Conduit Fill Calculator','Saved Projects & History','PDF Report Export (coming)','Priority new features'].map(f => (
+            <View key={f} style={{ flexDirection: 'row', gap: 8, alignItems: 'center', paddingVertical: 3 }}>
+              <Ionicons name="checkmark-circle" size={15} color={C.blue} />
+              <Text style={{ fontSize: 12, color: C.text, fontWeight: '500' }}>{f}</Text>
+            </View>
+          ))}
+          <TouchableOpacity
+            onPress={() => Alert.alert('Coming Soon', "Pro subscriptions are launching soon. You'll be notified when available.")}
+            style={{ backgroundColor: C.blue, borderRadius: 10, padding: 13, alignItems: 'center', marginTop: 14, flexDirection: 'row', justifyContent: 'center', gap: 8, shadowColor: C.blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}
+            activeOpacity={0.85}>
+            <Ionicons name="flash" size={16} color="#fff" />
+            <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>Upgrade to Pro</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleRestore} style={{ alignItems: 'center', paddingVertical: 10 }}>
+            <Text style={{ fontSize: 12, color: C.textTert }}>{restoring ? 'Restoring...' : 'Restore Purchases'}</Text>
+          </TouchableOpacity>
+        </View>
+      </Card>
+
+      {/* 2 — AI Query Packs */}
+      <SectionTitle title=" Query Packs" />
+      <Card C={C} style={{ marginBottom: 20, padding: 0, overflow: 'hidden' }}>
+        <View style={{ padding: 12, backgroundColor: C.amberBg, borderBottomWidth: 1, borderBottomColor: C.border }}>
+          <Text style={{ fontSize: 12, fontWeight: '600', color: C.amber }}>Need more answers? Add a Sparky AI pack anytime.</Text>
+        </View>
+        {[{ label: '15 Sparky AI Answers', price: '$1.99' },{ label: '50 Sparky AI Answers', price: '$4.99' },{ label: '150 Sparky AI Answers', price: '$9.99' }].map((pack, i, arr) => (
+          <View key={pack.label} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 13, borderBottomWidth: i < arr.length - 1 ? 1 : 0, borderBottomColor: C.borderLight }}>
+            <Ionicons name="chatbubble-ellipses-outline" size={16} color={C.amber} style={{ marginRight: 10 }} />
+            <Text style={{ flex: 1, fontSize: 13, fontWeight: '500', color: C.text }}>{pack.label}</Text>
+            <View style={{ backgroundColor: C.amberBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber }}>{pack.price}</Text>
+            </View>
+          </View>
+        ))}
+      </Card>
+
+      {/* 3 — Follow SparkConnect */}
+      <SectionTitle title="Follow SparkConnect" />
+      <Card C={C} style={{ marginBottom: 20, padding: 0, overflow: 'hidden' }}>
+        <Row icon="logo-instagram" label="Instagram" val="@sparkconnectpro" iconBg="#FCE4EC" iconColor="#E1306C" onPress={() => openLink('https://instagram.com/sparkconnectpro')} />
+        <Row icon="logo-tiktok" label="TikTok" val="@spark.connect" iconBg="#F3F3F3" iconColor="#000" onPress={() => openLink('https://www.tiktok.com/@spark.connect')} />
+        <Row icon="globe-outline" label="Website" val="sparkconnect.pro" onPress={() => openLink('https://www.sparkconnect.pro')} />
+        <Row icon="bulb-outline" label="Suggest a Feature" onPress={openFeedback} />
+      </Card>
+
+      {/* 4 — Appearance */}
+      <SectionTitle title="Appearance" />
+      <Card C={C} style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
+        {[{ v: 'light', label: 'Light Mode', icon: 'sunny' },{ v: 'dark', label: 'Dark Mode', icon: 'moon' },{ v: 'system', label: 'System Default', icon: 'phone-portrait' }].map((opt, i, arr) => (
+          <TouchableOpacity key={opt.v} onPress={() => setThemePreference(opt.v)}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: i < arr.length - 1 ? 1 : 0, borderBottomColor: C.borderLight }}>
+            <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name={opt.icon} size={16} color={C.blue} />
+            </View>
+            <Text style={{ flex: 1, fontSize: 14, fontWeight: '500', color: C.text }}>{opt.label}</Text>
+            {themePreference === opt.v && <Ionicons name="checkmark-circle" size={20} color={C.blue} />}
+          </TouchableOpacity>
+        ))}
+      </Card>
+
+      {/* 5 — App Settings */}
+      <SectionTitle title="App Settings" />
+      <Card C={C} style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
+
+        <Row icon="notifications-outline" label=" Alert" toggle togVal={notifEnabled} onTog={async (v) => {
+          setNotifEnabled(v);
+          await safeStorageSet('@sc_notif_enabled', v ? 'true' : 'false');
+          if (v) scheduleDailyNECNotification();
+          else {
+            const N = await import('expo-notifications').catch(() => null);
+            if (N) await N.cancelAllScheduledNotificationsAsync();
+          }
+        }} iconBg={C.blueSub} iconColor={C.blue} />
+        <Row icon="phone-portrait" label="Keep Screen On" toggle togVal={keepOn} onTog={setKeepOn} />
+        <Row icon="radio-button-on" label="Haptic Feedback" toggle togVal={haptics} onTog={setHaptics} />
+        <Row icon="school" label="" toggle togVal={showDailyQ} onTog={onDailyQToggle} iconBg={C.blueSub} iconColor={C.blue} />
+        <Row icon="book-outline" label="NEC Edition" val="2023" iconBg={C.amberBg} iconColor={C.amber} />
+        <Row icon="ruler-outline" label="Units" val="Imperial (in/ft)" iconBg={C.purpleBg} iconColor={C.purple} />
+      </Card>
+
+      {/* 6 — Language */}
+      <SectionTitle title="Language" />
+      <Card C={C} style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
+        {[
+          { code: 'english',  flag: '🇺🇸', label: 'English',            sub: 'Default' },
+          { code: 'spanish',  flag: '🇪🇸', label: 'Español (Spanish)',   sub: 'Sparky AI responds in Spanish' },
+          { code: 'mandarin', flag: '🇨🇳', label: '普通话 (Mandarin)',    sub: 'Sparky AI responds in Mandarin' },
+        ].map((lang, i, arr) => (
+          <TouchableOpacity key={lang.code}
+            onPress={() => { if (setAppLanguage) setAppLanguage(lang.code); safeStorageSet('@sc_app_language', lang.code); }}
+            style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: i < arr.length - 1 ? 1 : 0, borderBottomColor: C.borderLight }}>
+            <Text style={{ fontSize: 20, marginRight: 10 }}>{lang.flag}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: '500', color: C.text }}>{lang.label}</Text>
+              <Text style={{ fontSize: 11, color: C.textTert }}>{lang.sub}</Text>
+            </View>
+            {(appLanguage || 'english') === lang.code && <Ionicons name="checkmark-circle" size={20} color={C.blue} />}
+          </TouchableOpacity>
+        ))}
+      </Card>
+      <View style={{ backgroundColor: C.amberBg, borderRadius: 10, padding: 10, marginBottom: 20, flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
+        <Ionicons name="information-circle-outline" size={14} color={C.amber} />
+        <Text style={{ flex: 1, fontSize: 11, color: C.amber, lineHeight: 16 }}>Full app translation (menus, labels) coming in a future update. Currently, Sparky AI will respond in the selected language — use the language mode chip inside Sparky AI or change the app default here.</Text>
+      </View>
+
+      {/* 7 — Legal */}
+      <SectionTitle title="Legal" />
+      <Card C={C} style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
+        <Row icon="document-text-outline" label="Terms of Service" onPress={() => setShowTerms(true)} />
+        <Row icon="shield-checkmark-outline" label="Privacy Policy" onPress={() => setShowPrivacy(true)} />
+        <Row icon="warning-outline" label="Safety & Compliance" iconBg={C.warningBg} iconColor={C.warning} onPress={() => setShowSafety(true)} />
+        <Row icon="mail-outline" label="Contact Support" val="support@sparkconnect.pro" onPress={() => openLink('mailto:support@sparkconnect.pro')} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12 }}>
+          <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: C.inputBg, alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
+            <Ionicons name="information-circle-outline" size={16} color={C.textTert} />
+          </View>
+          <Text style={{ flex: 1, fontSize: 14, fontWeight: '500', color: C.text }}>Version</Text>
+          <Text style={{ fontSize: 12, color: C.textTert }}>1.0.0</Text>
+        </View>
+      </Card>
+
+      <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
+        <Ionicons name="information-circle-outline" size={13} color={C.textTert} />
+        <Text style={{ flex: 1, fontSize: 10, color: C.textTert, lineHeight: 15 }}>SparkConnect Tools is a field reference app. It does not replace professional judgment, licensed supervision, engineering review, inspections, or local AHJ requirements.</Text>
+      </View>
+
+    </ScrollView>
+  );
+};
+
+// ═══ END SECTION 3 — paste Section 4 directly below ═══
+// ═══════════════════════════════════════════════════════════════════════════
+// SECTION 4 of 4 — Root App + Navigation + Styles
+// ═══════════════════════════════════════════════════════════════════════════
+
+const TABS = [
+  { id: 'home',        icon: 'home',               label: 'Home' },
+  { id: 'calculators', icon: 'calculator-outline',  label: 'Calculators' },
+  { id: 'necai',       icon: 'chatbubble-ellipses',  label: 'Sparky AI' },
+  { id: 'jobcam',      icon: 'camera',               label: 'Job Cam' },
+  { id: 'learn',       icon: 'school',               label: 'Learn' },
+];
+
+const SCREEN_LABELS = {
+  home: 'SparkConnect', bend: 'Pipe Bending', volt: 'Voltage Drop',
+  wire: 'Wire Colors', formulas: 'Formula Reference', boxfill: 'Box Fill',
+  conduitfill: 'Conduit Fill', ampacity: 'Ampacity Lookup',
+  estimator: 'Material Estimator', necai: 'Sparky AI',
+  examprep: 'Code Quiz', jobcam: 'Job Cam', settings: 'Settings',
+  calculators: 'Calculators', learn: 'Learn',
+};
+
+// ─── SPLASH SCREEN ───────────────────────────────────────────────────────────
+const SplashScreen = ({ onDone }) => {
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const scaleAnim = React.useRef(new Animated.Value(0.85)).current;
+
+  React.useEffect(() => {
+    // Fade + scale in
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.spring(scaleAnim, { toValue: 1, tension: 80, friction: 8, useNativeDriver: true }),
+    ]).start();
+
+    // Hold then fade out
+    const timer = setTimeout(() => {
+      Animated.timing(fadeAnim, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => onDone());
+    }, 2200);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  const FEATURE_PILLS = ['Pipe Bending', 'Sparky AI', 'Voltage Drop', 'Ampacity', 'Wire Colors'];
+
+  return (
+    <View style={splashStyles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#050A14" />
+      <Animated.View style={[splashStyles.content, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
+
+        {/* SparkConnect Logo — shows actual PNG when SC_LOGO is set */}
+        {SC_LOGO ? (
+          <View style={{ alignItems: 'center', marginBottom: 32 }}>
+            <View style={{ backgroundColor: '#fff', borderRadius: 24, padding: 20, shadowColor: '#F4A11D', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.4, shadowRadius: 24, elevation: 12 }}>
+              <View style={{ width: 160, height: 70 }}>
+                <Text style={{ color: '#1B2C4E', fontWeight: '900', fontSize: 22 }}>SparkConnect</Text>
+              </View>
+            </View>
+          </View>
+        ) : (
+          <View style={splashStyles.iconWrap}>
+            <View style={[splashStyles.glowRing, { borderColor: 'rgba(244,161,29,0.5)', backgroundColor: 'transparent', borderWidth: 3, width: 104, height: 104, borderRadius: 52 }]} />
+            <View style={{ position: 'absolute', width: 96, height: 96, borderRadius: 48, borderWidth: 3, borderColor: '#F4A11D', opacity: 0.85, borderTopColor: 'transparent', transform: [{ rotate: '-30deg' }] }} />
+            <View style={[splashStyles.iconCircle, { backgroundColor: '#F4A11D', shadowColor: '#F4A11D' }]}>
+              <Ionicons name="flash" size={52} color="#fff" />
+            </View>
+          </View>
+        )}
+        {!SC_LOGO && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+            <Text style={{ fontSize: 30, fontWeight: '900', color: '#FFFFFF', letterSpacing: -0.5 }}>Spark</Text>
+            <Text style={{ fontSize: 30, fontWeight: '900', color: '#F4A11D', letterSpacing: -0.5 }}>Connect</Text>
+          </View>
+        )}
+
+        {/* Tagline */}
+        <Text style={splashStyles.tagline}>Electrician Field Tools</Text>
+
+        {/* Divider */}
+        <View style={splashStyles.divider} />
+
+        {/* Feature pills */}
+        <View style={splashStyles.pillRow}>
+          {FEATURE_PILLS.map((f, i) => (
+            <View key={f} style={splashStyles.pill}>
+              <Text style={splashStyles.pillText}>{f}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Version */}
+        <Text style={splashStyles.version}>v1.0 · NEC 2023</Text>
+      </Animated.View>
+    </View>
+  );
+};
+
+const splashStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#050A14',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  content: {
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    width: '100%',
+  },
+  iconWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 28,
+  },
+  glowRing: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(59,130,246,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(59,130,246,0.25)',
+  },
+  iconCircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 24,
+    backgroundColor: '#0066FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0066FF',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.6,
+    shadowRadius: 24,
+    elevation: 16,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  brandTop: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 6,
+    marginBottom: 0,
+  },
+  brandBottom: {
+    fontSize: 36,
+    fontWeight: '900',
+    color: '#3B82F6',
+    letterSpacing: 8,
+    marginBottom: 12,
+  },
+  tagline: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.5)',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    marginBottom: 28,
+  },
+  divider: {
+    width: 40,
+    height: 2,
+    backgroundColor: '#3B82F6',
+    borderRadius: 1,
+    marginBottom: 24,
+    opacity: 0.6,
+  },
+  pillRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 40,
+    paddingHorizontal: 16,
+  },
+  pill: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  pillText: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.6)',
+    fontWeight: '500',
+    letterSpacing: 0.3,
+  },
+  version: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.2)',
+    letterSpacing: 1,
+  },
+});
+
+// ─── DAILY NOTIFICATION SCHEDULER ────────────────────────────────────────────
+// Schedules a daily lock-screen/home-screen notification with today's NEC question.
+// Uses expo-notifications (add to app.json plugins if needed for production builds).
+// On iOS, user must grant notification permission. On Android, API 33+ requires permission.
+//
+// The notification shows: question text, multiple choice options, and the NEC article.
+// User taps notification → opens SparkConnect directly to the Daily Question.
+//
+// Lock/home screen widget: React Native doesn't support true home-screen widgets
+// (requires native iOS WidgetKit / Android AppWidget, not available in Expo Go).
+// The BEST cross-platform equivalent is a scheduled daily push notification —
+// it shows on the lock screen, banners, and notification center automatically.
+//
+const scheduleDailyNECNotification = async () => {
+  try {
+    // Dynamically import — graceful if not available in Expo Go
+    const Notifications = await import('expo-notifications').catch(() => null);
+    if (!Notifications) return;
+
+    // Request permission
+    const { status: existing } = await Notifications.getPermissionsAsync();
+    let finalStatus = existing;
+    if (existing !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+    if (finalStatus !== 'granted') return; // User declined — respect it
+
+    // Cancel any existing daily NEC notification before rescheduling
+    await Notifications.cancelAllScheduledNotificationsAsync();
+
+    // Get today's question
+    const q = getDailyQuestion();
+    const choicePreview = q.choices.slice(0, 2).map((c, i) => `${String.fromCharCode(65+i)}) ${c}`).join('  ');
+
+    // Schedule for 7:30 AM every day
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: '⚡ ',
+        body: `${q.question}
+${choicePreview}
+📖 ${q.ref}`,
+        subtitle: `${q.category} · ${q.difficulty}`,
+        data: { screen: 'home', type: 'daily_question' },
+        sound: true,
+        // Badge count (iOS) — shows number on app icon
+        badge: 1,
+      },
+      trigger: {
+        hour: 7,
+        minute: 30,
+        repeats: true,
+      },
+    });
+
+    safeLog('Notifications', ' scheduled for 7:30 AM');
+  } catch(e) {
+    safeLog('scheduleDailyNECNotification', 'Notifications not available in this environment');
+  }
+};
+
+// ─── ROOT APP ─────────────────────────────────────────────────────────────────
+export default function App() {
+  // ── ALL hooks must be called unconditionally, before any early return ──
+  const [splashDone, setSplashDone] = useState(false);
+  const [onboardingDone, setOnboardingDone] = useState(false);
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [showDailyQ, setShowDailyQ] = useState(true);
+  const [streak, setStreak] = useState(0);
+  React.useEffect(() => {
+    safeStorageGet('@sc_onboarding_done').then(val => {
+      const done = val === 'true';
+      setOnboardingDone(done);
+      setOnboardingChecked(true);
+      // If already onboarded, reschedule the daily notification on each app open
+      // (ensures it stays active even after OS clears it on update/reinstall)
+      if (done) scheduleDailyNECNotification();
+    });
+    safeStorageGet('@sc_show_daily_q').then(val => { if (val === 'false') setShowDailyQ(false); });
+    // Streak: check last quiz date
+    safeStorageGet('@sc_streak_data').then(val => {
+      if (val) {
+        try {
+          const { count, lastDate } = JSON.parse(val);
+          const today = new Date().toISOString().split('T')[0];
+          const yesterday = new Date(Date.now()-86400000).toISOString().split('T')[0];
+          if (lastDate === today || lastDate === yesterday) setStreak(count);
+        } catch {}
+      }
+    });
+  }, []);
+
+  const updateStreak = async () => {
+    const today = new Date().toISOString().split('T')[0];
+    const val = await safeStorageGet('@sc_streak_data');
+    let count = 1;
+    if (val) {
+      try {
+        const d = JSON.parse(val);
+        const yesterday = new Date(Date.now()-86400000).toISOString().split('T')[0];
+        count = d.lastDate === yesterday ? d.count + 1 : d.lastDate === today ? d.count : 1;
+      } catch {}
+    }
+    setStreak(count);
+    await safeStorageSet('@sc_streak_data', JSON.stringify({ count, lastDate: today }));
+  };
+  const systemScheme = useColorScheme();
+  const [themePreference, setThemePreference] = useState('system');
+  const [appLanguage, setAppLanguage] = useState('english');
+  React.useEffect(() => {
+    safeStorageGet('@sc_app_language').then(v => { if (v) setAppLanguage(v); });
+  }, []);
+  const isDark = themePreference === 'dark' || (themePreference === 'system' && systemScheme === 'dark');
+  const C = isDark ? DARK : LIGHT;
+  const [tab, setTab] = useState('home');
+  const [history, setHistory] = useState(['home']);
+
+  const [homeKey, setHomeKey] = React.useState(0); // force HomeScreen remount on prefs change
+
+  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn'];
+
+  // Stable handlers — avoids stale closure in Settings toggle rows
+  const handleDailyQToggle = React.useCallback((v) => {
+    setShowDailyQ(v);
+    safeStorageSet('@sc_show_daily_q', v ? 'true' : 'false');
+    setHomeKey(k => k + 1); // force HomeScreen to remount with new pref
+  }, []);
+
+  const [necaiInitSearch, setNecaiInitSearch] = React.useState('');
+  const navigateTo = (newTab, initSearch = '') => {
+    // SECURITY: validate tab ID before navigating
+    if (!VALID_TABS.includes(newTab)) { safeLog('navigateTo', `Invalid tab: ${newTab}`); return; }
+    if (newTab === 'necai' && initSearch) {
+      setNecaiInitSearch(initSearch);
+    } else if (newTab !== 'necai') {
+      // Clear any pending init search when navigating away
+      setNecaiInitSearch('');
+    }
+    setTab(newTab);
+    setHistory(prev => {
+      // Don't push duplicate of current tab
+      if (prev[prev.length - 1] === newTab) return prev;
+      // Cap history at 50 to prevent unbounded memory growth
+      const next = [...prev, newTab];
+      return next.length > 50 ? next.slice(-50) : next;
+    });
+  };
+
+  const goBack = () => {
+    if (history.length > 1) {
+      const prev = history[history.length - 2];
+      setHistory(h => h.slice(0, -1));
+      setTab(prev);
+    }
+  };
+
+  const canGoBack = history.length > 1;
+
+  // Splash screen shown until animation completes — AFTER all hooks
+  if (!splashDone) {
+    return <SplashScreen onDone={() => setSplashDone(true)} />;
+  }
+  if (onboardingChecked && !onboardingDone) {
+    return (
+      <OnboardingScreen C={C} onAccept={async () => {
+        await safeStorageSet('@sc_onboarding_done', 'true');
+        setOnboardingDone(true);
+        // Schedule  notification after user accepts onboarding
+        scheduleDailyNECNotification();
+      }} />
+    );
+  }
+
+  const renderScreen = () => {
+    switch (tab) {
+      case 'home':        return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} />;
+      case 'calculators': return <CalculatorsScreen setTab={navigateTo} C={C} />;
+      case 'bend':        return <BendScreen C={C} setTab={navigateTo} />;
+      case 'volt':        return <VoltScreen C={C} setTab={navigateTo} />;
+      case 'wire':        return <WireScreen C={C} />;
+      case 'formulas':    return <FormulasScreen C={C} />;
+      case 'boxfill':     return <BoxFillScreen C={C} setTab={navigateTo} />;
+      case 'conduitfill': return <ConduitFillScreen C={C} setTab={navigateTo} />;
+      case 'ampacity':    return <AmpacityScreen C={C} />;
+      case 'estimator':   return <EstimatorScreen C={C} setTab={navigateTo} />;
+      case 'necai':       return <NecAiScreen C={C} setTab={navigateTo} initialSearch={necaiInitSearch} clearInitSearch={() => setNecaiInitSearch('')} />;
+      case 'examprep':    return <ExamPrepScreen C={C} onStreakUpdate={updateStreak} />;
+      case 'learn':       return <LearnScreen setTab={navigateTo} C={C} onStreakUpdate={updateStreak} />;
+      case 'settings':    return <SettingsScreen C={C} themePreference={themePreference} setThemePreference={setThemePreference} showDailyQ={showDailyQ} onDailyQToggle={handleDailyQToggle} appLanguage={appLanguage} setAppLanguage={setAppLanguage} />;
+      case 'jobcam':      return <JobCamScreen C={C} setTab={navigateTo} />;
+      default:            return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} />;
+    }
+  };
+
+  return (
+      <ProGatingProvider>
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
+      <StatusBar barStyle={C.statusBar} backgroundColor={C.surface} />
+
+      {/* ── Top Header ── */}
+      <View style={[styles.header, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+          {canGoBack && tab !== 'home' ? (
+            <TouchableOpacity onPress={goBack} style={[styles.iconBtn, { backgroundColor: C.blueSub }]}>
+              <Ionicons name="arrow-back" size={18} color={C.blue} />
+            </TouchableOpacity>
+          ) : tab !== 'home' ? (
+            <TouchableOpacity onPress={() => navigateTo('home')} style={[styles.iconBtn, { backgroundColor: C.blueSub }]}>
+              <Ionicons name="home" size={18} color={C.blue} />
+            </TouchableOpacity>
+          ) : null}
+          <View>
+            <Text style={[styles.headerTitle, { color: C.text }]}>{SCREEN_LABELS[tab] ?? 'SparkConnect'}</Text>
+            {tab === 'home' && <Text style={[styles.headerSub, { color: C.textSec }]}>Electrician's Field Tools</Text>}
+          </View>
+        </View>
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+
+          {tab !== 'settings' && (
+            <TouchableOpacity onPress={() => navigateTo('settings')} style={[styles.iconBtn, { backgroundColor: C.inputBg }]}>
+              <Ionicons name="settings-outline" size={18} color={C.textSec} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* ── Screen Content ── */}
+      <View style={{ flex: 1 }}>{renderScreen()}</View>
+
+      {/* ── Bottom Tab Bar ── */}
+      <View style={[styles.tabBar, { backgroundColor: C.tabBar, borderTopColor: C.tabBorder }]}>
+        {TABS.map(t => (
+          <TouchableOpacity
+            key={t.id}
+            style={styles.tabItem}
+            onPress={() => navigateTo(t.id)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.tabIndicator, tab === t.id && { backgroundColor: C.blue }]} />
+            <Ionicons name={t.icon} size={22} color={tab === t.id ? C.tabActive : C.tabInactive} />
+            <Text style={[styles.tabLabel, { color: tab === t.id ? C.tabActive : C.tabInactive }]}>{t.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </SafeAreaView>
+    </ProGatingProvider>
+    );
+}
+
+// ─── STYLES ───────────────────────────────────────────────────────────────────
+const styles = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  headerSub: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  iconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabBar: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 8,
+    paddingTop: 8,
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 2,
+  },
+  tabIndicator: {
+    width: 24,
+    height: 3,
+    borderRadius: 99,
+    marginBottom: 2,
+    backgroundColor: 'transparent',
+  },
+  tabLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.1,
+  },
+});
+
+// ═══ END — App.js complete. All 4 sections assembled. ═══
