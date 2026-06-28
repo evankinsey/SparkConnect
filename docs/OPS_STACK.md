@@ -52,13 +52,16 @@ growth-os/
   n8n/README.md           ← import + credential wiring
 ```
 
-## Build order (and current state)
+## Build order — EXECUTION-FIRST (current state)
+Today's goal: lean machine + 14-day queue + first launch video posted + metrics sheet ready.
 1. **Sheets command center** — `growth-os/sheets/setup.gs` (ready to run). ⏳ needs a blank Sheet.
-2. **Notion workspace** — `growth-os/notion/STRUCTURE.md` (ready to build). ⏳ manual or API.
-3. **Daily Growth Brief** — `n8n/daily-growth-brief.json`. ⏳ import + credentials.
-4. **Feedback to Backlog** — `n8n/feedback-to-backlog.json`. ⏳ import + credentials.
-5. **Content Draft Factory** — `n8n/content-draft-factory.json`. ⏳ import + credentials.
-6. **RevenueCat webhook** — `n8n/revenuecat-webhook.json`. ⏳ import + RC dashboard config.
+2. **Content Factory + 14-day queue** — `growth-os/content-factory/` (✅ written, ready to shoot).
+3. **Today's launch package** — `growth-os/content-factory/launch-package.md` (✅ ready to post).
+4. **Content Draft Factory (n8n)** — `n8n/content-draft-factory.json`. ⏳ import + credentials.
+5. **Feedback to Backlog (n8n)** — `n8n/feedback-to-backlog.json`. ⏳ import + credentials.
+
+**Parked** (don't build until the above is live): Notion (`growth-os/notion/`), Daily Growth
+Brief + RevenueCat webhook (`growth-os/n8n/parked/`), creator-outreach automation, complex dashboards.
 
 ## Principles
 - **Lean:** one source of truth per fact; no duplicate systems.

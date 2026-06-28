@@ -1,45 +1,45 @@
-# n8n Workflows — Import & Wiring
+# n8n Workflows
 
-Four starter workflows. Each is importable as-is but **inactive** and
-**uncredentialed** by design — you wire credentials in the n8n UI after import.
-No API keys live in these files. Every secret is referenced by **credential name**.
+**Today we build only two** (execution-first). The other two are parked in
+`parked/` until the content engine is running.
 
-## Workflows
 | File | Trigger | What it does |
 |---|---|---|
-| `daily-growth-brief.json` | Schedule (7am) | Reads Sheets → Claude summary + 3 priorities + 5 hooks → posts to approval channel |
-| `feedback-to-backlog.json` | Webhook `/sparkconnect-feedback` | Classifies feedback → appends to Feedback (+ Bugs / Feature Requests) → alerts only on urgent |
-| `content-draft-factory.json` | Manual | Pulls one `Idea` from Content Queue → Claude draft → saves **Draft Ready** (never posts) |
-| `revenuecat-webhook.json` | Webhook `/sparkconnect-revenuecat` | Logs subs/renewals/cancels/packs → Revenue tab → MRR delta → milestone alert |
+| `content-draft-factory.json` | Manual | Pulls one `Idea` from Content Queue → Claude generates the full asset set → saves **Draft Ready**. Never posts. |
+| `feedback-to-backlog.json` | Webhook `/sparkconnect-feedback` | Classifies feedback into **Bug / Feature Request / General** → appends to Feedback, and to Bugs or Feature Requests → alerts only on urgent. |
+| `parked/daily-growth-brief.json` | — | Deferred. Daily summary + priorities + hooks. |
+| `parked/revenuecat-webhook.json` | — | Deferred. Revenue logging + MRR. (Use **Revenue Snapshot** tab manually for now.) |
 
-## Import
-1. n8n → **Workflows → Import from File** → pick a JSON.
-2. Open the **Config** node, paste your `SHEET_ID` (from the Sheet URL) and any webhook URLs.
-3. Open each node showing a red credential warning and select the matching credential (below).
-4. Test with **Execute Workflow** before activating.
+No API keys live in these files. Every secret is referenced by **credential name**.
 
-## Credentials to create in n8n (one each, reused across workflows)
+## Import (per workflow)
+1. n8n → **Workflows → Import from File** → pick the JSON.
+2. Open **Config** → paste your `SHEET_ID` (from the Sheet URL); leave webhook URLs blank until you have a Slack/Discord webhook.
+3. Select the matching credential on any node showing a red warning (table below).
+4. **Execute Workflow** to test before activating.
+
+## Credentials to create in n8n (once, reused)
 | Credential name (must match) | Type | Used by |
 |---|---|---|
 | `Google Sheets (SparkConnect)` | Google Sheets OAuth2 | all Sheets nodes |
 | `Anthropic API (x-api-key)` | Header Auth — name `x-api-key`, value = your Anthropic key | Claude HTTP nodes |
-| `RevenueCat Webhook Auth (Authorization header)` | Header Auth — shared secret RC sends | RevenueCat webhook |
 
-> **Config fields are not secrets** (sheet ID, model name, prices). **Credentials are**
-> — they stay in n8n's encrypted store, never in these files or the repo.
+> Config fields (sheet ID, model, prices) are **not secrets**. Credentials are —
+> they stay in n8n's encrypted store, never in these files or the repo.
 
-## Approval / alert channel
-`APPROVAL_WEBHOOK_URL` and `ALERT_WEBHOOK_URL` are empty in Config. Paste a Slack
-or Discord **incoming webhook URL** (or swap the final HTTP node for a native
-Slack/Telegram node). Until set, the workflow runs but the final send is a no-op
-to a blank URL — safe by default.
+## Feedback to Backlog — input shape
+`POST /sparkconnect-feedback` with:
+```json
+{ "text": "the app crashed when I opened box fill", "source": "email|form|social", "contact": "optional" }
+```
+- `Bug` → Feedback + Bugs tabs. `Feature Request` → Feedback + Feature Requests. `General` → Feedback only.
+- Urgent alert (one message) fires only for crash / data-loss / security / legal / safety / payment.
+
+## Content Draft Factory
+Reads the first Content Queue row with Status `Idea`, generates assets via the
+Master Prompt (`growth-os/content-factory/MASTER_PROMPT.md`), writes them back and
+sets Status **Draft Ready**. It has **no node that can post, schedule, or approve.**
 
 ## Model
-Defaults to `claude-opus-4-8`. To cut cost on high-volume classification, change
-the `MODEL` field in Config to a smaller Claude model — no other edits needed.
-
-## Guardrails baked in
-- Draft Factory writes status `Draft Ready` only — it **cannot** set Approved/Scheduled/Published.
-- Feedback alerts fire **only** when the classifier marks `urgent` (crash/data-loss/security/legal/safety/payment).
-- RevenueCat customer IDs are SHA-256 hashed before they touch the sheet.
-- Nothing posts to social, sends email/DMs, or changes billing.
+Defaults to `claude-opus-4-8`. Switch the Config `MODEL` field to a smaller Claude
+for cheap, high-volume feedback classification — no other change needed.

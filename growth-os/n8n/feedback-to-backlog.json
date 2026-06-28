@@ -36,7 +36,7 @@
         "headerParameters": { "parameters": [ { "name": "anthropic-version", "value": "2023-06-01" }, { "name": "content-type", "value": "application/json" } ] },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $json.MODEL, max_tokens: 400, system: 'Classify SparkConnect user feedback. Output ONLY JSON: {\"category\": one of [\"Bug\",\"Feature Request\",\"UX Issue\",\"Testimonial\",\"Pricing Complaint\",\"Content Idea\"], \"sentiment\": one of [\"Positive\",\"Neutral\",\"Negative\"], \"urgent\": boolean (true ONLY for crashes/data-loss/security/legal/safety/payment-failure), \"title\": short 6-word summary, \"severity\": one of [\"Critical\",\"High\",\"Medium\",\"Low\"]}. No preamble.', messages: [ { role: 'user', content: $json.rawText } ] }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $json.MODEL, max_tokens: 400, system: 'Classify SparkConnect user feedback into exactly one of three buckets. Output ONLY JSON: {\"category\": one of [\"Bug\",\"Feature Request\",\"General\"], \"sentiment\": one of [\"Positive\",\"Neutral\",\"Negative\"], \"urgent\": boolean (true ONLY for crashes/data-loss/security/legal/safety/payment-failure), \"title\": short 6-word summary, \"severity\": one of [\"Critical\",\"High\",\"Medium\",\"Low\"]}. General = praise, questions, UX notes, pricing comments, content ideas — anything that is not a clear bug or a clear feature request. No preamble.', messages: [ { role: 'user', content: $json.rawText } ] }) }}",
         "options": {}
       },
       "id": "classify",
