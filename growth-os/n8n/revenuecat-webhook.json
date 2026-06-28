@@ -1,0 +1,89 @@
+{
+  "name": "RevenueCat Webhook",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "parameters": { "httpMethod": "POST", "path": "sparkconnect-revenuecat", "authentication": "headerAuth", "options": {} },
+      "id": "webhook",
+      "name": "RevenueCat Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [ 240, 400 ],
+      "credentials": { "httpHeaderAuth": { "id": "REPLACE", "name": "RevenueCat Webhook Auth (Authorization header)" } }
+    },
+    {
+      "parameters": {
+        "assignments": { "assignments": [
+          { "id": "c1", "name": "SHEET_ID", "value": "PASTE_SPREADSHEET_ID_HERE", "type": "string" },
+          { "id": "c2", "name": "ALERT_WEBHOOK_URL", "value": "", "type": "string" },
+          { "id": "c3", "name": "PRICE_MONTHLY", "value": "9.99", "type": "string" },
+          { "id": "c4", "name": "PRICE_ANNUAL", "value": "59.99", "type": "string" }
+        ] }
+      },
+      "id": "config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [ 460, 400 ]
+    },
+    {
+      "parameters": { "jsCode": "// Normalize a RevenueCat v1 event into a Revenue-tab row.\nconst crypto = require('crypto');\nconst ev = $('RevenueCat Webhook').item.json.body?.event || {};\nconst cfg = $('Config').item.json;\nconst type = ev.type || 'UNKNOWN';\nconst product = ev.product_id || '';\nconst store = ev.store || 'Other';\nconst priceUSD = (ev.price_in_purchased_currency != null) ? ev.price_in_purchased_currency : (ev.price || 0);\n\n// Map RC event type -> our Event Type label.\nconst MAP = { INITIAL_PURCHASE:'Initial Purchase', RENEWAL:'Renewal', CANCELLATION:'Cancellation', UNCANCELLATION:'Renewal', NON_RENEWING_PURCHASE:'Message Pack', EXPIRATION:'Cancellation', PRODUCT_CHANGE:'Renewal', BILLING_ISSUE:'Cancellation', TRIAL_STARTED:'Trial Start', TRIAL_CONVERTED:'Trial Conversion', REFUND:'Refund' };\nconst eventType = MAP[type] || type;\n\n// MRR delta: monthly subs add ~price/1, annual add price/12. Cancellations subtract.\nconst monthlyEq = (id) => { if(/year|annual/i.test(id)) return (parseFloat(cfg.PRICE_ANNUAL)||0)/12; if(/month/i.test(id)) return parseFloat(cfg.PRICE_MONTHLY)||0; return 0; };\nlet mrrDelta = 0;\nif (['Initial Purchase','Trial Conversion'].includes(eventType)) mrrDelta = monthlyEq(product);\nelse if (['Cancellation','Refund'].includes(eventType)) mrrDelta = -monthlyEq(product);\n\n// Hash the app user id — never store raw.\nconst rawId = ev.app_user_id || ev.original_app_user_id || '';\nconst hashed = rawId ? crypto.createHash('sha256').update(String(rawId)).digest('hex').slice(0,16) : '';\n\nconst milestone = ['Initial Purchase','Trial Conversion'].includes(eventType);\nreturn [{ json: {\n  date: new Date().toISOString().slice(0,10),\n  eventType, product, store,\n  amount: Number(priceUSD)||0,\n  currency: ev.currency || 'USD',\n  hashed, mrrDelta: Math.round(mrrDelta*100)/100,\n  sheetId: cfg.SHEET_ID, alertUrl: cfg.ALERT_WEBHOOK_URL, milestone\n} }];" },
+      "id": "normalize",
+      "name": "Normalize Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 700, 400 ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "value": "={{ $json.sheetId }}", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Revenue", "mode": "name" },
+        "columns": { "mappingMode": "defineBelow", "value": {
+          "Date": "={{ $json.date }}", "Event Type": "={{ $json.eventType }}", "Product ID": "={{ $json.product }}",
+          "Store": "={{ $json.store }}", "Amount (USD)": "={{ $json.amount }}", "Currency": "={{ $json.currency }}",
+          "Customer (hashed)": "={{ $json.hashed }}", "MRR Delta": "={{ $json.mrrDelta }}" } },
+        "options": {}
+      },
+      "id": "append",
+      "name": "Append to Revenue",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [ 940, 400 ],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "REPLACE", "name": "Google Sheets (SparkConnect)" } }
+    },
+    {
+      "parameters": {
+        "conditions": { "options": { "version": 2 }, "conditions": [ { "leftValue": "={{ $('Normalize Event').item.json.milestone }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } } ], "combinator": "and" }
+      },
+      "id": "milestone-gate",
+      "name": "New Paid Customer?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [ 1180, 400 ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Normalize Event').item.json.alertUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: '💸 New paid: ' + $('Normalize Event').item.json.eventType + ' — ' + $('Normalize Event').item.json.product + ' (+$' + $('Normalize Event').item.json.mrrDelta + ' MRR)' }) }}",
+        "options": {}
+      },
+      "id": "milestone-alert",
+      "name": "Milestone Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [ 1420, 320 ]
+    }
+  ],
+  "connections": {
+    "RevenueCat Webhook": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
+    "Config": { "main": [ [ { "node": "Normalize Event", "type": "main", "index": 0 } ] ] },
+    "Normalize Event": { "main": [ [ { "node": "Append to Revenue", "type": "main", "index": 0 } ] ] },
+    "Append to Revenue": { "main": [ [ { "node": "New Paid Customer?", "type": "main", "index": 0 } ] ] },
+    "New Paid Customer?": { "main": [ [ { "node": "Milestone Alert", "type": "main", "index": 0 } ], [] ] }
+  }
+}

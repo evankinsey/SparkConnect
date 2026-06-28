@@ -1,0 +1,157 @@
+{
+  "name": "Feedback to Backlog",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "parameters": { "httpMethod": "POST", "path": "sparkconnect-feedback", "options": {} },
+      "id": "webhook",
+      "name": "Intake Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [ 240, 400 ]
+    },
+    {
+      "parameters": {
+        "assignments": { "assignments": [
+          { "id": "c1", "name": "SHEET_ID", "value": "PASTE_SPREADSHEET_ID_HERE", "type": "string" },
+          { "id": "c2", "name": "MODEL", "value": "claude-opus-4-8", "type": "string" },
+          { "id": "c3", "name": "ALERT_WEBHOOK_URL", "value": "", "type": "string" },
+          { "id": "c4", "name": "rawText", "value": "={{ $('Intake Webhook').item.json.body?.text || $('Intake Webhook').item.json.query?.text || '' }}", "type": "string" },
+          { "id": "c5", "name": "source", "value": "={{ $('Intake Webhook').item.json.body?.source || 'unknown' }}", "type": "string" },
+          { "id": "c6", "name": "contact", "value": "={{ $('Intake Webhook').item.json.body?.contact || '' }}", "type": "string" }
+        ] }
+      },
+      "id": "config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [ 460, 400 ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "anthropic-version", "value": "2023-06-01" }, { "name": "content-type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $json.MODEL, max_tokens: 400, system: 'Classify SparkConnect user feedback. Output ONLY JSON: {\"category\": one of [\"Bug\",\"Feature Request\",\"UX Issue\",\"Testimonial\",\"Pricing Complaint\",\"Content Idea\"], \"sentiment\": one of [\"Positive\",\"Neutral\",\"Negative\"], \"urgent\": boolean (true ONLY for crashes/data-loss/security/legal/safety/payment-failure), \"title\": short 6-word summary, \"severity\": one of [\"Critical\",\"High\",\"Medium\",\"Low\"]}. No preamble.', messages: [ { role: 'user', content: $json.rawText } ] }) }}",
+        "options": {}
+      },
+      "id": "classify",
+      "name": "Classify (Claude)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [ 700, 400 ],
+      "credentials": { "httpHeaderAuth": { "id": "REPLACE", "name": "Anthropic API (x-api-key)" } }
+    },
+    {
+      "parameters": { "jsCode": "let raw = $json.content?.[0]?.text || '{}';\nlet c; try { c = JSON.parse(raw); } catch(e){ const m=raw.match(/\\{[\\s\\S]*\\}/); c = m?JSON.parse(m[0]):{}; }\nconst cfg = $('Config').item.json;\nconst now = new Date().toISOString().slice(0,10);\nreturn [{ json: {\n  date: now,\n  source: cfg.source,\n  rawText: cfg.rawText,\n  contact: cfg.contact,\n  category: c.category || 'UX Issue',\n  sentiment: c.sentiment || 'Neutral',\n  urgent: !!c.urgent,\n  title: c.title || cfg.rawText.slice(0,60),\n  severity: c.severity || 'Medium',\n  sheetId: cfg.SHEET_ID,\n  alertUrl: cfg.ALERT_WEBHOOK_URL\n} }];" },
+      "id": "shape",
+      "name": "Shape Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 940, 400 ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "value": "={{ $json.sheetId }}", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Feedback", "mode": "name" },
+        "columns": { "mappingMode": "defineBelow", "value": {
+          "Date": "={{ $json.date }}", "Source": "={{ $json.source }}", "Raw Text": "={{ $json.rawText }}",
+          "Category": "={{ $json.category }}", "Sentiment": "={{ $json.sentiment }}",
+          "User Contact": "={{ $json.contact }}", "Status": "New", "Notes": "auto-classified" } },
+        "options": {}
+      },
+      "id": "append-feedback",
+      "name": "Append to Feedback",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [ 1180, 400 ],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "REPLACE", "name": "Google Sheets (SparkConnect)" } }
+    },
+    {
+      "parameters": { "rules": { "values": [
+        { "conditions": { "options": { "caseSensitive": true, "version": 2 }, "conditions": [ { "leftValue": "={{ $('Shape Record').item.json.category }}", "rightValue": "Bug", "operator": { "type": "string", "operation": "equals" } } ], "combinator": "and" }, "outputKey": "Bug" },
+        { "conditions": { "options": { "caseSensitive": true, "version": 2 }, "conditions": [ { "leftValue": "={{ $('Shape Record').item.json.category }}", "rightValue": "Feature Request", "operator": { "type": "string", "operation": "equals" } } ], "combinator": "and" }, "outputKey": "Feature Request" }
+      ] }, "options": { "fallbackOutput": "extra" } },
+      "id": "route",
+      "name": "Route by Category",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [ 1420, 400 ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "value": "={{ $('Shape Record').item.json.sheetId }}", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Bugs", "mode": "name" },
+        "columns": { "mappingMode": "defineBelow", "value": {
+          "Date": "={{ $('Shape Record').item.json.date }}", "Reported By": "={{ $('Shape Record').item.json.contact }}",
+          "Severity": "={{ $('Shape Record').item.json.severity }}", "Description": "={{ $('Shape Record').item.json.title }}",
+          "Status": "Open", "Notes": "={{ $('Shape Record').item.json.rawText }}" } },
+        "options": {}
+      },
+      "id": "append-bug",
+      "name": "Append to Bugs",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [ 1680, 240 ],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "REPLACE", "name": "Google Sheets (SparkConnect)" } }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "value": "={{ $('Shape Record').item.json.sheetId }}", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Feature Requests", "mode": "name" },
+        "columns": { "mappingMode": "defineBelow", "value": {
+          "Date": "={{ $('Shape Record').item.json.date }}", "Requested By": "={{ $('Shape Record').item.json.contact }}",
+          "Title": "={{ $('Shape Record').item.json.title }}", "Description": "={{ $('Shape Record').item.json.rawText }}",
+          "Votes": "1", "Status": "New" } },
+        "options": {}
+      },
+      "id": "append-fr",
+      "name": "Append to Feature Requests",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [ 1680, 420 ],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "REPLACE", "name": "Google Sheets (SparkConnect)" } }
+    },
+    {
+      "parameters": {
+        "conditions": { "options": { "version": 2 }, "conditions": [ { "leftValue": "={{ $('Shape Record').item.json.urgent }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } } ], "combinator": "and" }
+      },
+      "id": "urgent-gate",
+      "name": "Urgent?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [ 1420, 620 ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Shape Record').item.json.alertUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: '🚨 URGENT feedback (' + $('Shape Record').item.json.category + '): ' + $('Shape Record').item.json.title + '\\n' + $('Shape Record').item.json.rawText }) }}",
+        "options": {}
+      },
+      "id": "alert",
+      "name": "Alert Me (urgent only)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [ 1680, 620 ]
+    }
+  ],
+  "connections": {
+    "Intake Webhook": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
+    "Config": { "main": [ [ { "node": "Classify (Claude)", "type": "main", "index": 0 } ] ] },
+    "Classify (Claude)": { "main": [ [ { "node": "Shape Record", "type": "main", "index": 0 } ] ] },
+    "Shape Record": { "main": [ [ { "node": "Append to Feedback", "type": "main", "index": 0 } ] ] },
+    "Append to Feedback": { "main": [ [ { "node": "Route by Category", "type": "main", "index": 0 }, { "node": "Urgent?", "type": "main", "index": 0 } ] ] },
+    "Route by Category": { "main": [ [ { "node": "Append to Bugs", "type": "main", "index": 0 } ], [ { "node": "Append to Feature Requests", "type": "main", "index": 0 } ], [] ] },
+    "Urgent?": { "main": [ [ { "node": "Alert Me (urgent only)", "type": "main", "index": 0 } ], [] ] }
+  }
+}

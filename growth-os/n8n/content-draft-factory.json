@@ -1,0 +1,104 @@
+{
+  "name": "Content Draft Factory",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Run Manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [ 240, 400 ]
+    },
+    {
+      "parameters": {
+        "assignments": { "assignments": [
+          { "id": "c1", "name": "SHEET_ID", "value": "PASTE_SPREADSHEET_ID_HERE", "type": "string" },
+          { "id": "c2", "name": "MODEL", "value": "claude-opus-4-8", "type": "string" }
+        ] }
+      },
+      "id": "config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [ 460, 400 ]
+    },
+    {
+      "parameters": {
+        "documentId": { "__rl": true, "value": "={{ $json.SHEET_ID }}", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Content Queue", "mode": "name" },
+        "filtersUI": { "values": [ { "lookupColumn": "Status", "lookupValue": "Idea" } ] },
+        "options": {}
+      },
+      "id": "read-queue",
+      "name": "Get Next Idea",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [ 700, 400 ],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "REPLACE", "name": "Google Sheets (SparkConnect)" } }
+    },
+    {
+      "parameters": { "maxItems": 1 },
+      "id": "limit",
+      "name": "First Idea Only",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [ 940, 400 ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "anthropic-version", "value": "2023-06-01" }, { "name": "content-type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Config').item.json.MODEL, max_tokens: 1500, system: 'You write short-form content for SparkConnect, an app for electricians, apprentices, trade-school students and contractors. Voice: practical, confident, jobsite-real, never cringe. Output ONLY JSON with keys: tiktok_script (string, 25-40s spoken, with on-screen cues), ig_caption (string), cta (string), hook (string, first 2 seconds), thumbnail_text (string, max 5 words), hashtags (array of 8 strings). No preamble.', messages: [ { role: 'user', content: 'Topic: ' + ($json.Topic||'') + '\\nAngle: ' + ($json.Angle||'') + '\\nPlatform: ' + ($json.Platform||'TikTok') } ] }) }}",
+        "options": {}
+      },
+      "id": "generate",
+      "name": "Generate Draft (Claude)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [ 1180, 400 ],
+      "credentials": { "httpHeaderAuth": { "id": "REPLACE", "name": "Anthropic API (x-api-key)" } }
+    },
+    {
+      "parameters": { "jsCode": "let raw = $json.content?.[0]?.text || '{}';\nlet d; try { d = JSON.parse(raw); } catch(e){ const m=raw.match(/\\{[\\s\\S]*\\}/); d = m?JSON.parse(m[0]):{}; }\nconst idea = $('First Idea Only').item.json;\nconst block = [\n  'HOOK: ' + (d.hook||''),\n  '',\n  'TIKTOK SCRIPT:\\n' + (d.tiktok_script||''),\n  '',\n  'IG CAPTION:\\n' + (d.ig_caption||''),\n  '',\n  'CTA: ' + (d.cta||''),\n  'THUMBNAIL TEXT: ' + (d.thumbnail_text||''),\n  'HASHTAGS: ' + (Array.isArray(d.hashtags)?d.hashtags.join(' '):'')\n].join('\\n');\nreturn [{ json: { rowId: idea['ID'], hook: d.hook||'', draft: block, sheetId: $('Config').item.json.SHEET_ID } }];" },
+      "id": "assemble",
+      "name": "Assemble Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 1420, 400 ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": { "__rl": true, "value": "={{ $json.sheetId }}", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Content Queue", "mode": "name" },
+        "columns": { "mappingMode": "defineBelow", "matchingColumns": [ "ID" ], "value": {
+          "ID": "={{ $json.rowId }}",
+          "Status": "Draft Ready",
+          "Hook": "={{ $json.hook }}",
+          "Notes": "={{ $json.draft }}"
+        } },
+        "options": {}
+      },
+      "id": "save-draft",
+      "name": "Save as Draft Ready",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [ 1680, 400 ],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "REPLACE", "name": "Google Sheets (SparkConnect)" } }
+    }
+  ],
+  "connections": {
+    "Run Manually": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
+    "Config": { "main": [ [ { "node": "Get Next Idea", "type": "main", "index": 0 } ] ] },
+    "Get Next Idea": { "main": [ [ { "node": "First Idea Only", "type": "main", "index": 0 } ] ] },
+    "First Idea Only": { "main": [ [ { "node": "Generate Draft (Claude)", "type": "main", "index": 0 } ] ] },
+    "Generate Draft (Claude)": { "main": [ [ { "node": "Assemble Draft", "type": "main", "index": 0 } ] ] },
+    "Assemble Draft": { "main": [ [ { "node": "Save as Draft Ready", "type": "main", "index": 0 } ] ] }
+  }
+}

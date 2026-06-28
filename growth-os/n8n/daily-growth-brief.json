@@ -1,0 +1,125 @@
+{
+  "name": "Daily SparkConnect Growth Brief",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [ { "field": "cronExpression", "expression": "0 7 * * *" } ] } },
+      "id": "trigger",
+      "name": "Every morning 7am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [ 240, 400 ]
+    },
+    {
+      "parameters": {
+        "assignments": { "assignments": [
+          { "id": "a1", "name": "SHEET_ID", "value": "PASTE_SPREADSHEET_ID_HERE", "type": "string" },
+          { "id": "a2", "name": "BRIEF_MODEL", "value": "claude-opus-4-8", "type": "string" },
+          { "id": "a3", "name": "APPROVAL_WEBHOOK_URL", "value": "", "type": "string" }
+        ] }
+      },
+      "id": "config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [ 460, 400 ]
+    },
+    {
+      "parameters": { "documentId": { "__rl": true, "value": "={{ $json.SHEET_ID }}", "mode": "id" }, "sheetName": { "__rl": true, "value": "Daily Metrics", "mode": "name" }, "options": {} },
+      "id": "read-metrics",
+      "name": "Read Daily Metrics",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [ 720, 180 ],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "REPLACE", "name": "Google Sheets (SparkConnect)" } }
+    },
+    {
+      "parameters": { "documentId": { "__rl": true, "value": "={{ $('Config').item.json.SHEET_ID }}", "mode": "id" }, "sheetName": { "__rl": true, "value": "Bugs", "mode": "name" }, "options": {} },
+      "id": "read-bugs",
+      "name": "Read Bugs",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [ 720, 340 ],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "REPLACE", "name": "Google Sheets (SparkConnect)" } }
+    },
+    {
+      "parameters": { "documentId": { "__rl": true, "value": "={{ $('Config').item.json.SHEET_ID }}", "mode": "id" }, "sheetName": { "__rl": true, "value": "Feedback", "mode": "name" }, "options": {} },
+      "id": "read-feedback",
+      "name": "Read Feedback",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [ 720, 500 ],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "REPLACE", "name": "Google Sheets (SparkConnect)" } }
+    },
+    {
+      "parameters": { "documentId": { "__rl": true, "value": "={{ $('Config').item.json.SHEET_ID }}", "mode": "id" }, "sheetName": { "__rl": true, "value": "Content Queue", "mode": "name" }, "options": {} },
+      "id": "read-content",
+      "name": "Read Content Queue",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [ 720, 660 ],
+      "credentials": { "googleSheetsOAuth2Api": { "id": "REPLACE", "name": "Google Sheets (SparkConnect)" } }
+    },
+    {
+      "parameters": { "jsCode": "// Compile a compact context for the model from yesterday's data.\nconst ymd = (d) => d.toISOString().slice(0,10);\nconst y = new Date(Date.now() - 86400000);\nconst yKey = ymd(y);\nconst metrics = $('Read Daily Metrics').all().map(i => i.json);\nconst bugs = $('Read Bugs').all().map(i => i.json);\nconst feedback = $('Read Feedback').all().map(i => i.json);\nconst content = $('Read Content Queue').all().map(i => i.json);\nconst yRow = metrics.find(r => String(r['Date']).slice(0,10) === yKey) || {};\nconst openBugs = bugs.filter(b => ['Open','In Progress'].includes(b['Status']));\nconst recentFeedback = feedback.slice(-15);\nconst published = content.filter(c => c['Status']==='Published');\nconst context = {\n  yesterday: yKey,\n  installs: yRow['Installs'] || 0,\n  paidConversions: yRow['Paid Conversions'] || 0,\n  trialsStarted: yRow['Trials Started'] || 0,\n  cancellations: yRow['Cancellations'] || 0,\n  sparkyMessages: yRow['Sparky Messages'] || 0,\n  contentPublishedYesterday: published.filter(c => String(c['Publish Date']).slice(0,10)===yKey).length,\n  openBugCount: openBugs.length,\n  criticalBugs: openBugs.filter(b => ['Critical','High'].includes(b['Severity'])).map(b => b['Description']).slice(0,5),\n  recentFeedback: recentFeedback.map(f => ({ category: f['Category'], text: String(f['Raw Text']||'').slice(0,160) }))\n};\nreturn [{ json: { context, model: $('Config').item.json.BRIEF_MODEL, approvalUrl: $('Config').item.json.APPROVAL_WEBHOOK_URL } }];" },
+      "id": "build-context",
+      "name": "Build Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 980, 400 ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "anthropic-version", "value": "2023-06-01" }, { "name": "content-type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $json.model, max_tokens: 1200, system: 'You are SparkConnect\\'s growth analyst. Be concise and specific. Output ONLY valid JSON with keys: summary (string, 4 sentences max on yesterday\\'s installs, paid users, content, bugs, feedback), priorities (array of exactly 3 short action strings for today), hooks (array of exactly 5 short-form video hooks for electricians/contractors/trade-school audience). No preamble.', messages: [ { role: 'user', content: 'Data: ' + JSON.stringify($json.context) } ] }) }}",
+        "options": {}
+      },
+      "id": "anthropic",
+      "name": "Generate Brief (Claude)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [ 1220, 400 ],
+      "credentials": { "httpHeaderAuth": { "id": "REPLACE", "name": "Anthropic API (x-api-key)" } }
+    },
+    {
+      "parameters": { "jsCode": "// Parse model JSON and format a human-readable brief.\nlet raw = $json.content?.[0]?.text || '{}';\nlet data;\ntry { data = JSON.parse(raw); } catch (e) {\n  const m = raw.match(/\\{[\\s\\S]*\\}/); data = m ? JSON.parse(m[0]) : { summary: raw, priorities: [], hooks: [] };\n}\nconst lines = [];\nlines.push('*SparkConnect Daily Growth Brief*');\nlines.push('');\nlines.push(data.summary || '');\nlines.push('');\nlines.push('*Top 3 priorities today:*');\n(data.priorities||[]).forEach((p,i)=>lines.push(`${i+1}. ${p}`));\nlines.push('');\nlines.push('*5 content hooks (draft ideas — approve before posting):*');\n(data.hooks||[]).forEach((h)=>lines.push(`• ${h}`));\nreturn [{ json: { text: lines.join('\\n'), approvalUrl: $('Build Context').item.json.approvalUrl } }];" },
+      "id": "format",
+      "name": "Format Brief",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 1460, 400 ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.approvalUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text }) }}",
+        "options": {}
+      },
+      "id": "send",
+      "name": "Send to Approval Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [ 1700, 400 ]
+    }
+  ],
+  "connections": {
+    "Every morning 7am": { "main": [ [ { "node": "Config", "type": "main", "index": 0 } ] ] },
+    "Config": { "main": [ [ { "node": "Read Daily Metrics", "type": "main", "index": 0 }, { "node": "Read Bugs", "type": "main", "index": 0 }, { "node": "Read Feedback", "type": "main", "index": 0 }, { "node": "Read Content Queue", "type": "main", "index": 0 } ] ] },
+    "Read Daily Metrics": { "main": [ [ { "node": "Build Context", "type": "main", "index": 0 } ] ] },
+    "Read Bugs": { "main": [ [ { "node": "Build Context", "type": "main", "index": 0 } ] ] },
+    "Read Feedback": { "main": [ [ { "node": "Build Context", "type": "main", "index": 0 } ] ] },
+    "Read Content Queue": { "main": [ [ { "node": "Build Context", "type": "main", "index": 0 } ] ] },
+    "Build Context": { "main": [ [ { "node": "Generate Brief (Claude)", "type": "main", "index": 0 } ] ] },
+    "Generate Brief (Claude)": { "main": [ [ { "node": "Format Brief", "type": "main", "index": 0 } ] ] },
+    "Format Brief": { "main": [ [ { "node": "Send to Approval Channel", "type": "main", "index": 0 } ] ] }
+  }
+}
