@@ -54,7 +54,7 @@
         "headerParameters": { "parameters": [ { "name": "anthropic-version", "value": "2023-06-01" }, { "name": "content-type", "value": "application/json" } ] },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $('Config').item.json.MODEL, max_tokens: 1500, system: 'You write short-form content for SparkConnect, an app for electricians, apprentices, trade-school students and contractors. Voice: practical, confident, jobsite-real, never cringe. Output ONLY JSON with keys: tiktok_script (string, 25-40s spoken, with on-screen cues), ig_caption (string), cta (string), hook (string, first 2 seconds), thumbnail_text (string, max 5 words), hashtags (array of 8 strings). No preamble.', messages: [ { role: 'user', content: 'Topic: ' + ($json.Topic||'') + '\\nAngle: ' + ($json.Angle||'') + '\\nPlatform: ' + ($json.Platform||'TikTok') } ] }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $('Config').item.json.MODEL, max_tokens: 1500, system: 'You write short-form content for SparkConnect, an app for electricians, apprentices, trade-school students and contractors. Voice: practical, confident, jobsite-real, never cringe. Output ONLY JSON with keys: tiktok_script (string, 25-40s spoken, with on-screen cues), ig_caption (string), cta (string), hook (string, first 2 seconds), thumbnail_text (string, max 5 words), hashtags (array of 8 strings). No preamble.', messages: [ { role: 'user', content: 'Topic: ' + ($json.Idea||'') + '\\nTheme: ' + ($json.Theme||'') + '\\nHook idea: ' + ($json.Hook||'') + '\\nPlatform: ' + ($json.Platform||'All') } ] }) }}",
         "options": {}
       },
       "id": "generate",
