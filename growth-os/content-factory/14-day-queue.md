@@ -6,8 +6,9 @@ reviews, and posts. Day 1 has its full asset set in `launch-package.md`.
 
 **Cadence:** 1 post/day, all three platforms (TikTok + Reels + Shorts) unless noted.
 **Shoot kit:** phone screen recording of the real app + 1 talking-head or B-roll clip.
-**CTA note:** `⚠️ CONFIRM iOS status` — if live use "Download free on the App Store";
-if not yet, use "Join the TestFlight / waitlist (link in bio)". Pick one and keep it consistent.
+**CTA note:** all CTAs say **"(link in bio)"** — point the bio link at wherever the
+app lives today (App Store / TestFlight / waitlist). True regardless of status; swap
+the destination, not the videos, when the App Store listing goes live.
 
 ---
 
@@ -16,23 +17,23 @@ if not yet, use "Join the TestFlight / waitlist (link in bio)". Pick one and kee
 
 ---
 
-### Day 2 — Sparky AI demo  (Theme: Sparky · Feature: Sparky chat)
+### Day 2 — Sparky AI demo  (Theme: Sparky · Feature: Sparky chat)  → **full script in `expanded-days-2-3.md`**
 - **Hook:** "I asked my phone an NEC question and got a straight answer."
 - **Script beats:** (1) Hook to camera. (2) [SCREEN] type a real question into Sparky, e.g. "What size THHN for a 50A circuit at 75°C?" (3) [SCREEN] answer appears. (4) "Three free answers a day. No subscription to try it."
 - **Shot list:** open Sparky → type question → show answer scrolling → tap back to home.
 - **On-screen text:** "Ask it anything electrical" → "3 free / day"
 - **Caption:** What's the one NEC question you always have to look up? 👇
-- **CTA:** Try Sparky free — 3 answers a day. ⚠️CONFIRM iOS status.
+- **CTA:** Try Sparky free — 3 answers a day. (link in bio).
 - **Hashtags:** #electrician #apprentice #nec #sparky #electricianlife #journeyman #electrical #tradeschool
 - **Thumbnail:** "ASK IT ANYTHING"
 
-### Day 3 — Conduit fill demo  (Theme: Conduit/Box fill · Feature: Conduit Fill)
+### Day 3 — Conduit fill demo  (Theme: Conduit/Box fill · Feature: Conduit Fill)  → **full script in `expanded-days-2-3.md`**
 - **Hook:** "12 #12 THHN in a ¾″ EMT — legal or not?"
 - **Script beats:** (1) Hook. (2) [SCREEN] open Conduit Fill, pick ¾ EMT, add 12 #12 THHN. (3) [SCREEN] show fill %. (4) "Stop doing this in your head on the ladder."
 - **Shot list:** Conduit Fill → select conduit → add conductors → reveal % → reaction.
 - **On-screen text:** "Legal or not?" → "[fill %] — done in 5 seconds"
 - **Caption:** Did you guess right? Drop your answer before you watch. 👇
-- **CTA:** Get every fill calc in your pocket. ⚠️CONFIRM iOS status.
+- **CTA:** Get every fill calc in your pocket. (link in bio).
 - **Hashtags:** #conduit #electrician #emt #nec #electricianlife #apprentice #electrical #sparkconnect
 - **Thumbnail:** "LEGAL OR NOT?"
 
@@ -42,7 +43,7 @@ if not yet, use "Join the TestFlight / waitlist (link in bio)". Pick one and kee
 - **Shot list:** Code Quiz screen → question visible → point to options.
 - **On-screen text:** the question + "A / B / C / D"
 - **Caption:** Comment your answer 👇 I'll pin the right one tonight.
-- **CTA:** Daily code questions in the app. ⚠️CONFIRM iOS status.
+- **CTA:** Daily code questions in the app. (link in bio).
 - **Hashtags:** #codequestion #electrician #journeymanexam #nec #tradeschool #apprentice #electrical #examprep
 - **Thumbnail:** "WOULD YOU PASS?"
 
@@ -62,7 +63,7 @@ if not yet, use "Join the TestFlight / waitlist (link in bio)". Pick one and kee
 - **Shot list:** Box Fill → add items → watch number update → done.
 - **On-screen text:** "Add a device → watch it update"
 - **Caption:** How many of you size boxes by gut feel? Be honest 👇
-- **CTA:** Box fill, conduit fill, all of it — one app. ⚠️CONFIRM iOS status.
+- **CTA:** Box fill, conduit fill, all of it — one app. (link in bio).
 - **Hashtags:** #boxfill #electrician #roughin #nec #electricianlife #apprentice #electrical #sparkconnect
 - **Thumbnail:** "4 TAPS"
 
@@ -72,7 +73,7 @@ if not yet, use "Join the TestFlight / waitlist (link in bio)". Pick one and kee
 - **Shot list:** reaction → open app → confident answer.
 - **On-screen text:** "When the inspector walks up…" → "…and you've got the app"
 - **Caption:** What's the worst inspector question you've been hit with? 👇
-- **CTA:** Keep the answers in your pocket. ⚠️CONFIRM iOS status.
+- **CTA:** Keep the answers in your pocket. (link in bio).
 - **Hashtags:** #electrician #inspection #nec #electricianlife #apprentice #journeyman #electrical #conduit
 - **Thumbnail:** "INSPECTOR POV"
 
@@ -83,7 +84,7 @@ if not yet, use "Join the TestFlight / waitlist (link in bio)". Pick one and kee
 - **B-roll prompt:** "Close-up of a hand bending silver EMT conduit on a wooden workbench in a workshop, sparks of daylight, shallow depth of field, no logos, no faces."
 - **On-screen text:** "Offset · angle · shrink"
 - **Caption:** Hand-calc or app — which are you? 👇
-- **CTA:** Bending math solved. ⚠️CONFIRM iOS status.
+- **CTA:** Bending math solved. (link in bio).
 - **Hashtags:** #pipebending #conduit #electrician #emt #electricianlife #apprentice #electrical #sparkconnect
 - **Thumbnail:** "BEND IT RIGHT"
 
@@ -93,7 +94,7 @@ if not yet, use "Join the TestFlight / waitlist (link in bio)". Pick one and kee
 - **Shot list:** Voltage Drop → enter length/load → show drop % → recommendation.
 - **On-screen text:** "Long run = voltage drop" → "Check before you pull"
 - **Caption:** What's the longest run you've had to upsize for? 👇
-- **CTA:** Catch it before it's a callback. ⚠️CONFIRM iOS status.
+- **CTA:** Catch it before it's a callback. (link in bio).
 - **Hashtags:** #voltagedrop #electrician #nec #electricianlife #apprentice #journeyman #electrical #wiring
 - **Thumbnail:** "BEFORE YOU PULL"
 
@@ -103,7 +104,7 @@ if not yet, use "Join the TestFlight / waitlist (link in bio)". Pick one and kee
 - **Shot list:** Sparky → ask Q1 → ask Q2 → show pack screen briefly.
 - **On-screen text:** "3 free / day" → "Packs from $1.99"
 - **Caption:** If you could ask it one thing right now, what would it be? 👇
-- **CTA:** Free to try. ⚠️CONFIRM iOS status.
+- **CTA:** Free to try. (link in bio).
 - **Hashtags:** #electrician #ai #sparky #apprentice #nec #electricianlife #electrical #tradeschool
 - **Thumbnail:** "FREE / DAY"
 
@@ -113,7 +114,7 @@ if not yet, use "Join the TestFlight / waitlist (link in bio)". Pick one and kee
 - **Shot list:** Ampacity → set conductors → apply derating → result.
 - **On-screen text:** "Derate for fill + temp"
 - **Caption:** Be honest — do you derate from memory or look it up? 👇
-- **CTA:** Ampacity + derating built in. ⚠️CONFIRM iOS status.
+- **CTA:** Ampacity + derating built in. (link in bio).
 - **Hashtags:** #ampacity #electrician #nec #derating #electricianlife #apprentice #electrical #sparkconnect
 - **Thumbnail:** "DON'T FORGET THIS"
 
@@ -123,7 +124,7 @@ if not yet, use "Join the TestFlight / waitlist (link in bio)". Pick one and kee
 - **Shot list:** Exam Prep → answer 2-3 questions → show score/feedback.
 - **On-screen text:** "Study on break" → "Pass the first time"
 - **Caption:** Who's got an exam coming up? Drop your test date 👇
-- **CTA:** Exam prep in the app. ⚠️CONFIRM iOS status.
+- **CTA:** Exam prep in the app. (link in bio).
 - **Hashtags:** #journeymanexam #electrician #examprep #nec #tradeschool #apprentice #electrical #studytips
 - **Thumbnail:** "PASS THE FIRST TIME"
 
@@ -143,7 +144,7 @@ if not yet, use "Join the TestFlight / waitlist (link in bio)". Pick one and kee
 - **Shot list:** 6-7 fast screen cuts (≤1s each) → pricing card.
 - **On-screen text:** tool names flashing → "Launch special: $49.99/yr"
 - **Caption:** Which tool would you use first? 👇
-- **CTA:** Download SparkConnect. ⚠️CONFIRM iOS status.
+- **CTA:** Download SparkConnect. (link in bio).
 - **Hashtags:** #electrician #electricianlife #apprentice #nec #tradeschool #journeyman #electrical #sparkconnect
 - **Thumbnail:** "ALL IN ONE APP"
 

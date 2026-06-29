@@ -60,9 +60,15 @@ depth of field, realistic, no logos, no readable text, no identifiable face. 9:1
 **C — Short / hook-forward**
 > The app I wish I had as an apprentice. ⚡ Conduit fill, box fill, voltage drop, pipe bending + AI answers. Free to try. Drop a 🔧 if you'd have used this in year one.
 
-### CTA line (⚠️ CONFIRM iOS status before posting)
-- **If LIVE on the App Store:** "Download SparkConnect free — link in bio."
-- **If NOT live yet (TestFlight/waitlist):** "Join the TestFlight — link in bio. Launching soon."
+### CTA line — status-agnostic (safe to post today)
+> **"It's SparkConnect — link in bio."**
+
+Point the **bio link** at wherever the app lives right now (App Store listing,
+TestFlight invite, or a waitlist page). The video never claims a specific status,
+so it's true regardless — and you can swap the bio destination the moment the
+App Store listing goes live without re-cutting anything.
+- Optional spoken tag if/when **live**: "Free on the App Store."
+- Optional spoken tag if **TestFlight/waitlist**: "Early access in bio."
 
 ### Hashtags (8)
 `#electrician #electricianlife #apprentice #tradeschool #nec #journeyman #electrical #sparkconnect`

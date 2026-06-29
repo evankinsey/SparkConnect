@@ -13,6 +13,7 @@ text, caption, CTA, hashtags, thumbnail text, and TikTok/Reels/Shorts variations
 | `prompt-library.md` | 8 reusable theme packs (pain points, pipe bending, conduit/box fill, Sparky, code questions, founder, mistakes/tips, launch). |
 | `14-day-queue.md` | The ready-to-shoot 14-day plan, one feature per day, all provable. |
 | `launch-package.md` | **Today's** full launch video: script, shot list, B-roll prompt, 3 captions, thumbnail, hashtags, exact posting order. |
+| `expanded-days-2-3.md` | Days 2 & 3 expanded to launch-grade scripts (so you've got 3 videos ready, not 1). |
 | `content-queue-seed.csv` | Import straight into the Sheets **Content Queue** tab. |
 
 ## Two ways to generate a piece
@@ -27,7 +28,8 @@ text, caption, CTA, hashtags, thumbnail text, and TikTok/Reels/Shorts variations
 - Sparky AI: Free 3/day · Pro 20/day (400/mo cap) · packs 15/$1.99, 50/$4.99, 150/$9.99 (never expire).
 - Code Quiz / Exam Prep. Job Cam.
 - Pro: 3-day free trial → **$7.99/mo or $49.99/yr** (launch special).
-- ⚠️ **iOS download status** is the one thing to confirm before posting a "download now" CTA.
+- **CTAs use "(link in bio)"** — point the bio link at wherever the app lives today
+  (App Store / TestFlight / waitlist), so no post ever claims a status it can't prove.
 
 ## Workflow status lifecycle (Content Queue tab)
 `Idea → Drafting → Draft Ready → Approved → Scheduled → Posted`
