@@ -14,7 +14,7 @@
     {
       "parameters": {
         "assignments": { "assignments": [
-          { "id": "c1", "name": "SHEET_ID", "value": "PASTE_SPREADSHEET_ID_HERE", "type": "string" },
+          { "id": "c1", "name": "SHEET_ID", "value": "1GnrmWvFHIkuBrD_6ZLpldQj-V2ci0tBHIsm4OoT1Gd8", "type": "string" },
           { "id": "c2", "name": "MODEL", "value": "claude-opus-4-8", "type": "string" },
           { "id": "c3", "name": "ALERT_WEBHOOK_URL", "value": "", "type": "string" },
           { "id": "c4", "name": "rawText", "value": "={{ $('Intake Webhook').item.json.body?.text || $('Intake Webhook').item.json.query?.text || '' }}", "type": "string" },
@@ -47,7 +47,7 @@
       "credentials": { "httpHeaderAuth": { "id": "REPLACE", "name": "Anthropic API (x-api-key)" } }
     },
     {
-      "parameters": { "jsCode": "let raw = $json.content?.[0]?.text || '{}';\nlet c; try { c = JSON.parse(raw); } catch(e){ const m=raw.match(/\\{[\\s\\S]*\\}/); c = m?JSON.parse(m[0]):{}; }\nconst cfg = $('Config').item.json;\nconst now = new Date().toISOString().slice(0,10);\nreturn [{ json: {\n  date: now,\n  source: cfg.source,\n  rawText: cfg.rawText,\n  contact: cfg.contact,\n  category: c.category || 'UX Issue',\n  sentiment: c.sentiment || 'Neutral',\n  urgent: !!c.urgent,\n  title: c.title || cfg.rawText.slice(0,60),\n  severity: c.severity || 'Medium',\n  sheetId: cfg.SHEET_ID,\n  alertUrl: cfg.ALERT_WEBHOOK_URL\n} }];" },
+      "parameters": { "jsCode": "let raw = $json.content?.[0]?.text || '{}';\nlet c; try { c = JSON.parse(raw); } catch(e){ const m=raw.match(/\\{[\\s\\S]*\\}/); c = m?JSON.parse(m[0]):{}; }\nconst cfg = $('Config').item.json;\nconst now = new Date().toISOString().slice(0,10);\nreturn [{ json: {\n  date: now,\n  source: cfg.source,\n  rawText: cfg.rawText,\n  contact: cfg.contact,\n  category: c.category || 'General',\n  sentiment: c.sentiment || 'Neutral',\n  urgent: !!c.urgent,\n  title: c.title || cfg.rawText.slice(0,60),\n  severity: c.severity || 'Medium',\n  sheetId: cfg.SHEET_ID,\n  alertUrl: cfg.ALERT_WEBHOOK_URL\n} }];" },
       "id": "shape",
       "name": "Shape Record",
       "type": "n8n-nodes-base.code",

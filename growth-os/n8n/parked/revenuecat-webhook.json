@@ -15,7 +15,7 @@
     {
       "parameters": {
         "assignments": { "assignments": [
-          { "id": "c1", "name": "SHEET_ID", "value": "PASTE_SPREADSHEET_ID_HERE", "type": "string" },
+          { "id": "c1", "name": "SHEET_ID", "value": "1GnrmWvFHIkuBrD_6ZLpldQj-V2ci0tBHIsm4OoT1Gd8", "type": "string" },
           { "id": "c2", "name": "ALERT_WEBHOOK_URL", "value": "", "type": "string" },
           { "id": "c3", "name": "PRICE_MONTHLY", "value": "9.99", "type": "string" },
           { "id": "c4", "name": "PRICE_ANNUAL", "value": "59.99", "type": "string" }

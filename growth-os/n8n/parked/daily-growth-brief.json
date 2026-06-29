@@ -14,7 +14,7 @@
     {
       "parameters": {
         "assignments": { "assignments": [
-          { "id": "a1", "name": "SHEET_ID", "value": "PASTE_SPREADSHEET_ID_HERE", "type": "string" },
+          { "id": "a1", "name": "SHEET_ID", "value": "1GnrmWvFHIkuBrD_6ZLpldQj-V2ci0tBHIsm4OoT1Gd8", "type": "string" },
           { "id": "a2", "name": "BRIEF_MODEL", "value": "claude-opus-4-8", "type": "string" },
           { "id": "a3", "name": "APPROVAL_WEBHOOK_URL", "value": "", "type": "string" }
         ] }

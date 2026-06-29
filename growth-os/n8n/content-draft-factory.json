@@ -14,7 +14,7 @@
     {
       "parameters": {
         "assignments": { "assignments": [
-          { "id": "c1", "name": "SHEET_ID", "value": "PASTE_SPREADSHEET_ID_HERE", "type": "string" },
+          { "id": "c1", "name": "SHEET_ID", "value": "1GnrmWvFHIkuBrD_6ZLpldQj-V2ci0tBHIsm4OoT1Gd8", "type": "string" },
           { "id": "c2", "name": "MODEL", "value": "claude-opus-4-8", "type": "string" }
         ] }
       },
