@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput,
   SafeAreaView, StatusBar, Platform, Switch, Dimensions, useColorScheme,
-  Share, Alert, Animated, Linking,
+  Share, Alert, Animated, Linking, Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 // expo-image-picker & expo-sharing — lazy-loaded so the app never crashes if package isn't installed
@@ -3491,12 +3491,76 @@ const ExamPrepScreen = ({ C, onStreakUpdate }) => {
   );
 };
 
+// Lightweight time picker (no native datetimepicker dependency needed).
+// Steps hour 1–12, minutes in 5-min increments, AM/PM toggle. Returns 24h on save.
+const NotifTimePicker = ({ C, visible, initialHour, initialMinute, onClose, onSave }) => {
+  const [h12, setH12] = useState(initialHour % 12 === 0 ? 12 : initialHour % 12);
+  const [min, setMin] = useState(initialMinute);
+  const [ampm, setAmpm] = useState(initialHour >= 12 ? 'PM' : 'AM');
+  React.useEffect(() => {
+    if (visible) {
+      setH12(initialHour % 12 === 0 ? 12 : initialHour % 12);
+      setMin(initialMinute);
+      setAmpm(initialHour >= 12 ? 'PM' : 'AM');
+    }
+  }, [visible, initialHour, initialMinute]);
+
+  const to24 = () => (ampm === 'PM' ? (h12 % 12) + 12 : h12 % 12);
+  const stepMin = (d) => setMin((m) => (m + d + 60) % 60);
+  const stepHour = (d) => setH12((h) => { let n = h + d; if (n > 12) n = 1; if (n < 1) n = 12; return n; });
+
+  const Stepper = ({ label, display, onInc, onDec }) => (
+    <View style={{ alignItems: 'center', flex: 1 }}>
+      <Text style={{ fontSize: 11, color: C.textTert, marginBottom: 6, fontWeight: '700', letterSpacing: 0.5 }}>{label}</Text>
+      <TouchableOpacity onPress={onInc} style={{ padding: 6 }}><Ionicons name="chevron-up" size={22} color={C.blue} /></TouchableOpacity>
+      <Text style={{ fontSize: 34, fontWeight: '800', color: C.text, marginVertical: 2 }}>{display}</Text>
+      <TouchableOpacity onPress={onDec} style={{ padding: 6 }}><Ionicons name="chevron-down" size={22} color={C.blue} /></TouchableOpacity>
+    </View>
+  );
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: 24 }}>
+        <View style={{ backgroundColor: C.surface, borderRadius: 20, padding: 22 }}>
+          <Text style={{ fontSize: 17, fontWeight: '800', color: C.text, marginBottom: 4 }}>Reminder Time</Text>
+          <Text style={{ fontSize: 12, color: C.textSec, marginBottom: 18 }}>When should your daily code question arrive?</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+            <Stepper label="HOUR" display={h12} onInc={() => stepHour(1)} onDec={() => stepHour(-1)} />
+            <Text style={{ fontSize: 34, fontWeight: '800', color: C.text, marginTop: 14 }}>:</Text>
+            <Stepper label="MIN" display={String(min).padStart(2, '0')} onInc={() => stepMin(5)} onDec={() => stepMin(-5)} />
+            <View style={{ alignItems: 'center', flex: 1 }}>
+              <Text style={{ fontSize: 11, color: C.textTert, marginBottom: 6, fontWeight: '700', letterSpacing: 0.5 }}>AM/PM</Text>
+              {['AM', 'PM'].map((p) => (
+                <TouchableOpacity key={p} onPress={() => setAmpm(p)}
+                  style={{ paddingVertical: 6, paddingHorizontal: 16, borderRadius: 8, marginVertical: 3, backgroundColor: ampm === p ? C.blue : C.inputBg, borderWidth: 1, borderColor: ampm === p ? C.blue : C.border }}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: ampm === p ? '#fff' : C.textSec }}>{p}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity onPress={onClose} style={{ flex: 1, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: 'center' }}>
+              <Text style={{ color: C.textSec, fontWeight: '700', fontSize: 13 }}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => onSave(to24(), min)} style={{ flex: 1, padding: 12, borderRadius: 10, backgroundColor: C.blue, alignItems: 'center' }}>
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>Save</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = true, onDailyQToggle, appLanguage = 'english', setAppLanguage }) => {
   const [keepOn, setKeepOn] = useState(true);
   const [haptics, setHaptics] = useState(true);
   const [notifEnabled, setNotifEnabled] = useState(true);
+  const [notifTime, setNotifTime] = useState({ hour: DEFAULT_NOTIF_HOUR, minute: DEFAULT_NOTIF_MINUTE });
+  const [showTimePicker, setShowTimePicker] = useState(false);
   React.useEffect(() => {
     safeStorageGet('@sc_notif_enabled').then(v => { if (v === 'false') setNotifEnabled(false); });
+    getNotifTime().then(setNotifTime);
   }, []);
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
@@ -3616,7 +3680,7 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
       <SectionTitle title="App Settings" />
       <Card C={C} style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
 
-        <Row icon="notifications-outline" label=" Alert" toggle togVal={notifEnabled} onTog={async (v) => {
+        <Row icon="notifications-outline" label="Daily Reminder" toggle togVal={notifEnabled} onTog={async (v) => {
           setNotifEnabled(v);
           await safeStorageSet('@sc_notif_enabled', v ? 'true' : 'false');
           if (v) scheduleDailyNECNotification();
@@ -3625,12 +3689,32 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
             if (N) await N.cancelAllScheduledNotificationsAsync();
           }
         }} iconBg={C.blueSub} iconColor={C.blue} />
+        {notifEnabled && (
+          <Row icon="time-outline" label="Reminder Time" val={formatNotifTime(notifTime.hour, notifTime.minute)}
+            onPress={() => setShowTimePicker(true)} iconBg={C.blueSub} iconColor={C.blue} />
+        )}
         <Row icon="phone-portrait" label="Keep Screen On" toggle togVal={keepOn} onTog={setKeepOn} />
         <Row icon="radio-button-on" label="Haptic Feedback" toggle togVal={haptics} onTog={setHaptics} />
         <Row icon="school" label="" toggle togVal={showDailyQ} onTog={onDailyQToggle} iconBg={C.blueSub} iconColor={C.blue} />
         <Row icon="book-outline" label="NEC Edition" val="2023" iconBg={C.amberBg} iconColor={C.amber} />
         <Row icon="ruler-outline" label="Units" val="Imperial (in/ft)" iconBg={C.purpleBg} iconColor={C.purple} />
       </Card>
+
+      <NotifTimePicker
+        C={C}
+        visible={showTimePicker}
+        initialHour={notifTime.hour}
+        initialMinute={notifTime.minute}
+        onClose={() => setShowTimePicker(false)}
+        onSave={async (hour, minute) => {
+          setNotifTime({ hour, minute });
+          setShowTimePicker(false);
+          await safeStorageSet('@sc_notif_time', JSON.stringify({ hour, minute }));
+          // Reschedule at the new time (re-requests permission if needed)
+          scheduleDailyNECNotification();
+          Alert.alert('✅ Reminder Time Updated', `Your daily code question will arrive at ${formatNotifTime(hour, minute)}.`);
+        }}
+      />
 
       {/* 6 — Language */}
       <SectionTitle title="Language" />
@@ -3879,23 +3963,79 @@ const splashStyles = StyleSheet.create({
 });
 
 // ─── DAILY NOTIFICATION SCHEDULER ────────────────────────────────────────────
-// Schedules a daily lock-screen/home-screen notification with today's NEC question.
-// Uses expo-notifications (add to app.json plugins if needed for production builds).
+// Schedules a daily lock-screen notification with today's Code-a-Day question.
+// Uses expo-notifications (registered as a plugin in app.json for production builds).
 // On iOS, user must grant notification permission. On Android, API 33+ requires permission.
 //
 // The notification shows: question text, multiple choice options, and the NEC article.
 // User taps notification → opens SparkConnect directly to the Daily Question.
 //
-// Lock/home screen widget: React Native doesn't support true home-screen widgets
-// (requires native iOS WidgetKit / Android AppWidget, not available in Expo Go).
-// The BEST cross-platform equivalent is a scheduled daily push notification —
-// it shows on the lock screen, banners, and notification center automatically.
+// NOTE: local scheduled notifications work in dev/production builds. In Expo Go on
+// Android (SDK 53+) notification support is limited — test on a real dev build.
 //
+const NOTIF_CHANNEL_ID = 'daily-question';
+const DEFAULT_NOTIF_HOUR = 7, DEFAULT_NOTIF_MINUTE = 30;
+
+// User-chosen reminder time, persisted as { hour, minute } (24h). Falls back to 7:30 AM.
+const getNotifTime = async () => {
+  try {
+    const raw = await safeStorageGet('@sc_notif_time');
+    if (raw) {
+      const { hour, minute } = JSON.parse(raw);
+      if (Number.isInteger(hour) && hour >= 0 && hour <= 23 &&
+          Number.isInteger(minute) && minute >= 0 && minute <= 59) {
+        return { hour, minute };
+      }
+    }
+  } catch {}
+  return { hour: DEFAULT_NOTIF_HOUR, minute: DEFAULT_NOTIF_MINUTE };
+};
+
+// 24h -> "7:30 AM" for display
+const formatNotifTime = (hour, minute) => {
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}:${String(minute).padStart(2, '0')} ${ampm}`;
+};
+
+// Foreground presentation handler + tap routing. Set once at module load so a
+// notification that arrives while the app is open still shows a banner + sound.
+let _notifHandlerSet = false;
+const ensureNotificationHandler = async () => {
+  if (_notifHandlerSet) return;
+  const Notifications = await import('expo-notifications').catch(() => null);
+  if (!Notifications) return;
+  _notifHandlerSet = true;
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      // shouldShowAlert covers older SDKs; banner/list cover 0.29+ — extra keys are ignored
+      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+};
+
 const scheduleDailyNECNotification = async () => {
   try {
     // Dynamically import — graceful if not available in Expo Go
     const Notifications = await import('expo-notifications').catch(() => null);
     if (!Notifications) return;
+
+    await ensureNotificationHandler();
+
+    // Android 8+ (our minSdkVersion is 26) requires a notification channel or the
+    // notification is silently dropped. Create it before scheduling.
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync(NOTIF_CHANNEL_ID, {
+        name: 'Daily Code Question',
+        importance: Notifications.AndroidImportance.HIGH,
+        sound: 'default',
+        lightColor: '#0066FF',
+      });
+    }
 
     // Request permission
     const { status: existing } = await Notifications.getPermissionsAsync();
@@ -3913,10 +4053,15 @@ const scheduleDailyNECNotification = async () => {
     const q = getDailyQuestion();
     const choicePreview = q.choices.slice(0, 2).map((c, i) => `${String.fromCharCode(65+i)}) ${c}`).join('  ');
 
-    // Schedule for 7:30 AM every day
+    // User-selected reminder time (defaults to 7:30 AM)
+    const { hour, minute } = await getNotifTime();
+
+    // Schedule the question every day at the chosen time. The DAILY trigger type
+    // is REQUIRED in expo-notifications 0.28+ — the legacy { hour, minute, repeats }
+    // shape no longer schedules a recurring daily notification and silently misfires.
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: '⚡ ',
+        title: '⚡ Code a Day',
         body: `${q.question}
 ${choicePreview}
 📖 ${q.ref}`,
@@ -3927,13 +4072,14 @@ ${choicePreview}
         badge: 1,
       },
       trigger: {
-        hour: 7,
-        minute: 30,
-        repeats: true,
+        type: Notifications.SchedulableTriggerInputTypes.DAILY,
+        hour,
+        minute,
+        channelId: NOTIF_CHANNEL_ID, // Android — ties the notification to the channel above
       },
     });
 
-    safeLog('Notifications', ' scheduled for 7:30 AM');
+    safeLog('Notifications', `Code-a-Day scheduled for ${formatNotifTime(hour, minute)}`);
   } catch(e) {
     safeLog('scheduleDailyNECNotification', 'Notifications not available in this environment');
   }
@@ -4037,6 +4183,29 @@ export default function App() {
   };
 
   const canGoBack = history.length > 1;
+
+  // Tapping the daily notification routes straight to the Home tab (Daily Question).
+  // Must stay above the early returns so the hook order never changes.
+  React.useEffect(() => {
+    let sub;
+    (async () => {
+      const N = await import('expo-notifications').catch(() => null);
+      if (!N) return;
+      await ensureNotificationHandler();
+      // Cold start: app launched by tapping the notification
+      const last = await N.getLastNotificationResponseAsync().catch(() => null);
+      if (last?.notification?.request?.content?.data?.type === 'daily_question') {
+        setTab('home');
+      }
+      // Warm: tapped while app was backgrounded/open
+      sub = N.addNotificationResponseReceivedListener((resp) => {
+        if (resp?.notification?.request?.content?.data?.type === 'daily_question') {
+          setTab('home');
+        }
+      });
+    })();
+    return () => { try { sub && sub.remove(); } catch {} };
+  }, []);
 
   // Splash screen shown until animation completes — AFTER all hooks
   if (!splashDone) {
