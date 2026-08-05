@@ -98,10 +98,14 @@ const isValidPositiveNumber = (raw) => {
 const ALLOWED_URL_PREFIXES = ['https://', 'mailto:'];
 const KNOWN_SAFE_DOMAINS = [
   'instagram.com', 'www.instagram.com',
- 'sparkconnect.pro', 'www.sparkconnect.pro',
+  'tiktok.com', 'www.tiktok.com',
+  'sparkconnect.pro', 'www.sparkconnect.pro',
 ];
-// SECURITY: expo-sharing handles image URIs — they are local file paths only.
-// We never send user photos to a server. The share sheet is OS-controlled.
+// SECURITY: expo-sharing handles image URIs — they are local file paths only,
+// and the share sheet is OS-controlled, so sharing never uploads anything.
+// Job Cam photos never leave the device. The ONE path that uploads an image is
+// Sparky AI, and only when the user explicitly attaches one to a question; the
+// privacy screen says so in those words.
 // SECURITY: All user inputs are capped, sanitized, and never eval'd.
 
 const safeOpenURL = async (url) => {
@@ -554,6 +558,10 @@ const RC_ENTITLEMENT = 'pro';
 //   const { customerInfo } = await Purchases.getCustomerInfo();
 //   const isPro = customerInfo.entitlements.active[RC_ENTITLEMENT] !== undefined;
 //   const { customerInfo: ci } = await Purchases.restorePurchases();
+//
+// Default Pro state for screens that are not passed the live value. The real
+// value now comes from RevenueCat (src/purchases.js) and is threaded down as an
+// `isPro` prop — this const is only the fallback when nothing was passed.
 //
 // SECURITY: IS_PRO is CLIENT-SIDE UI gating only.
 // It controls what the UI shows — it does NOT secure server-side features.
@@ -1933,7 +1941,7 @@ const getExamQuestions = (level, category, count) => {
   return shuffled.slice(0, Math.min(count, shuffled.length));
 };
 
-const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade, onBuyPacks }) => {
+const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade, onBuyPacks, isPro = IS_PRO }) => {
   const [inputText, setInputText] = React.useState(initialSearch || '');
   const [messages, setMessages] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
@@ -2122,7 +2130,6 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
     // lets the backend's own rate limit apply (it returns 'rate_limited' below).
     // When the provider is mounted, swap this for its context value.
     const gate = {};
-    const isPro = gate.IS_PRO ?? IS_PRO;
     if (gate.sparkyGate) {
       if (!gate.sparkyGate.checkAllowed()) {
         gate.showPaywall?.(gate.sparkyGate.hitCap ? 'sparky_cap' : 'sparky');
@@ -2333,7 +2340,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
             <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>Sparky AI</Text>
             <Text style={{ fontSize: 10, color: C.textTert }}>NEC · Estimates · Pricing · Photo analysis</Text>
           </View>
-          {remainingQuestions !== null && !IS_PRO && (
+          {remainingQuestions !== null && !isPro && (
             <View style={{ backgroundColor: remainingQuestions <= 1 ? C.warningBg : C.successBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
               <Text style={{ fontSize: 10, fontWeight: '700', color: remainingQuestions <= 1 ? C.warning : C.success }}>
                 {remainingQuestions} left today
@@ -3049,7 +3056,7 @@ const TermsScreen = ({ C, onBack }) => {
         <Sec title="Permits and Inspections" body="Permits and inspections may be required for electrical work in your jurisdiction. This app does not determine permit requirements and does not replace inspection by a qualified authority." />
         <Sec title="No Engineering or Professional Advice" body="This app does not provide engineering, legal, or professional advice. For engineering review, consult a licensed professional engineer. For legal questions, consult a licensed attorney." />
         <Sec title="Limitation of Liability" body="To the maximum extent permitted by law, SparkConnect and its developers shall not be liable for any damages, injuries, losses, or code violations arising from use of this application." />
-        <Sec title="Subscription Terms" body="SparkConnect Pro subscriptions are currently in development and not yet available for purchase. When launched, Pro subscriptions will be billed monthly or annually at the rates displayed in the app at the time of purchase. Subscriptions will auto-renew unless cancelled at least 24 hours before the end of the current period. Manage or cancel subscriptions through your App Store or Google Play account settings. Prices may vary by region." />
+        <Sec title="Subscription Terms" body="SparkConnect Pro is billed monthly or annually at the rates displayed in the app at the time of purchase. Payment is charged to your App Store or Google Play account at confirmation. Subscriptions auto-renew unless cancelled at least 24 hours before the end of the current period, and your account is charged for renewal within 24 hours of the period ending. Manage or cancel your subscription in your App Store or Google Play account settings. Sparky AI answer packs are one-time purchases, not subscriptions, and do not renew. Prices may vary by region." />
         <Sec title="Changes to Terms" body="We may update these Terms from time to time. Continued use after changes constitutes acceptance." />
         <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>Questions? support@sparkconnect.pro</Text>
       </ScrollView>
@@ -3075,13 +3082,13 @@ const PrivacyScreen = ({ C, onBack }) => {
       </View>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
         <Text style={{ fontSize: 11, color: C.textTert, marginBottom: 20 }}>Last updated: June 2025</Text>
-        <Sec title="Information We Collect" body="SparkConnect Tools collects minimal information. Calculator inputs, quiz progress, saved settings, and job site photos are stored locally on your device and are not transmitted to our servers. We do not require account creation." />
-        <Sec title="Sparky AI Questions" body="When you use Sparky AI with a connected backend, your question text is sent to our secure backend server and to an AI service provider to generate a response. Do not submit private, sensitive, or confidential information through Sparky AI. Without a backend connection, all searches are processed locally on your device." />
+        <Sec title="Information We Collect" body="SparkConnect Tools collects minimal information. Calculator inputs, quiz progress, saved settings, and Job Cam photos are stored locally on your device. We do not require account creation. The one exception is described below: a photo you choose to attach to a Sparky AI question is uploaded so it can be analyzed." />
+        <Sec title="Sparky AI Questions and Photos" body="When you use Sparky AI, your question text is sent over an encrypted connection to our backend and on to an AI service provider to generate a response. If you attach a photo to a question, that image is uploaded the same way so it can be analyzed. Images are sent only when you attach one, are used only to answer that question, and are not stored by us or used to identify you. Do not submit private, sensitive, or confidential information — or photographs of people or documents — through Sparky AI. Searches made without a network connection are processed locally on your device." />
         <Sec title="Analytics" body="SparkConnect Tools does not currently collect analytics or crash reporting data. If basic anonymous analytics are enabled in a future version, they will not include personally identifiable information and will be disclosed here." />
-        <Sec title="Purchases and Subscriptions" body="Subscription purchases, when available, will be processed entirely by Apple (App Store) or Google (Play Store). SparkConnect does not store or process payment card information. All billing is handled by the platform you use to download the app." />
+        <Sec title="Purchases and Subscriptions" body="Purchases are processed entirely by Apple (App Store) or Google (Play Store). SparkConnect never sees, stores or processes payment card information. Subscription status is checked through RevenueCat using an anonymous install identifier, not your name or email." />
         <Sec title="Account and Login Data" body="The current version does not require an account or login. If account features are added in a future version, we will update this policy." />
         <Sec title="Data Sharing" body="We do not sell, rent, or trade your personal data to advertisers or third parties. Anonymous aggregate data may be used to improve the app." />
-        <Sec title="Data Security" body="All data stored by SparkConnect Tools remains on your device. We do not operate servers that store your calculator results or job site photos." />
+        <Sec title="Data Security" body="Your calculator results, saved projects and Job Cam photos remain on your device — we do not operate servers that store them. Sparky AI questions, and any photo you attach to one, travel over an encrypted (HTTPS) connection and are used only to generate that answer." />
         <Sec title="Children's Privacy" body="SparkConnect Tools is intended for adult professionals and is not directed at children under 13." />
         <Sec title="Changes to This Policy" body="We may update this Privacy Policy from time to time. Continued use after changes constitutes acceptance." />
         <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>Questions? support@sparkconnect.pro</Text>
@@ -3318,7 +3325,7 @@ const LearnScreen = ({ setTab, C, onStreakUpdate }) => {
 };
 
 // ─── EXAM PREP SCREEN ────────────────────────────────────────────────────────
-const ExamPrepScreen = ({ C, onStreakUpdate }) => {
+const ExamPrepScreen = ({ C, onStreakUpdate, isPro = IS_PRO }) => {
   const [level, setLevel]       = useState('All');
   const [category, setCategory] = useState('All');
   const [quizSize, setQuizSize] = useState(10);
@@ -3490,7 +3497,7 @@ const ExamPrepScreen = ({ C, onStreakUpdate }) => {
     };
     return (
       <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 20, paddingBottom: 48, alignItems: 'center' }} showsVerticalScrollIndicator={false}>
-        {!IS_PRO && (
+        {!isPro && (
         <TouchableOpacity onPress={() => {}} activeOpacity={0.8}
           style={{ flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%', padding: 12, backgroundColor: C.blueSub, borderRadius: 12, marginBottom: 16 }}>
           <Ionicons name="stats-chart" size={16} color={C.blue} />
@@ -4325,8 +4332,8 @@ export default function App() {
       case 'conduitfill': return <ConduitFillScreen C={C} setTab={navigateTo} />;
       case 'ampacity':    return <AmpacityScreen C={C} />;
       case 'estimator':   return <EstimatorScreen C={C} setTab={navigateTo} />;
-      case 'necai':       return <NecAiScreen C={C} setTab={navigateTo} initialSearch={necaiInitSearch} clearInitSearch={() => setNecaiInitSearch('')} onUpgrade={() => setPaywall('pro')} onBuyPacks={() => setPaywall('packs')} />;
-      case 'examprep':    return <ExamPrepScreen C={C} onStreakUpdate={updateStreak} />;
+      case 'necai':       return <NecAiScreen C={C} setTab={navigateTo} initialSearch={necaiInitSearch} clearInitSearch={() => setNecaiInitSearch('')} onUpgrade={() => setPaywall('pro')} onBuyPacks={() => setPaywall('packs')} isPro={isPro} />;
+      case 'examprep':    return <ExamPrepScreen C={C} onStreakUpdate={updateStreak} isPro={isPro} />;
       case 'learn':       return <LearnScreen setTab={navigateTo} C={C} onStreakUpdate={updateStreak} />;
       case 'wiringlab':   return <WiringLabScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
       case 'troubleshoot':return <TroubleshootScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;

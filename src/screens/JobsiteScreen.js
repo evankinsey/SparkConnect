@@ -15,7 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   buildMap, movePlayer, nearestStation, completeStation, emptyJobsiteProgress,
-  isComplete, jobsitePercent, STATIONS, ROOMS, SPAWN, Tile, TaskKind,
+  isComplete, jobsitePercent, sanitizeProgress, STATIONS, ROOMS, SPAWN, Tile, TaskKind,
 } from '../core/game/jobsite';
 import { dialogueFor, characterForStation } from '../core/game/cast';
 import { portraitFor } from './castImages';
@@ -40,14 +40,16 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate }) {
   const [progress, setProgress] = useState(emptyJobsiteProgress());
   const [active, setActive] = useState(null);   // station being played
   const [toast, setToast] = useState(null);
+  // Set by the task screen when the circuit actually validates / the fault is
+  // actually found. A ref, not state: it is written from a child callback and
+  // read on close, and it must not schedule a render in between.
+  const solvedRef = useRef(false);
   const dir = useRef({ x: 0, y: 0 });
-  const posRef = useRef(pos);
-  posRef.current = pos;
 
   useEffect(() => {
     AsyncStorage.getItem(KEY)
-      .then((raw) => { if (raw) setProgress(JSON.parse(raw)); })
-      .catch(() => { /* a missing save is just a fresh site */ });
+      .then((raw) => { if (raw) setProgress(sanitizeProgress(JSON.parse(raw))); })
+      .catch(() => { /* a missing or unreadable save is just a fresh site */ });
   }, []);
 
   const persist = useCallback((next) => {
@@ -70,10 +72,14 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate }) {
 
   const near = useMemo(() => nearestStation(pos), [pos]);
 
-  const finish = useCallback((station) => {
+  /** Leave a task. `solved` false means they walked out without finishing —
+   *  no sign-off, no XP. Signing off work that was not done is the one thing
+   *  that would make the whole mode meaningless. */
+  const finish = useCallback((station, solved) => {
+    setActive(null);
+    if (!solved) return;
     const already = isComplete(progress, station.id);
     persist(completeStation(progress, station.id));
-    setActive(null);
     if (!already) {
       const who = characterForStation(station.id);
       const line = dialogueFor(station.id);
@@ -86,15 +92,26 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate }) {
   /**
    * Start a job. The bench and the truck hand off to tools that own their own
    * tab, so they are dispatched here rather than through `active` — setting
-   * state during a render to navigate is how you get an infinite loop.
+   * state during a render to navigate is how you get an infinite loop. They
+   * sign off on the hand-off because the real work (bending a pipe, taking a
+   * photo) happens in a tool with no pass/fail for us to read; between them
+   * that is 70 of the 570 XP on the site, and every graded task still has to
+   * actually be solved.
    */
-  const startStation = useCallback((s) => {
-    if (s.task === TaskKind.BEND || s.task === TaskKind.JOBCAM) {
-      persist(completeStation(progress, s.id));
-      setTab(s.task === TaskKind.BEND ? 'bend' : 'jobcam');
+  const startStation = useCallback((st) => {
+    if (st.task === TaskKind.BEND || st.task === TaskKind.JOBCAM) {
+      const already = isComplete(progress, st.id);
+      persist(completeStation(progress, st.id));
+      if (!already) {
+        const line = dialogueFor(st.id);
+        setToast({ who: characterForStation(st.id), text: line?.done, xp: st.xp });
+        setTimeout(() => setToast(null), 3400);
+      }
+      setTab(st.task === TaskKind.BEND ? 'bend' : 'jobcam');
       return;
     }
-    setActive(s);
+    solvedRef.current = false;
+    setActive(st);
   }, [progress, persist, setTab]);
 
   // ── A task is open: hand the whole screen to the real tool ──
@@ -105,8 +122,8 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate }) {
           C={C}
           initialLessonId={active.payload.lessonId}
           onStreakUpdate={onStreakUpdate}
-          onSolved={() => { /* sign-off happens when they leave the room */ }}
-          onClose={() => finish(active)}
+          onSolved={() => { solvedRef.current = true; }}
+          onClose={() => finish(active, solvedRef.current)}
         />
       );
     }
@@ -115,7 +132,8 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate }) {
         <TroubleshootScreen
           C={C}
           onStreakUpdate={onStreakUpdate}
-          onClose={() => finish(active)}
+          onSolved={() => { solvedRef.current = true; }}
+          onClose={() => finish(active, solvedRef.current)}
         />
       );
     }

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildMap, isWall, movePlayer, nearestStation, completeStation,
-  emptyJobsiteProgress, isComplete, jobsitePercent,
+  emptyJobsiteProgress, isComplete, jobsitePercent, sanitizeProgress,
   STATIONS, SPAWN, MAP_W, MAP_H, PLAYER_RADIUS, Tile, TaskKind,
 } from '../src/core/game/jobsite.js';
 import { ALL_LESSONS } from '../src/circuit/lessons/index.js';
@@ -202,4 +202,21 @@ test('every character is actually used on the site', () => {
   for (const id of CAST_IDS) {
     assert.ok(used.has(id), `${id} was drawn into the cast but never appears on the job site`);
   }
+});
+
+test('corrupt or stale saved progress cannot crash the screen', () => {
+  // Everything here parses as JSON but is the wrong shape. Each must come back
+  // as something `progress.completed.length` can be read from.
+  for (const bad of [null, undefined, 42, 'nope', [], {}, { completed: 'x' }, { completed: null, xp: 9 }]) {
+    const p = sanitizeProgress(bad);
+    assert.ok(Array.isArray(p.completed), `completed not an array for ${JSON.stringify(bad)}`);
+    assert.equal(typeof p.xp, 'number');
+  }
+});
+
+test('sanitizeProgress drops unknown stations and recomputes XP', () => {
+  const s = STATIONS[0];
+  const p = sanitizeProgress({ completed: [s.id, 'st-ghost', s.id], xp: 999999 });
+  assert.deepEqual(p.completed, [s.id], 'unknown and duplicate ids must be dropped');
+  assert.equal(p.xp, s.xp, 'XP is recomputed, so a tampered total cannot survive');
 });

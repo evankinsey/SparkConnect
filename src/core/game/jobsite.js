@@ -200,6 +200,27 @@ export const nearestStation = (pos, stations = STATIONS, range = INTERACT_RANGE)
 
 export const emptyJobsiteProgress = () => ({ completed: [], xp: 0 });
 
+/**
+ * Coerce anything loaded from storage into a usable progress object.
+ *
+ * `JSON.parse` succeeding does not mean the shape is right — a save written by
+ * an older build, a truncated write, or a hand-edited value all parse fine and
+ * then blow up at `progress.completed.length` on the first render. That is the
+ * same class of bug that made builds 6-13 close on launch, so it is handled
+ * here rather than trusted.
+ */
+export const sanitizeProgress = (raw) => {
+  if (!raw || typeof raw !== 'object') return emptyJobsiteProgress();
+  const known = new Set(STATIONS.map((s) => s.id));
+  const completed = Array.isArray(raw.completed)
+    ? [...new Set(raw.completed.filter((id) => known.has(id)))]
+    : [];
+  // XP is recomputed from what was actually completed, so a tampered or stale
+  // number can never survive a reload.
+  const xp = completed.reduce((sum, id) => sum + (stationById(id)?.xp ?? 0), 0);
+  return { completed, xp };
+};
+
 /** Idempotent: finishing a station twice does not pay twice. */
 export const completeStation = (progress, stationId) => {
   const p = progress ?? emptyJobsiteProgress();

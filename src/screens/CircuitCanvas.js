@@ -184,9 +184,14 @@ export default function CircuitCanvas({
           return (
             <G key={wire.id}>
               <Path d={d} stroke={color} strokeWidth={3.5} fill="none" strokeLinecap="round" />
-              {/* invisible fat path = glove-friendly tap target for removal */}
+              {/* Invisible fat path = glove-friendly tap target for removal.
+                  Drawn before the devices so a terminal tap always wins over a
+                  wire tap where the two overlap. */}
               <Path d={d} stroke="rgba(0,0,0,0.01)" strokeWidth={20} fill="none"
-                onPress={onTapWire ? () => onTapWire(wire.id) : undefined} />
+                onPress={onTapWire ? () => onTapWire(wire.id) : undefined}
+                accessible={!!onTapWire}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove conductor ${wire.role}`} />
             </G>
           );
         })}
@@ -221,9 +226,15 @@ export default function CircuitCanvas({
                   <SvgText x={p.x} y={p.y + 20} fill={isBad ? C.danger : C.textTert} fontSize="7.5" textAnchor="middle">
                     {shortLabel(t)}
                   </SvgText>
-                  {/* glove-friendly invisible tap target */}
+                  {/* Glove-friendly invisible tap target. It also carries the
+                      accessibility label — the visible screw is 9px across and
+                      would be an unusable VoiceOver target on its own. */}
                   <Circle cx={p.x} cy={p.y} r={20} fill="rgba(0,0,0,0.01)"
-                    onPress={onTapTerminal ? () => onTapTerminal(t.id) : undefined} />
+                    onPress={onTapTerminal ? () => onTapTerminal(t.id) : undefined}
+                    accessible={!!onTapTerminal}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${c.label}, ${t.label}${n ? `, ${n} connected` : ', not connected'}`}
+                    accessibilityState={{ selected: isPending }} />
                 </G>
               );
             })}

@@ -77,6 +77,9 @@ function ScenarioPlayer({ C, scenarioId, onExit, onStreakUpdate, onSolved }) {
   const [outcome, setOutcome] = useState(null);
   const [showTable, setShowTable] = useState(false);
   const [showDiagram, setShowDiagram] = useState(true);
+  // lesson.components() builds fresh objects; memoise so the canvas is not
+  // re-laid-out on every unrelated state change.
+  const diagramParts = useMemo(() => built?.lesson?.components() ?? [], [built]);
 
   if (!built) return null;
   const { scenario, symptom, healthyCircuit, lesson } = built;
@@ -123,7 +126,7 @@ function ScenarioPlayer({ C, scenarioId, onExit, onStreakUpdate, onSolved }) {
         {showDiagram && (
           <CircuitCanvas
             C={C}
-            components={lesson.components()}
+            components={diagramParts}
             wires={healthyCircuit.conductors}
             lit={false}
           />
