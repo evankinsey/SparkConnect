@@ -6,8 +6,9 @@
 import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
 
-export default function ErrorScreen({ error, detail, phase = 'running', onRetry }) {
+export default function ErrorScreen({ error, detail, source, phase = 'running', onRetry }) {
   const message = String((error && (error.message || error)) || 'Unknown error');
+  const name = (error && error.name) || 'Error';
   const stack = String(detail || (error && error.stack) || '')
     .split('\n')
     .slice(0, 14)
@@ -27,6 +28,9 @@ export default function ErrorScreen({ error, detail, phase = 'running', onRetry 
       </Text>
 
       <ScrollView style={{ maxHeight: 300, backgroundColor: '#0F1524', borderRadius: 12, padding: 14 }}>
+        <Text selectable style={{ color: '#9CA3AF', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
+          {name}{source ? '  ·  caught in: ' + source : ''}
+        </Text>
         <Text selectable style={{ color: '#F4A11D', fontSize: 13, fontWeight: '700', marginBottom: 10 }}>
           {message}
         </Text>

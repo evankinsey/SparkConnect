@@ -4,12 +4,9 @@ import SparkPaywall from './src/SparkPaywall';
 import OnboardingFlow from './src/OnboardingFlow';
 import { useGating } from './src/useGating';
 import { analytics } from './src/analytics';
-import WiringLabScreen from './src/screens/WiringLabScreen';
-import TroubleshootScreen from './src/screens/TroubleshootScreen';
-import FlashcardsScreen from './src/screens/FlashcardsScreen';
-import ProjectsScreen from './src/screens/ProjectsScreen';
-import MaterialsScreen from './src/screens/MaterialsScreen';
-import CommunityScreen from './src/screens/CommunityScreen';
+// The six screens added in v1.1 are loaded on first use, not at startup — see
+// the lazyScreen() note further down. Home still imports statically because the
+// layout hook runs during the root render.
 import { HomeCards, HomeCustomizeScreen, useHomeLayout } from './src/screens/HomeCards';
 import { getDailyQuestion } from './src/core/content/dailyQuestions';
 import {
@@ -3950,6 +3947,56 @@ const splashStyles = StyleSheet.create({
 
 };
 };
+// ─── LAZY SCREENS ────────────────────────────────────────────────────────────
+// Importing these at the top of App.js meant a module-level failure in any one
+// of them threw while App.js itself was still evaluating — which no error
+// boundary catches and which, in a release build, closes the app instantly.
+// Loading each on first use contains the blast radius: a broken screen shows a
+// message on that screen, and everything else keeps working.
+const _screenCache = {};
+const lazyScreen = (name, load) => {
+  const Lazy = (props) => {
+    if (_screenCache[name] === undefined) {
+      try {
+        const mod = load();
+        const Comp = (mod && mod.default) || mod;
+        if (typeof Comp !== 'function') throw new Error(name + ' did not export a component');
+        _screenCache[name] = Comp;
+      } catch (e) {
+        _screenCache[name] = e instanceof Error ? e : new Error(String(e));
+      }
+    }
+    const cached = _screenCache[name];
+    if (cached instanceof Error) {
+      const C = props.C || DARK;
+      return (
+        <View style={{ flex: 1, backgroundColor: C.bg, padding: 22, paddingTop: 70 }}>
+          <Text style={{ color: C.text, fontSize: 19, fontWeight: '800', marginBottom: 8 }}>{name} could not load</Text>
+          <Text style={{ color: C.textSec, fontSize: 13, lineHeight: 19, marginBottom: 14 }}>
+            The rest of the app is fine. Screenshot this and send it over.
+          </Text>
+          <Text selectable style={{ color: C.amber, fontSize: 12.5, fontWeight: '700' }}>{String(cached.message || cached)}</Text>
+          {!!props.setTab && (
+            <TouchableOpacity onPress={() => props.setTab('home')}
+              style={{ marginTop: 22, backgroundColor: C.blue, borderRadius: 12, paddingVertical: 14, alignItems: 'center' }}>
+              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800' }}>Back to Home</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      );
+    }
+    return React.createElement(cached, props);
+  };
+  return Lazy;
+};
+
+const WiringLabScreen   = lazyScreen('Wiring Lab',      () => require('./src/screens/WiringLabScreen'));
+const TroubleshootScreen = lazyScreen('Troubleshooting', () => require('./src/screens/TroubleshootScreen'));
+const FlashcardsScreen  = lazyScreen('Flashcards',      () => require('./src/screens/FlashcardsScreen'));
+const ProjectsScreen    = lazyScreen('Projects',        () => require('./src/screens/ProjectsScreen'));
+const MaterialsScreen   = lazyScreen('Material List',   () => require('./src/screens/MaterialsScreen'));
+const CommunityScreen   = lazyScreen('Community',       () => require('./src/screens/CommunityScreen'));
+
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   // ── ALL hooks must be called unconditionally, before any early return ──

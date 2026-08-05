@@ -1,64 +1,45 @@
 // ─── ENTRY POINT ─────────────────────────────────────────────────────────────
-// Build 9 crashed on launch with SIGABRT on com.facebook.react.ExceptionsManagerQueue.
-// That queue only ever runs one thing: React Native handing a JS error it
-// considers fatal to the native ExceptionsManager, which in a release build
-// calls abort(). The app closes instantly, with no screen and no message.
+// Builds 6, 9 and 10 all died the same way: EXC_CRASH / SIGABRT, faulting queue
+// com.facebook.react.ExceptionsManagerQueue. Only RCTExceptionsManager runs on
+// that queue, so every one of them was a JavaScript error handed to native,
+// turned into RCTFatal, and ended in abort(). No screen, no message.
 //
-// A React error boundary cannot help there. Boundaries only catch errors thrown
-// during render or commit. Anything thrown while the bundle is still evaluating
-// its modules — or later from a timer, a promise, or a native callback — goes
-// straight to the global handler and kills the process.
+// Build 8 wrapped the tree in a React error boundary. Boundaries only catch
+// errors thrown during render or commit — a throw during module evaluation, or
+// from a timer or a native callback, never reaches one.
 //
-// So the trap is installed here, first, before App.js is even evaluated:
+// Build 10 replaced ErrorUtils' global handler. It still aborted, because
+// ExceptionsManager consults global.RN$handleException *first*, and because the
+// replacement was installed after `expo` and the rest of this file's imports had
+// already been evaluated.
 //
-//   1. Replace the global fatal handler so a JS error draws a screen instead of
-//      aborting. Whatever went wrong, the user reads it and so do we.
-//   2. Load App.js inside try/catch, because a throw at module scope is a plain
-//      synchronous throw that never reaches any handler.
-//   3. Keep the render-time boundary underneath for ordinary render errors.
+// So the order here is deliberate and load-bearing:
 //
-// In development this stays out of the way and lets the redbox do its job.
+//   1. ./src/errorTrap has zero imports and covers both fatal paths. It is the
+//      first thing in the bundle after React Native's own core setup.
+//   2. Everything else is loaded with require() inside try/catch, including
+//      `expo` itself, because a throw at module scope is a plain synchronous
+//      throw that no error handler ever sees.
+//   3. If expo's registerRootComponent is the thing that failed, fall back to
+//      AppRegistry directly so the error still gets drawn.
+//
+// In development the trap stays out of the way and lets the redbox work.
 
+import './src/errorTrap';
+
+import { capture, getCapturedError, clearCapturedError, subscribe } from './src/errorTrap';
 import React from 'react';
-import { registerRootComponent } from 'expo';
-
 import ErrorScreen from './src/ErrorScreen';
 import ErrorBoundary from './src/ErrorBoundary';
 
-const IS_DEV = typeof __DEV__ !== 'undefined' && __DEV__;
-
-// ─── 1. Global fatal trap ────────────────────────────────────────────────────
-let launchError = null;
-const subscribers = new Set();
-
-function reportFatal(error) {
-  launchError = error;
-  subscribers.forEach((notify) => {
-    try { notify(error); } catch (e) { /* a failing subscriber must not re-enter */ }
-  });
+// ─── Load expo and the app defensively ───────────────────────────────────────
+let registerRootComponent = null;
+try {
+  registerRootComponent = require('expo').registerRootComponent;
+} catch (e) {
+  capture(e, 'expo');
 }
 
-const previousHandler =
-  (global.ErrorUtils && global.ErrorUtils.getGlobalHandler && global.ErrorUtils.getGlobalHandler()) || null;
-
-if (global.ErrorUtils && global.ErrorUtils.setGlobalHandler) {
-  global.ErrorUtils.setGlobalHandler((error, isFatal) => {
-    if (IS_DEV) {
-      // Redbox and Metro logs are more useful than our screen while developing.
-      if (previousHandler) previousHandler(error, isFatal);
-      return;
-    }
-    if (isFatal) {
-      reportFatal(error);
-      return; // returning without rethrowing is what stops the abort
-    }
-    if (previousHandler) previousHandler(error, isFatal);
-  });
-}
-
-// ─── 2. Load the app ─────────────────────────────────────────────────────────
-// require, not import: ES imports are hoisted above the handler installed
-// above, which would defeat the whole point.
 let App = null;
 try {
   const loaded = require('./App');
@@ -67,26 +48,29 @@ try {
     throw new Error('App.js did not export a component (got ' + typeof App + ')');
   }
 } catch (e) {
-  launchError = e;
+  capture(e, 'App.js');
 }
 
-// ─── 3. Root ─────────────────────────────────────────────────────────────────
+// ─── Root ────────────────────────────────────────────────────────────────────
 function Root() {
-  const [error, setError] = React.useState(launchError);
+  const [failure, setFailure] = React.useState(getCapturedError());
 
   React.useEffect(() => {
-    subscribers.add(setError);
+    const unsubscribe = subscribe(setFailure);
     // A fatal can land between module evaluation and this effect running.
-    if (launchError) setError(launchError);
-    return () => { subscribers.delete(setError); };
+    const now = getCapturedError();
+    if (now) setFailure(now);
+    return unsubscribe;
   }, []);
 
-  if (error) {
+  if (failure || !App) {
+    const detail = failure || { error: new Error('App.js failed to load'), source: 'App.js' };
     return (
       <ErrorScreen
-        error={error}
+        error={detail.error}
+        source={detail.source}
         phase="launch"
-        onRetry={() => { launchError = null; setError(null); }}
+        onRetry={() => { clearCapturedError(); setFailure(null); }}
       />
     );
   }
@@ -98,4 +82,11 @@ function Root() {
   );
 }
 
-registerRootComponent(Root);
+// ─── Register ────────────────────────────────────────────────────────────────
+if (registerRootComponent) {
+  registerRootComponent(Root);
+} else {
+  // expo failed to load. Register directly so the error screen still appears
+  // instead of the app dying with a blank window.
+  require('react-native').AppRegistry.registerComponent('main', () => Root);
+}

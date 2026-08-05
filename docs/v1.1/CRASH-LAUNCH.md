@@ -1,12 +1,13 @@
-# Launch crash — builds 6 and 9
+# Launch crash — builds 6, 9 and 10
 
 Three `.ips` reports, all `EXC_CRASH (SIGABRT)`, `abort() called`.
 
-| | build 6 (11:05, 11:30) | build 9 (12:05) |
-|---|---|---|
-| faulting queue | `expo.controller.errorRecoveryQueue` | `com.facebook.react.ExceptionsManagerQueue` |
-| top app frames | `-[NSException raise]` | `objc_exception_rethrow`, `-[NSInvocation invoke]` |
-| binary size | 15,597,568 | 10,813,440 |
+| | build 6 (11:05, 11:30) | build 9 (12:05) | build 10 (12:45) |
+|---|---|---|---|
+| faulting queue | `expo.controller.errorRecoveryQueue` | `com.facebook.react.ExceptionsManagerQueue` | `com.facebook.react.ExceptionsManagerQueue` |
+| top app frames | `-[NSException raise]` | `objc_exception_rethrow`, `-[NSInvocation invoke]` | same as 9 |
+| binary size | 15,597,568 | 10,813,440 | 10,813,440 |
+| time to crash | 635 ms / 536 ms | 343 ms | **130 ms** |
 
 ## What the queue change means
 
@@ -90,3 +91,85 @@ dark navy the splash already uses.
 
 If the original logo file still exists, drop it in over `assets/icon.png` at
 1024×1024 with no alpha channel and rebuild — nothing else needs to change.
+
+
+---
+
+# Build 10 — the trap leaked, and why
+
+Build 10 still aborted on `com.facebook.react.ExceptionsManagerQueue`, but 130 ms
+after launch instead of 343 ms. It is failing **earlier**, and the JS thread in
+the report is idle in `__CFRunLoopRun` — the bundle is barely underway.
+
+Reading React Native 0.81.5's own source explains the leak. `ExceptionsManager`
+has **two** fatal paths, not one:
+
+```js
+// Libraries/Core/ExceptionsManager.js
+function handleException(e, isFatal) {
+  if (!global.RN$handleException || !global.RN$handleException(e, isFatal, true)) {
+    reportException(error, isFatal, true);   // → NativeExceptionsManager → RCTFatal → abort()
+  }
+}
+```
+
+`global.RN$handleException` is installed **natively**, before the bundle runs,
+and is consulted **first**. Build 10 replaced only `ErrorUtils.setGlobalHandler`
+— the second path. Anything routed through `RN$handleException` walked straight
+past it.
+
+There was a second, quieter problem with the same fix: it was installed in
+`index.js` *after* `import ... from 'expo'`. ES imports hoist, so `expo` and
+everything else at the top of that file had already been evaluated before the
+handler existed. A throw during that window was never covered.
+
+## Build 11
+
+`src/errorTrap.js` — **a module with zero imports**, and the first thing
+`index.js` loads:
+
+- overrides `global.RN$handleException`, returning `true` for fatals so
+  `ExceptionsManager` never calls `NativeExceptionsManager.reportException`
+- overrides `ErrorUtils.setGlobalHandler` for `reportFatalError` (MessageQueue)
+- wraps both non-fatal delegations in `try/catch`, because React Native's own
+  handler *rethrows* when reporting fails, which is how a warning becomes a
+  dead app
+
+`index.js` then loads `expo` **and** `App.js` with `require` inside `try/catch`,
+and falls back to `AppRegistry.registerComponent` directly if
+`registerRootComponent` is the thing that failed — so the error still draws.
+
+`App.js` now loads the six v1.1 screens lazily (`lazyScreen`). A module-level
+failure in Wiring Lab, Troubleshooting, Flashcards, Projects, Materials or
+Community used to throw while `App.js` was still evaluating, which no boundary
+catches. Now it shows a message on that screen only.
+
+### Verified, not assumed
+
+The production iOS bundle (934 modules) is built and executed in a sandboxed VM
+with stubbed native modules, then both fatal paths are fired:
+
+```
+PASS  bundle evaluated without throwing
+PASS  no native fatal reported during startup
+PASS  ErrorUtils fatal did not rethrow (no abort)
+PASS  ErrorUtils fatal never reached native ExceptionsManager
+PASS  RN$handleException is installed and returns handled=true
+PASS  RN$handleException fatal never reached native
+PASS  non-fatal path does not throw
+```
+
+Plus 232 unit tests.
+
+## What is still unknown
+
+The underlying error itself. It does not reproduce off-device: the bundle
+evaluates clean under Hermes-equivalent conditions, every package matches the
+SDK 54 pin, and no Hermes-unsupported syntax is present. Build 11 is built to
+**name it on screen** rather than to guess at it again.
+
+Note also that `main` — the branch treated as "the last working version" — has
+never been proven to build on EAS. It pins `expo-notifications@~0.28.0` against
+SDK 54 and `react-native-paper@4.9.2` against React 19. The App Store v1.0.0 was
+produced by a different toolchain. There may be no known-good EAS build of this
+repository to bisect against.
