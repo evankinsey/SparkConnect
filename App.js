@@ -7,6 +7,8 @@ import { analytics } from './src/analytics';
 import { getGate } from './ProGatingContext';
 import WiringLabScreen from './src/screens/WiringLabScreen';
 import TroubleshootScreen from './src/screens/TroubleshootScreen';
+import FlashcardsScreen from './src/screens/FlashcardsScreen';
+import { HomeCards, HomeCustomizeScreen, useHomeLayout } from './src/screens/HomeCards';
 import { getDailyQuestion } from './src/core/content/dailyQuestions';
 import {
   refreshDailyQuestionNotifications,
@@ -787,7 +789,7 @@ const BendDiagram = ({ type, result, stub, offsetH, offsetA, C }) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ─── HOME ────────────────────────────────────────────────────────────────────
-const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate }) => {
+const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, homeLayout = null }) => {
   const [notifPromptShown, setNotifPromptShown] = React.useState(false);
   const [notifEnabled, setNotifEnabled] = React.useState(false);
   const [notifDismissed, setNotifDismissed] = React.useState(true); // assume hidden until storage answers
@@ -811,6 +813,9 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate }
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ paddingBottom: 32 }} showsVerticalScrollIndicator={false}>
+      <HomeCards C={C} setTab={setTab} layout={homeLayout} streak={streak}
+        onCustomize={() => setTab('customizehome')} />
+
       {/* Daily Question */}
       {showDailyQ && <View style={{ padding: 16 }}>
         <Card C={C} style={{ borderLeftWidth: 4, borderLeftColor: C.blue }}>
@@ -3996,7 +4001,11 @@ export default function App() {
 
   const [homeKey, setHomeKey] = React.useState(0); // force HomeScreen remount on prefs change
 
-  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','wiringlab','troubleshoot'];
+  // Home is a user-chosen list of cards. Layout persists; the catalog lives in
+  // src/core/home/layout.js so adding a Home feature is a data change.
+  const { layout: homeLayout, save: saveHomeLayout } = useHomeLayout();
+
+  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','wiringlab','troubleshoot','flashcards','customizehome'];
 
   // Stable handlers — avoids stale closure in Settings toggle rows
   const handleDailyQToggle = React.useCallback((v) => {
@@ -4081,7 +4090,7 @@ export default function App() {
 
   const renderScreen = () => {
     switch (tab) {
-      case 'home':        return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} />;
+      case 'home':        return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} homeLayout={homeLayout} />;
       case 'calculators': return <CalculatorsScreen setTab={navigateTo} C={C} />;
       case 'bend':        return <BendScreen C={C} setTab={navigateTo} />;
       case 'volt':        return <VoltScreen C={C} setTab={navigateTo} />;
@@ -4096,6 +4105,8 @@ export default function App() {
       case 'learn':       return <LearnScreen setTab={navigateTo} C={C} onStreakUpdate={updateStreak} />;
       case 'wiringlab':   return <WiringLabScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
       case 'troubleshoot':return <TroubleshootScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
+      case 'flashcards':  return <FlashcardsScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
+      case 'customizehome': return <HomeCustomizeScreen C={C} layout={homeLayout} onSave={saveHomeLayout} onDone={() => { setHomeKey(k => k + 1); navigateTo('home'); }} />;
       case 'settings':    return <SettingsScreen C={C} themePreference={themePreference} setThemePreference={setThemePreference} showDailyQ={showDailyQ} onDailyQToggle={handleDailyQToggle} appLanguage={appLanguage} setAppLanguage={setAppLanguage} />;
       case 'jobcam':      return <JobCamScreen C={C} setTab={navigateTo} />;
       default:            return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} />;
