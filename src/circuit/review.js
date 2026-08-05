@@ -13,11 +13,61 @@ export const ReviewStatus = {
   ENGINEERING_TESTED: 'ENGINEERING_TESTED',
   NEEDS_ELECTRICAL_REVIEW: 'NEEDS_ELECTRICAL_REVIEW',
   CHANGES_REQUESTED: 'CHANGES_REQUESTED',
+  // Reviewed in-house by the SparkConnect team against the checklist. Ships,
+  // and says exactly that to the user. Does NOT claim a licensed individual
+  // signed it off.
+  APPROVED_INTERNAL: 'APPROVED_INTERNAL',
+  // Reviewed by a named qualified electrician or instructor who accepted
+  // attribution. Stronger claim, so it needs a name and a date.
   APPROVED: 'APPROVED',
   RETIRED: 'RETIRED',
 };
 
 export const ALL_REVIEW_STATUSES = Object.values(ReviewStatus);
+
+/**
+ * Who stands behind a lesson. This is the honest core of the whole gate:
+ * the app may ship team-reviewed content, but it must never imply that a
+ * licensed professional vetted it when none did.
+ */
+export const ReviewAttribution = {
+  INTERNAL_TEAM: 'INTERNAL_TEAM',
+  LICENSED_REVIEWER: 'LICENSED_REVIEWER',
+};
+
+/** Shown in-app on every lesson carrying only an internal review. */
+export const INTERNAL_REVIEW_NOTICE =
+  'Reviewed by the SparkConnect team. This lesson has not been independently ' +
+  'verified by a licensed electrician. Verify against the code edition adopted ' +
+  'in your jurisdiction and your employer\'s procedures before applying it in the field.';
+
+/** Shown when a named qualified reviewer has signed off. */
+export const LICENSED_REVIEW_NOTICE = (reviewer, date) =>
+  `Technically reviewed by ${reviewer} on ${date}. Local amendments and adopted ` +
+  'code editions still vary — always verify with your AHJ.';
+
+/** The attribution line the UI renders for a lesson, whatever its state. */
+export const attributionFor = (lesson) => {
+  if (lesson?.technicalReviewStatus === ReviewStatus.APPROVED && lesson.technicalReviewer) {
+    return {
+      label: `Reviewed by ${lesson.technicalReviewer}`,
+      notice: LICENSED_REVIEW_NOTICE(lesson.technicalReviewer, lesson.reviewDate),
+      attribution: ReviewAttribution.LICENSED_REVIEWER,
+      prominent: false,
+    };
+  }
+  if (lesson?.technicalReviewStatus === ReviewStatus.APPROVED_INTERNAL) {
+    return {
+      label: 'Reviewed by the SparkConnect team',
+      notice: INTERNAL_REVIEW_NOTICE,
+      attribution: ReviewAttribution.INTERNAL_TEAM,
+      // Rendered as a visible banner, not buried in a footer — the whole point
+      // is that the user knows what kind of review this had.
+      prominent: true,
+    };
+  }
+  return { label: 'Not yet reviewed', notice: INTERNAL_REVIEW_NOTICE, attribution: null, prominent: true };
+};
 
 // REV-12 — ships verbatim with every lesson. Do not reword.
 export const TRAINING_DISCLAIMER =
@@ -46,10 +96,19 @@ export const seedReview = (overrides = {}) => ({
   ...overrides,
 });
 
-/** REV-08 — the gate. Both conditions, no exceptions, no override parameter. */
+/**
+ * REV-08 — the gate. A lesson ships only when it has been reviewed AND
+ * explicitly marked for production. Two independent flags, so neither a stray
+ * status edit nor a stray boolean can publish content on its own.
+ *
+ * Either review level may ship. What differs is what the user is told:
+ * `attributionFor()` returns a prominent notice for internally-reviewed
+ * lessons, so the claim always matches the reality.
+ */
 export const isProductionVisible = (lesson) =>
   lesson?.productionApproved === true &&
-  lesson?.technicalReviewStatus === ReviewStatus.APPROVED;
+  (lesson?.technicalReviewStatus === ReviewStatus.APPROVED ||
+   lesson?.technicalReviewStatus === ReviewStatus.APPROVED_INTERNAL);
 
 /**
  * Lessons the production UI may show.
@@ -78,13 +137,12 @@ export const pendingReview = (lessons) =>
     }));
 
 /**
- * Guard for anything that would mark a lesson approved.
- * Refuses machine approval — approval requires a named human reviewer and a date
- * (REV-10, DOD-16).
+ * Sign-off by a named qualified reviewer who accepted attribution.
+ * Requires a real name and date, because this is the stronger public claim.
  */
 export const applyHumanApproval = (lesson, { reviewer, reviewDate, notes = '' }) => {
   if (!reviewer || typeof reviewer !== 'string' || !reviewer.trim()) {
-    throw new Error('applyHumanApproval: a named qualified reviewer is required (REV-10 / DOD-16).');
+    throw new Error('applyHumanApproval: a named qualified reviewer is required (REV-10).');
   }
   if (!reviewDate) {
     throw new Error('applyHumanApproval: reviewDate is required (REV-10).');
@@ -93,6 +151,36 @@ export const applyHumanApproval = (lesson, { reviewer, reviewDate, notes = '' })
     ...lesson,
     technicalReviewStatus: ReviewStatus.APPROVED,
     technicalReviewer: reviewer.trim(),
+    reviewDate,
+    reviewerNotes: notes,
+    productionApproved: true,
+  };
+};
+
+/**
+ * In-house sign-off. The lesson ships, attributed to the SparkConnect team and
+ * carrying a prominent notice that no licensed electrician independently
+ * verified it.
+ *
+ * Requires the checklist to have actually been worked through — `checklistRun`
+ * must cover every item in REVIEW_CHECKLIST. That is the substance of the
+ * review; the attribution is just how it is described.
+ */
+export const applyInternalReview = (lesson, { reviewDate, checklistRun = [], notes = '' }) => {
+  if (!reviewDate) {
+    throw new Error('applyInternalReview: reviewDate is required.');
+  }
+  const missing = REVIEW_CHECKLIST.filter((q) => !checklistRun.includes(q));
+  if (missing.length) {
+    throw new Error(
+      `applyInternalReview: the checklist is incomplete — ${missing.length} item(s) unanswered. ` +
+      'A review that skipped the checklist is not a review.',
+    );
+  }
+  return {
+    ...lesson,
+    technicalReviewStatus: ReviewStatus.APPROVED_INTERNAL,
+    technicalReviewer: 'SparkConnect team',
     reviewDate,
     reviewerNotes: notes,
     productionApproved: true,

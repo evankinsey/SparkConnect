@@ -8,7 +8,8 @@
     "web": "expo start --web",
     "test": "node --test tests/*.test.js",
     "lessons:review": "node scripts/review-lessons.mjs",
-    "lessons:approve": "node scripts/review-lessons.mjs --approve"
+    "lessons:approve": "node scripts/review-lessons.mjs --approve",
+    "config:check": "node scripts/check-config.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

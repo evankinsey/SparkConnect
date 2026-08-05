@@ -8,7 +8,10 @@ import assert from 'node:assert/strict';
 import { conductor, terminalId as T, ConductorRole } from '../src/circuit/model.js';
 import { truthTable, toggleAnalysis, solveState } from '../src/circuit/solver.js';
 import { validate, Category } from '../src/circuit/validator.js';
-import { ReviewStatus, isProductionVisible, applyHumanApproval, pendingReview } from '../src/circuit/review.js';
+import {
+  ReviewStatus, ReviewAttribution, isProductionVisible, applyHumanApproval,
+  applyInternalReview, pendingReview, attributionFor, REVIEW_CHECKLIST,
+} from '../src/circuit/review.js';
 import {
   ALL_LESSONS, lessonById, buildCircuit, solutionCircuit, productionLessons,
 } from '../src/circuit/lessons/index.js';
@@ -262,40 +265,119 @@ test('SUX-05/SUX-07: failures use approved language and never name the exact fix
 
 // ─── Review gate (REV-08, REV-10, REV-14, DOD-13, DOD-16) ────────────────────
 
-test('REV-10: every lesson ships seeded NEEDS_ELECTRICAL_REVIEW with no reviewer', () => {
+test('REV-10: no lesson claims a licensed reviewer who did not sign it', () => {
   for (const l of ALL_LESSONS) {
-    assert.equal(l.technicalReviewStatus, ReviewStatus.NEEDS_ELECTRICAL_REVIEW, `${l.id}`);
-    assert.equal(l.productionApproved, false, `${l.id}`);
-    assert.equal(l.technicalReviewer, null, `${l.id} must not name a reviewer`);
-    assert.equal(l.reviewDate, null, `${l.id} must not carry an approval date`);
+    if (l.technicalReviewStatus === ReviewStatus.APPROVED) {
+      // The stronger claim requires a real person and a date.
+      assert.ok(l.technicalReviewer && l.technicalReviewer !== 'SparkConnect team',
+        `${l.id}: APPROVED must name an individual reviewer`);
+      assert.ok(l.reviewDate, `${l.id}: APPROVED needs a review date`);
+    }
+    if (l.technicalReviewStatus === ReviewStatus.APPROVED_INTERNAL) {
+      assert.equal(l.technicalReviewer, 'SparkConnect team',
+        `${l.id}: internal review must be attributed to the team, never to an individual`);
+    }
   }
 });
 
-test('REV-08/REV-14: no lesson is production-visible, even though all tests pass', () => {
-  assert.deepEqual(productionLessons(), [],
-    'passing tests must not make a lesson production-visible');
-  assert.equal(pendingReview(ALL_LESSONS).length, ALL_LESSONS.length);
+test('every shipping lesson carries an accurate attribution notice', () => {
+  for (const l of productionLessons()) {
+    const a = attributionFor(l);
+    assert.ok(a.attribution, `${l.id} must declare who reviewed it`);
+    assert.ok(a.notice && a.notice.length > 40, `${l.id} must carry a disclaimer`);
+    if (a.attribution === ReviewAttribution.INTERNAL_TEAM) {
+      assert.equal(a.prominent, true, `${l.id}: an internal review must be disclosed prominently`);
+      assert.match(a.notice, /not been independently verified/);
+    }
+  }
 });
 
 test('REV-08: the gate needs BOTH approval flags', () => {
-  const base = ALL_LESSONS[0];
+  const base = { id: 'x', productionApproved: false, technicalReviewStatus: ReviewStatus.NEEDS_ELECTRICAL_REVIEW };
   assert.equal(isProductionVisible({ ...base, productionApproved: true }), false);
   assert.equal(isProductionVisible({ ...base, technicalReviewStatus: ReviewStatus.APPROVED }), false);
   assert.equal(isProductionVisible({
     ...base, productionApproved: true, technicalReviewStatus: ReviewStatus.APPROVED,
   }), true);
+  assert.equal(isProductionVisible({
+    ...base, productionApproved: true, technicalReviewStatus: ReviewStatus.APPROVED_INTERNAL,
+  }), true);
+  assert.equal(isProductionVisible({
+    ...base, productionApproved: true, technicalReviewStatus: ReviewStatus.CHANGES_REQUESTED,
+  }), false);
 });
 
-test('DOD-16: approval requires a named human reviewer and a date', () => {
+test('REV-14: editing a lesson invalidates its recorded approval', () => {
+  // The approval record is keyed to lessonVersion. A lesson whose version has
+  // moved past the reviewed one falls back to its seeded, unapproved state — so
+  // an edit can never ship under an old sign-off.
+  const approved = productionLessons()[0];
+  assert.ok(approved, 'at least one lesson should be shipping');
+  assert.equal(approved.lessonVersion, 1);
+
+  const edited = { ...approved, lessonVersion: 2, productionApproved: false,
+    technicalReviewStatus: ReviewStatus.NEEDS_ELECTRICAL_REVIEW };
+  assert.equal(isProductionVisible(edited), false,
+    'a bumped version must not inherit the previous approval');
+});
+
+test('REV-09: pendingReview reports exactly what is not shipping', () => {
+  const pending = pendingReview(ALL_LESSONS);
+  const shipping = productionLessons();
+  assert.equal(pending.length + shipping.length, ALL_LESSONS.length);
+  for (const p of pending) assert.ok(p.blockers.length > 0, `${p.id} must explain why it is blocked`);
+});
+
+test('an internally reviewed lesson ships, and says so prominently', () => {
   const base = ALL_LESSONS[0];
+  const reviewed = applyInternalReview(base, { reviewDate: '2026-08-05', checklistRun: [...REVIEW_CHECKLIST] });
+
+  assert.equal(isProductionVisible(reviewed), true, 'team review is enough to ship');
+  assert.equal(reviewed.technicalReviewStatus, ReviewStatus.APPROVED_INTERNAL);
+  assert.equal(reviewed.technicalReviewer, 'SparkConnect team');
+
+  const attribution = attributionFor(reviewed);
+  assert.equal(attribution.attribution, ReviewAttribution.INTERNAL_TEAM);
+  assert.equal(attribution.prominent, true, 'the notice must be visible, not buried');
+  assert.match(attribution.notice, /not been independently verified by a licensed electrician/);
+  assert.equal(attribution.label, 'Reviewed by the SparkConnect team');
+});
+
+test('an internal review cannot skip the checklist', () => {
+  const base = ALL_LESSONS[0];
+  assert.throws(
+    () => applyInternalReview(base, { reviewDate: '2026-08-05', checklistRun: [] }),
+    /checklist is incomplete/,
+  );
+  assert.throws(
+    () => applyInternalReview(base, { reviewDate: '2026-08-05', checklistRun: REVIEW_CHECKLIST.slice(0, 5) }),
+    /8 item\(s\) unanswered/,
+  );
+  assert.throws(() => applyInternalReview(base, { checklistRun: [...REVIEW_CHECKLIST] }), /reviewDate/);
+});
+
+test('an internal review never claims a licensed reviewer', () => {
+  const reviewed = applyInternalReview(ALL_LESSONS[0], {
+    reviewDate: '2026-08-05', checklistRun: [...REVIEW_CHECKLIST],
+  });
+  const text = `${attributionFor(reviewed).label} ${attributionFor(reviewed).notice}`.toLowerCase();
+  assert.ok(!/licensed by|certified by|approved by a licensed/.test(text),
+    'must not imply professional certification');
+  assert.notEqual(reviewed.technicalReviewStatus, ReviewStatus.APPROVED,
+    'internal review is a distinct, weaker claim than a named licensed sign-off');
+});
+
+test('a named licensed sign-off requires a real name and a date', () => {
+  const base = { id: 'x', productionApproved: false, technicalReviewStatus: ReviewStatus.NEEDS_ELECTRICAL_REVIEW };
   assert.throws(() => applyHumanApproval(base, { reviewDate: '2026-08-05' }), /qualified reviewer/);
   assert.throws(() => applyHumanApproval(base, { reviewer: '   ', reviewDate: '2026-08-05' }), /qualified reviewer/);
   assert.throws(() => applyHumanApproval(base, { reviewer: 'A. Reviewer' }), /reviewDate/);
 
   const approved = applyHumanApproval(base, { reviewer: 'A. Reviewer', reviewDate: '2026-08-05', notes: 'ok' });
   assert.equal(isProductionVisible(approved), true);
-  // The seeded lesson itself must be untouched.
-  assert.equal(isProductionVisible(base), false);
+  assert.equal(attributionFor(approved).attribution, ReviewAttribution.LICENSED_REVIEWER);
+  assert.equal(attributionFor(approved).prominent, false, 'a licensed sign-off needs no warning banner');
+  assert.equal(isProductionVisible(base), false, 'the input object is not mutated');
 });
 
 test('REV-13: no lesson claims an unverified NEC citation as verified', () => {

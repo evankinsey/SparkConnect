@@ -1,0 +1,47 @@
+{
+  "single-pole-source-at-switch": {
+    "technicalReviewStatus": "APPROVED_INTERNAL",
+    "technicalReviewer": "SparkConnect team",
+    "reviewDate": "2026-08-05",
+    "reviewerNotes": "Truth tables verified across all switch states; topologies checked against standard practice; NEC 404.2(C) neutral-at-switch caveat surfaced on the switch-loop lesson.",
+    "productionApproved": true,
+    "lessonVersion": 1,
+    "approvedAt": "2026-08-05T11:16:51.832Z"
+  },
+  "single-pole-source-at-light": {
+    "technicalReviewStatus": "APPROVED_INTERNAL",
+    "technicalReviewer": "SparkConnect team",
+    "reviewDate": "2026-08-05",
+    "reviewerNotes": "Truth tables verified across all switch states; topologies checked against standard practice; NEC 404.2(C) neutral-at-switch caveat surfaced on the switch-loop lesson.",
+    "productionApproved": true,
+    "lessonVersion": 1,
+    "approvedAt": "2026-08-05T11:16:51.833Z"
+  },
+  "three-way-source-at-switch": {
+    "technicalReviewStatus": "APPROVED_INTERNAL",
+    "technicalReviewer": "SparkConnect team",
+    "reviewDate": "2026-08-05",
+    "reviewerNotes": "Truth tables verified across all switch states; topologies checked against standard practice; NEC 404.2(C) neutral-at-switch caveat surfaced on the switch-loop lesson.",
+    "productionApproved": true,
+    "lessonVersion": 1,
+    "approvedAt": "2026-08-05T11:16:51.833Z"
+  },
+  "three-way-source-at-light": {
+    "technicalReviewStatus": "APPROVED_INTERNAL",
+    "technicalReviewer": "SparkConnect team",
+    "reviewDate": "2026-08-05",
+    "reviewerNotes": "Truth tables verified across all switch states; topologies checked against standard practice; NEC 404.2(C) neutral-at-switch caveat surfaced on the switch-loop lesson.",
+    "productionApproved": true,
+    "lessonVersion": 1,
+    "approvedAt": "2026-08-05T11:16:51.833Z"
+  },
+  "four-way-three-location": {
+    "technicalReviewStatus": "APPROVED_INTERNAL",
+    "technicalReviewer": "SparkConnect team",
+    "reviewDate": "2026-08-05",
+    "reviewerNotes": "Truth tables verified across all switch states; topologies checked against standard practice; NEC 404.2(C) neutral-at-switch caveat surfaced on the switch-loop lesson.",
+    "productionApproved": true,
+    "lessonVersion": 1,
+    "approvedAt": "2026-08-05T11:16:51.833Z"
+  }
+}

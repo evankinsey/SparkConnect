@@ -10,6 +10,7 @@ import {
   conductor, terminalId, ConductorRole,
 } from '../model.js';
 import { seedReview, visibleLessons, TRAINING_DISCLAIMER } from '../review.js';
+import { APPROVALS } from './approvals.js';
 
 const T = terminalId;
 
@@ -25,13 +26,35 @@ const BASE_SAFETY = [
  * known-good wiring, used by the truth-table tests (REV-01, REV-02).
  * `expectations` feeds the validator.
  */
-const lesson = (def) => ({
-  ...def,
-  ...seedReview({ lessonVersion: def.lessonVersion ?? 1, referenceNotes: def.referenceNotes ?? [] }),
-  safetyNotes: [...BASE_SAFETY, ...(def.safetyNotes ?? [])],
-  // SIM-18 — one flag per simulation, resolved against src/featureFlags.js
-  featureFlag: def.featureFlag,
-});
+const lesson = (def) => {
+  const version = def.lessonVersion ?? 1;
+  const base = {
+    ...def,
+    ...seedReview({ lessonVersion: version, referenceNotes: def.referenceNotes ?? [] }),
+    safetyNotes: [...BASE_SAFETY, ...(def.safetyNotes ?? [])],
+    // SIM-18 — one flag per simulation, resolved against src/featureFlags.js
+    featureFlag: def.featureFlag,
+  };
+
+  // Merge a recorded review, written by `npm run lessons:approve`.
+  //
+  // The version check is the important part: an approval is for the lesson as it
+  // was reviewed. Editing the topology, the solution or the hints bumps
+  // `lessonVersion`, the recorded approval no longer matches, and the lesson
+  // silently drops back to needing review rather than shipping unreviewed
+  // changes under an old sign-off.
+  const record = APPROVALS[def.id];
+  if (!record || record.lessonVersion !== version) return base;
+
+  return {
+    ...base,
+    technicalReviewStatus: record.technicalReviewStatus,
+    technicalReviewer: record.technicalReviewer,
+    reviewDate: record.reviewDate,
+    reviewerNotes: record.reviewerNotes ?? '',
+    productionApproved: record.productionApproved === true,
+  };
+};
 
 // ─── LSN-01a — Single-pole, source at switch ─────────────────────────────────
 const singlePoleSourceAtSwitch = lesson({
