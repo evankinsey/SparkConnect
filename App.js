@@ -4,6 +4,7 @@ import SparkPaywall from './src/SparkPaywall';
 import OnboardingFlow from './src/OnboardingFlow';
 import { useGating } from './src/useGating';
 import { analytics } from './src/analytics';
+import { getGate } from './ProGatingContext';
 import { getDailyQuestion } from './src/core/content/dailyQuestions';
 import {
   refreshDailyQuestionNotifications,
@@ -2008,13 +2009,30 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch }) => {
     const q = sanitizeQuery(overrideText || inputText);
     if (!q && !selectedImage) return;
     if (loading) return;
-            const { IS_PRO, showPaywall, sparkyGate } = getGate() || {};
-                if (!sparkyGate) return;
-                if (!sparkyGate.checkAllowed()) {
-                  showPaywall(sparkyGate.hitCap ? 'sparky_cap' : 'sparky');
-                        return;
-                            }
-                                await sparkyGate.recordUse();
+    // ── Pro gating ────────────────────────────────────────────────────────
+    // Two bugs lived here and between them Spark AI never sent a message:
+    //
+    //   1. `getGate` was called but never imported. It is exported from
+    //      ProGatingContext.js, so this threw a ReferenceError inside an async
+    //      function with no catch — the send failed silently, every time.
+    //   2. Even with the import, `ProGatingProvider` is not mounted anywhere,
+    //      so the static ref is null and `if (!sparkyGate) return;` swallowed
+    //      the send anyway.
+    //
+    // Now the gate is optional. When it is present it enforces the free limit
+    // and opens the paywall; when it is absent the message goes through and the
+    // backend's own rate limit applies (it already returns 'rate_limited'
+    // below). Failing open is right here: a missing client gate must not
+    // silently break the headline feature.
+    const gate = getGate() || {};
+    const isPro = gate.IS_PRO ?? IS_PRO;
+    if (gate.sparkyGate) {
+      if (!gate.sparkyGate.checkAllowed()) {
+        gate.showPaywall?.(gate.sparkyGate.hitCap ? 'sparky_cap' : 'sparky');
+        return;
+      }
+      await gate.sparkyGate.recordUse();
+    }
 
     const userMsg = { id: Date.now().toString(), role: 'user', text: q, imageUri: selectedImage?.uri };
     const imgBase64 = selectedImage?.base64;
@@ -2040,7 +2058,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch }) => {
       question: finalQuestion,
       deviceId,
       appVersion: '1.0.0',
-      planType: IS_PRO ? 'pro' : 'free',
+      planType: isPro ? 'pro' : 'free',
       conversationHistory,
       ...(imgBase64 ? { image: imgBase64, imageType: 'image/jpeg' } : {}),
     };
@@ -2050,7 +2068,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch }) => {
     if (result === 'rate_limited') {
       setMessages(prev => [...prev, {
         id: Date.now().toString(), role: 'sparky', isRateLimit: true,
-        text: `You've used your ${IS_PRO ? '100 monthly' : '5 daily'} free answers. Upgrade to Pro for 100 answers/month, or grab a quick answer pack.`,
+        text: `You've used your ${isPro ? '100 monthly' : '5 daily'} free answers. Upgrade to Pro for 100 answers/month, or grab a quick answer pack.`,
       }]);
     } else if (result?.answer) {
       if (result.remainingQuestions !== undefined) setRemainingQuestions(result.remainingQuestions);
