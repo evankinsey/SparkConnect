@@ -179,8 +179,8 @@ const buildMailtoURL = (to, subject, body) => {
 
 // ─── THEME ───────────────────────────────────────────────────────────────────
 const LIGHT = {
-  blue:'#0066FF',blueDark:'#0047B3',blueSub:'#E8F0FF',blueLight:'#3385FF',
-  bg:'#F5F7FA',surface:'#FFFFFF',
+  blue:'#1D4ED8',blueDark:'#0D1B3E',blueSub:'#E7EDFD',blueLight:'#3B82F6',
+  bg:'#F1F3F7',surface:'#FFFFFF',
   text:'#0F172A',textSec:'#475569',textTert:'#94A3B8',
   border:'#E2E8F0',borderLight:'#F0F4F8',
   success:'#10B981',successBg:'#ECFDF5',
@@ -188,9 +188,10 @@ const LIGHT = {
   danger:'#EF4444',dangerBg:'#FEF2F2',
   purple:'#7C3AED',purpleBg:'#F5F3FF',purpleSub:'#EDE9FE',
   teal:'#0D9488',tealBg:'#F0FDFA',
-  amber:'#D97706',amberBg:'#FFFBEB',
-  inputBg:'#F5F7FA',inputBorder:'#E2E8F0',inputText:'#0F172A',placeholder:'#94A3B8',
-  tabBar:'#FFFFFF',tabBorder:'#E2E8F0',tabActive:'#0066FF',tabInactive:'#94A3B8',
+  amber:'#B45309',amberBg:'#FEF3C7',
+  green:'#15803D',greenBg:'#E7F6EC',
+  inputBg:'#F1F3F7',inputBorder:'#D9DFE8',inputText:'#0F172A',placeholder:'#94A3B8',
+  tabBar:'#FFFFFF',tabBorder:'#E2E8F0',tabActive:'#1D4ED8',tabInactive:'#94A3B8',
   overlay:'rgba(245,247,250,0.94)',statusBar:'dark-content',
 };
 const DARK = {
@@ -204,6 +205,7 @@ const DARK = {
   purple:'#A78BFA',purpleBg:'#2D1B69',purpleSub:'#3730A3',
   teal:'#2DD4BF',tealBg:'#042F2E',
   amber:'#FCD34D',amberBg:'#422006',
+  green:'#4ADE80',greenBg:'#052E16',
   inputBg:'#1E293B',inputBorder:'#334155',inputText:'#F1F5F9',placeholder:'#64748B',
   tabBar:'#1E293B',tabBorder:'#334155',tabActive:'#3B82F6',tabInactive:'#64748B',
   overlay:'rgba(15,23,42,0.95)',statusBar:'light-content',
@@ -812,7 +814,7 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
     { icon: 'git-branch',   title: 'Pipe Bending',      sub: '90° · 45° · Offsets · Saddles · Rolling', tab: 'bend',      color: C.blue,   bg: C.blueSub },
     { icon: 'color-palette',title: 'Wire Colors',        sub: 'Color codes + 160-slot panel view',        tab: 'wire',      color: C.teal,   bg: C.tealBg },
     { icon: 'book-outline', title: 'Formula Reference',  sub: "Ohm's Law · 3Φ · Motors · Bending",       tab: 'formulas',  color: C.amber,  bg: C.amberBg },
-    { icon: 'hammer-outline',title:'Material Estimator', sub: 'Rough estimate + Sparky AI pricing',       tab: 'estimator', color: '#16A34A', bg: '#ECFDF5' },
+    { icon: 'hammer-outline',title:'Material Estimator', sub: 'Rough estimate + Sparky AI pricing',       tab: 'estimator', color: C.green,  bg: C.greenBg },
   ];
 
   return (
@@ -945,6 +947,14 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
               <Text style={{ fontSize: 13, fontWeight: '800', color: '#fff' }}>🔧 Find the Fault</Text>
             </TouchableOpacity>
           </View>
+          <TouchableOpacity onPress={() => setTab('jobsite')} activeOpacity={0.85}
+            style={{ marginTop: 10, backgroundColor: 'rgba(244,161,29,0.14)', borderRadius: 11, paddingVertical: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: 'rgba(244,161,29,0.5)' }}>
+            <Ionicons name="walk" size={16} color={C.amber} />
+            <Text style={{ fontSize: 13, fontWeight: '800', color: C.amber }}>Enter the Job Site</Text>
+            <View style={{ backgroundColor: C.amber, paddingHorizontal: 6, paddingVertical: 1.5, borderRadius: 5 }}>
+              <Text style={{ fontSize: 8.5, fontWeight: '800', color: '#0D1B3E', letterSpacing: 0.4 }}>NEW</Text>
+            </View>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -986,8 +996,8 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
       {/* Job Cam shortcut */}
       <TouchableOpacity onPress={() => setTab('jobcam')} activeOpacity={0.85}
         style={{ marginHorizontal: 16, marginTop: 10, marginBottom: 12, backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-        <View style={{ width: 42, height: 42, borderRadius: 11, backgroundColor: '#ECFDF5', alignItems: 'center', justifyContent: 'center' }}>
-          <Ionicons name="camera" size={20} color="#16A34A" />
+        <View style={{ width: 42, height: 42, borderRadius: 11, backgroundColor: C.greenBg, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="camera" size={20} color={C.green} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>Job Cam</Text>
@@ -3175,7 +3185,7 @@ const CalculatorsScreen = ({ setTab, C }) => {
     { icon: 'speedometer-outline',title:'Ampacity Lookup',   sub: 'NEC 310.15 copper & aluminum tables',  tab: 'ampacity',    color: C.blue,   bg: C.blueSub },
     { icon: 'color-palette',     title: 'Wire Colors',        sub: 'Detail + 160-slot panel view',         tab: 'wire',        color: C.teal,   bg: C.tealBg },
     { icon: 'book-outline',      title: 'Formula Reference',  sub: "Ohm's Law · 3Φ · Motors · Transformers", tab:'formulas',  color: C.amber,  bg: C.amberBg },
-    { icon: 'hammer-outline',    title: 'Material Estimator', sub: 'Rough quantity + Sparky AI pricing',   tab: 'estimator',   color: '#16A34A',bg: '#ECFDF5' },
+    { icon: 'hammer-outline',    title: 'Material Estimator', sub: 'Rough quantity + Sparky AI pricing',   tab: 'estimator',   color: C.green,  bg: C.greenBg },
   ];
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
@@ -3562,8 +3572,8 @@ const ExamPrepScreen = ({ C, onStreakUpdate }) => {
           <View style={{ backgroundColor: C.blueSub, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
             <Text style={{ fontSize: 11, fontWeight: '600', color: C.blue }}>{currentQ.cat}</Text>
           </View>
-          <View style={{ backgroundColor: currentQ.level === 'Apprentice' ? '#ECFDF5' : C.purpleBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
-            <Text style={{ fontSize: 11, fontWeight: '600', color: currentQ.level === 'Apprentice' ? '#16A34A' : C.purple }}>{currentQ.level}</Text>
+          <View style={{ backgroundColor: currentQ.level === 'Apprentice' ? C.greenBg : C.purpleBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
+            <Text style={{ fontSize: 11, fontWeight: '600', color: currentQ.level === 'Apprentice' ? C.green : C.purple }}>{currentQ.level}</Text>
           </View>
           <View style={{ backgroundColor: studyMode ? C.successBg : C.amberBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
             <Text style={{ fontSize: 11, fontWeight: '600', color: studyMode ? C.success : C.amber }}>{studyMode ? 'Study' : 'Test'}</Text>
@@ -3685,9 +3695,9 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
             </View>
           ))}
           {isPro ? (
-            <View style={{ backgroundColor: C.greenBg ?? 'rgba(34,197,94,0.12)', borderRadius: 10, padding: 13, alignItems: 'center', marginTop: 14, flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
-              <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
-              <Text style={{ fontSize: 15, fontWeight: '700', color: '#22C55E' }}>Pro Active</Text>
+            <View style={{ backgroundColor: C.greenBg, borderRadius: 10, padding: 13, alignItems: 'center', marginTop: 14, flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+              <Ionicons name="checkmark-circle" size={16} color={C.green} />
+              <Text style={{ fontSize: 15, fontWeight: '700', color: C.green }}>Pro Active</Text>
             </View>
           ) : (
             <TouchableOpacity
@@ -3848,7 +3858,7 @@ const SCREEN_LABELS = {
   estimator: 'Material Estimator', necai: 'Sparky AI',
   examprep: 'Code Quiz', jobcam: 'Job Cam', settings: 'Settings',
   calculators: 'Calculators', learn: 'Learn',
-  wiringlab: 'Wiring Simulator', troubleshoot: 'Troubleshoot',
+  wiringlab: 'Wiring Simulator', troubleshoot: 'Troubleshoot', jobsite: 'Job Site',
   flashcards: 'Flashcards', projects: 'Projects', materials: 'Material List',
   community: 'Community', customizehome: 'Customize Home',
 };
@@ -4081,6 +4091,7 @@ const lazyScreen = (name, load) => {
 
 const WiringLabScreen   = lazyScreen('Wiring Simulator',      () => require('./src/screens/WiringLabScreen'));
 const TroubleshootScreen = lazyScreen('Troubleshooting', () => require('./src/screens/TroubleshootScreen'));
+const JobsiteScreen     = lazyScreen('Job Site',        () => require('./src/screens/JobsiteScreen'));
 const FlashcardsScreen  = lazyScreen('Flashcards',      () => require('./src/screens/FlashcardsScreen'));
 const ProjectsScreen    = lazyScreen('Projects',        () => require('./src/screens/ProjectsScreen'));
 const MaterialsScreen   = lazyScreen('Material List',   () => require('./src/screens/MaterialsScreen'));
@@ -4197,7 +4208,7 @@ export default function App() {
   // src/core/home/layout.js so adding a Home feature is a data change.
   const { layout: homeLayout, save: saveHomeLayout } = useHomeLayout();
 
-  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','wiringlab','troubleshoot','flashcards','customizehome','projects','materials','community'];
+  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','wiringlab','troubleshoot','jobsite','flashcards','customizehome','projects','materials','community'];
 
   // Stable handlers — avoids stale closure in Settings toggle rows
   const handleDailyQToggle = React.useCallback((v) => {
@@ -4309,6 +4320,7 @@ export default function App() {
       case 'learn':       return <LearnScreen setTab={navigateTo} C={C} onStreakUpdate={updateStreak} />;
       case 'wiringlab':   return <WiringLabScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
       case 'troubleshoot':return <TroubleshootScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
+      case 'jobsite':     return <JobsiteScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
       case 'flashcards':  return <FlashcardsScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
       case 'projects':    return <ProjectsScreen C={C} setTab={navigateTo} />;
       case 'materials':   return <MaterialsScreen C={C} setTab={navigateTo} />;

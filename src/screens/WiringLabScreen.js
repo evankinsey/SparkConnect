@@ -32,8 +32,16 @@ const ROLE_CHIPS = [
 
 const shortTerminal = (id) => String(id).split('.').pop();
 
-export default function WiringLabScreen({ C, setTab, onStreakUpdate }) {
-  const [lessonId, setLessonId] = useState(null);
+/**
+ * `initialLessonId` opens straight into one lesson and skips the list — that is
+ * how Jobsite World launches a room's task. `onClose` then replaces "back to
+ * the list" with "back to where you came from", and `onSolved` reports the win
+ * so the world can mark the station done.
+ */
+export default function WiringLabScreen({
+  C, setTab, onStreakUpdate, initialLessonId = null, onSolved, onClose,
+}) {
+  const [lessonId, setLessonId] = useState(initialLessonId);
   // Show every built lesson. The review gate governs what is *approved*; all
   // five carry team review, and the attribution banner says exactly that.
   const lessons = useMemo(() => {
@@ -47,8 +55,9 @@ export default function WiringLabScreen({ C, setTab, onStreakUpdate }) {
     <LessonPlayer
       C={C}
       lesson={lessons.find((l) => l.id === lessonId) ?? lessons[0]}
-      onExit={() => setLessonId(null)}
+      onExit={() => (onClose ? onClose() : setLessonId(null))}
       onStreakUpdate={onStreakUpdate}
+      onSolved={onSolved}
     />
   );
 }
@@ -113,7 +122,7 @@ function LessonList({ C, lessons, onPick, setTab }) {
 
 // ─── Lesson player ───────────────────────────────────────────────────────────
 
-function LessonPlayer({ C, lesson, onExit, onStreakUpdate }) {
+function LessonPlayer({ C, lesson, onExit, onStreakUpdate, onSolved }) {
   const components = useMemo(() => lesson.components(), [lesson]);
 
   const [wires, setWires] = useState([]);
@@ -170,6 +179,7 @@ function LessonPlayer({ C, lesson, onExit, onStreakUpdate }) {
       setScore(s);
       setSolved(true);
       onStreakUpdate && onStreakUpdate();
+      onSolved && onSolved(lesson.id, s);
       buzz(30);
     } else {
       setWrongTests((n) => n + 1);

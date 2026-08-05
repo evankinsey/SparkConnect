@@ -53,6 +53,7 @@ const FILES = [
   'src/screens/WiringLabScreen.js',
   'src/screens/TroubleshootScreen.js',
   'src/screens/CircuitCanvas.js',
+  'src/screens/JobsiteScreen.js',
   'src/screens/FlashcardsScreen.js',
   'src/screens/HomeCards.js',
   'src/screens/ProjectsScreen.js',

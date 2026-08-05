@@ -12,13 +12,21 @@ import { SCENARIOS, buildScenario, answerScenario } from '../core/training/troub
 import { TRAINING_DISCLAIMER } from '../circuit/review';
 import CircuitCanvas from './CircuitCanvas';
 
-export default function TroubleshootScreen({ C, setTab, onStreakUpdate }) {
+export default function TroubleshootScreen({ C, setTab, onStreakUpdate, onSolved, onClose }) {
   const [openId, setOpenId] = useState(null);
-  if (!openId) return <ScenarioList C={C} onPick={setOpenId} setTab={setTab} />;
-  return <ScenarioPlayer C={C} scenarioId={openId} onExit={() => setOpenId(null)} onStreakUpdate={onStreakUpdate} />;
+  if (!openId) return <ScenarioList C={C} onPick={setOpenId} setTab={setTab} onClose={onClose} />;
+  return (
+    <ScenarioPlayer
+      C={C}
+      scenarioId={openId}
+      onExit={() => (onClose ? onClose() : setOpenId(null))}
+      onStreakUpdate={onStreakUpdate}
+      onSolved={onSolved}
+    />
+  );
 }
 
-function ScenarioList({ C, onPick, setTab }) {
+function ScenarioList({ C, onPick, setTab, onClose }) {
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
@@ -52,14 +60,18 @@ function ScenarioList({ C, onPick, setTab }) {
         </TouchableOpacity>
       ))}
 
-      <TouchableOpacity onPress={() => setTab && setTab('learn')} style={{ padding: 14, alignItems: 'center', marginTop: 6 }}>
-        <Text style={{ color: C.textSec, fontSize: 13, fontWeight: '600' }}>Back to Learn</Text>
+      <TouchableOpacity
+        onPress={() => (onClose ? onClose() : setTab && setTab('learn'))}
+        style={{ padding: 14, alignItems: 'center', marginTop: 6 }}>
+        <Text style={{ color: C.textSec, fontSize: 13, fontWeight: '600' }}>
+          {onClose ? 'Back to the job site' : 'Back to Learn'}
+        </Text>
       </TouchableOpacity>
     </ScrollView>
   );
 }
 
-function ScenarioPlayer({ C, scenarioId, onExit, onStreakUpdate }) {
+function ScenarioPlayer({ C, scenarioId, onExit, onStreakUpdate, onSolved }) {
   const built = useMemo(() => buildScenario(scenarioId), [scenarioId]);
   const [picked, setPicked] = useState(null);
   const [outcome, setOutcome] = useState(null);
@@ -77,7 +89,10 @@ function ScenarioPlayer({ C, scenarioId, onExit, onStreakUpdate }) {
     try {
       if (Platform.OS !== 'web') Vibration.vibrate(r.correct ? 30 : [0, 40, 60, 40]);
     } catch (e) { /* ignore */ }
-    if (r.correct) onStreakUpdate && onStreakUpdate();
+    if (r.correct) {
+      onStreakUpdate && onStreakUpdate();
+      onSolved && onSolved(scenario.id);
+    }
   };
 
   return (
