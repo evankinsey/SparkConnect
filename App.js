@@ -3959,15 +3959,25 @@ export default function App() {
   const [showDailyQ, setShowDailyQ] = useState(true);
   const [streak, setStreak] = useState(0);
   React.useEffect(() => {
+    // Every launch path below is wrapped. Nothing read from storage and nothing
+    // scheduled with the OS is allowed to take the app down on open — an
+    // unhandled rejection here is a fatal JS error, and a fatal JS error in a
+    // release build is an instant close with no screen.
     safeStorageGet('@sc_onboarding_done').then(val => {
       const done = val === 'true';
       setOnboardingDone(done);
       setOnboardingChecked(true);
       // Top up the rolling notification horizon on every launch. Silent: it
       // never prompts, and does nothing unless the user already opted in.
-      if (done) refreshDailyQuestionNotifications();
+      if (done) Promise.resolve(refreshDailyQuestionNotifications()).catch(e => safeLog('notif.refresh', e));
+    }).catch(e => {
+      // Storage unavailable is not a reason to show nothing. Fall through to
+      // onboarding rather than sitting on a blank screen forever.
+      safeLog('boot.onboarding', e);
+      setOnboardingChecked(true);
     });
-    safeStorageGet('@sc_show_daily_q').then(val => { if (val === 'false') setShowDailyQ(false); });
+    safeStorageGet('@sc_show_daily_q').then(val => { if (val === 'false') setShowDailyQ(false); })
+      .catch(e => safeLog('boot.showDailyQ', e));
     // Streak: check last quiz date
     safeStorageGet('@sc_streak_data').then(val => {
       if (val) {
@@ -3978,7 +3988,7 @@ export default function App() {
           if (lastDate === today || lastDate === yesterday) setStreak(count);
         } catch {}
       }
-    });
+    }).catch(e => safeLog('boot.streak', e));
   }, []);
 
   const updateStreak = async () => {
@@ -4028,23 +4038,35 @@ export default function App() {
     setTab('home');
     setHistory(['home']);
     setHomeKey(k => k + 1); // remount so the card re-reads today's question
-    clearBadge();
+    try { Promise.resolve(clearBadge()).catch(e => safeLog('notif.badge', e)); } catch (e) { safeLog('notif.badge', e); }
   }, []);
 
   React.useEffect(() => {
     // Cold start: the app was launched *by* the notification, so no listener
     // was mounted in time to see the tap.
-    getInitialDailyQuestionResponse().then(res => { if (res) openDailyQuestion(); });
-    // Warm taps while the app is running or backgrounded.
-    const unsubscribe = addDailyQuestionTapListener(openDailyQuestion);
-    return unsubscribe;
+    let unsubscribe = null;
+    try {
+      Promise.resolve(getInitialDailyQuestionResponse())
+        .then(res => { if (res) openDailyQuestion(); })
+        .catch(e => safeLog('notif.initialResponse', e));
+      // Warm taps while the app is running or backgrounded.
+      unsubscribe = addDailyQuestionTapListener(openDailyQuestion);
+    } catch (e) {
+      // No notification support in this environment. The rest of the app works.
+      safeLog('notif.listen', e);
+    }
+    return () => { try { if (unsubscribe) unsubscribe(); } catch (e) { safeLog('notif.unlisten', e); } };
   }, [openDailyQuestion]);
 
   React.useEffect(() => {
     // Returning to the foreground tops the rolling horizon back up, so the
     // reminders keep coming without needing a cold start.
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') refreshDailyQuestionNotifications();
+      if (state !== 'active') return;
+      try {
+        Promise.resolve(refreshDailyQuestionNotifications())
+          .catch(e => safeLog('notif.refresh', e));
+      } catch (e) { safeLog('notif.refresh', e); }
     });
     return () => { try { sub.remove(); } catch (e) { safeLog('AppState', e); } };
   }, []);
@@ -4090,7 +4112,7 @@ export default function App() {
         setOnboardingDone(true);
         // Ask for notification permission once, right after onboarding. If the
         // user declines, the Home opt-in card gives them a second chance.
-        enableDailyQuestionNotifications();
+        try { Promise.resolve(enableDailyQuestionNotifications()).catch(e => safeLog('notif.enable', e)); } catch (e) { safeLog('notif.enable', e); }
       }} />
     );
   }
