@@ -4,7 +4,6 @@ import SparkPaywall from './src/SparkPaywall';
 import OnboardingFlow from './src/OnboardingFlow';
 import { useGating } from './src/useGating';
 import { analytics } from './src/analytics';
-import { getGate } from './ProGatingContext';
 import WiringLabScreen from './src/screens/WiringLabScreen';
 import TroubleshootScreen from './src/screens/TroubleshootScreen';
 import FlashcardsScreen from './src/screens/FlashcardsScreen';
@@ -2034,7 +2033,12 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch }) => {
     // backend's own rate limit applies (it already returns 'rate_limited'
     // below). Failing open is right here: a missing client gate must not
     // silently break the headline feature.
-    const gate = getGate() || {};
+    // Pro gating is optional and currently inert: ProGatingProvider is not
+    // mounted, so there is no gate to consult. Rather than importing the whole
+    // ProGatingContext graph to reach a null, this resolves to an empty gate and
+    // lets the backend's own rate limit apply (it returns 'rate_limited' below).
+    // When the provider is mounted, swap this for its context value.
+    const gate = {};
     const isPro = gate.IS_PRO ?? IS_PRO;
     if (gate.sparkyGate) {
       if (!gate.sparkyGate.checkAllowed()) {
