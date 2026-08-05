@@ -1,0 +1,4 @@
+{
+  "//": "ESM marker so Node's built-in test runner can execute every pure core module (docs/v1.1/DECISIONS.md D-05). Covers all subdirectories. Metro never reads it: imports always use explicit file paths.",
+  "type": "module"
+}
