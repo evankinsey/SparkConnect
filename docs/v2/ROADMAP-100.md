@@ -140,6 +140,81 @@ Sorted within each band by `(Impact + Rev + Ret + Viral) ÷ Effort` — value pe
 
 ---
 
+---
+
+## Band G — Career Hub and the platform play (added after the "everything app" brief)
+
+The framing that unlocks this: **Get Hired → Learn → Work → Document → Get Paid →
+Grow → Train Apprentices → Repeat.** SparkConnect currently touches "Work" and
+part of "Learn". Everything below extends the loop, and the loop is what makes
+the app un-deletable.
+
+| # | Feature | Impact | Effort | Rev | Ret | Viral | Tier |
+|---|---|---|---|---|---|---|---|
+| 101 | **OJT hour tracker** — the single stickiest feature on this list | 10 | 4 | 7 | 10 | 6 | Free |
+| 102 | License countdown + renewal reminders | 9 | 3 | 8 | 9 | 4 | Free |
+| 103 | CE / CEU credit tracker | 8 | 4 | 8 | 9 | 3 | Pro |
+| 104 | Journeyman eligibility tracker (hours + schooling by state) | 9 | 6 | 7 | 10 | 7 | Pro |
+| 105 | Resume builder for apprentices | 7 | 4 | 5 | 6 | 7 | Free |
+| 106 | School / class tracker | 6 | 3 | 4 | 7 | 3 | Free |
+| 107 | **Electrical Encyclopedia** — topic → explanation → NEC refs → common failures → related calculator → related lesson → quiz | 10 | 8 | 7 | 9 | 8 | Free + Pro depth |
+| 108 | Toolbox Talks — 2-minute daily safety lessons | 8 | 3 | 6 | 9 | 6 | Free |
+| 109 | Business intelligence dashboard (revenue, labour %, avg ticket, callbacks) | 9 | 6 | 9 | 8 | 3 | Pro |
+| 110 | Job calendar (today, tomorrow, permits, inspections) | 8 | 5 | 7 | 9 | 2 | Pro |
+| 111 | Company accounts — foreman adds apprentices, assigns lessons, tracks progress | 9 | 9 | 10 | 9 | 6 | B2B |
+| 112 | Product database (Square D QO 20A → datasheet, specs, compatibility) | 8 | 8 | 6 | 8 | 5 | Pro |
+| 113 | Favourite materials — "My Truck" / "My Shop" one-tap lists | 8 | 3 | 6 | 8 | 3 | Pro |
+| 114 | Voice-first field mode — hands-full ampacity lookups, read aloud | 9 | 6 | 6 | 9 | 7 | Pro |
+| 115 | Reputation system (licensed, insured, years in trade, training completed) | 8 | 6 | 7 | 7 | 8 | Free |
+| 116 | Emergency reference (LOTO checklist, arc-flash boundaries, emergency disconnect) | 8 | 3 | 4 | 7 | 5 | Free |
+| 117 | **True offline-first** — basements, mechanical rooms, parking garages | 9 | 6 | 5 | 10 | 2 | Free |
+| 118 | Smart Toolbox extras: torque specs, drill/tap, knockouts, hole saws, anchors, thread pitch, strip lengths | 8 | 5 | 5 | 8 | 4 | Free + Pro |
+| 119 | Label generator + QR labels + panel directory printer | 9 | 5 | 7 | 8 | 6 | Pro |
+| 120 | Team chat per job | 6 | 7 | 5 | 7 | 3 | B2B |
+
+### The three I'd pull forward out of this band
+
+**#101 OJT hour tracker.** Every apprentice in the country is legally required to
+log hours, and most do it on paper or in a notes app they lose. It is a small
+build, it creates a daily open, and the switching cost after six months of logged
+hours is enormous. This is the highest retention-per-effort item anywhere on this
+roadmap — higher than the game, higher than the marketplace.
+
+**#102 License countdown.** Three days of work. Missing a renewal costs an
+electrician their livelihood for weeks. An app that prevents that gets kept
+forever, and it costs you almost nothing.
+
+**#117 Offline-first.** Not a feature — a correctness property. Your users work
+in basements and parking garages. Everything built so far is local-first by
+design, so this is mostly about not breaking it when the backend arrives.
+
+### On the Encyclopedia (#107)
+
+The structure you described — topic → what it is → how it works → where required →
+common failures → troubleshooting → simulation → quiz → Spark AI — is the right
+one, and it is the piece that makes every other feature more valuable, because it
+is where they all connect.
+
+The honest constraint: it is a **content** project wearing an engineering costume.
+The schema is maybe a week. Forty accurate, well-illustrated topics with verified
+NEC references is months, and it cannot be generated — that is exactly the
+fabricated-citation problem the whole review gate exists to prevent.
+
+Suggested shape: build the schema so a topic is data, ship **five** topics done
+properly (GFCI, three-way switching, box fill, voltage drop, grounding vs
+bonding), and let it grow. Five excellent entries beat forty thin ones, and thin
+entries on electrical safety are worse than no entries.
+
+### On "SparkConnect OS" (the moonshot)
+
+It is the right ambition and I would not build toward it directly. The way you get
+there is not by building an OS — it is by making the loop tight enough that
+someone opens the app on a Tuesday because their hours are in it, their invoice is
+in it, and their streak is in it. The OS is what that *becomes*, not what you
+start with.
+
+---
+
 ## If I could only ship five things
 
 1. **#2 and #3** — `IS_PRO = false` and the missing Android key. You may be losing

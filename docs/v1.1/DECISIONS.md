@@ -179,6 +179,42 @@ first-class value that triggers a prompt rather than silently guessing.
 
 ---
 
+## D-09 — Backend: Supabase over Convex
+
+**Status:** ACCEPTED (revisit if the team grows or the product goes realtime-heavy)
+**Affects:** all of PAY-*, DAT-*, SEC-05, SEC-08
+
+Convex is a genuinely good product — better developer experience than Supabase in
+most respects, reactive queries out of the box, TypeScript end to end. This is not
+a "Convex is bad" decision. On raw price the two are close enough not to matter at
+this scale: both free tiers cover thousands of invoices a month, both jump to
+about $25/month after.
+
+Three things decide it for **this** product:
+
+| | Supabase | Convex |
+|---|---|---|
+| **Auth** | Included | Needs Clerk or Auth0 — a second vendor, and Clerk is another ~$25/mo past 10k MAU |
+| **Cross-customer isolation** | Postgres row-level security, enforced **by the database** | Enforced in your function code |
+| **Data shape** | Contractor → customer → document → payments is relational; Postgres fits it natively | Workable, but you are modelling joins by hand |
+
+The middle row is the real reason. The failure that would actually hurt this
+business is customer A opening customer B's invoice. With RLS, that is prevented
+in the database — a bug in my query code cannot leak a row because the policy runs
+regardless. With function-level auth, every single query has to remember the
+check, forever, including the ones written at 1am six months from now.
+
+For a payments product handling other people's customers' addresses and invoice
+totals, "the database refuses" beats "the code remembers".
+
+**Cost note:** counting Clerk, Convex is the *more* expensive path, not the
+cheaper one. Supabase bundles auth, database, storage and functions in one bill.
+
+**When I would switch:** if SparkConnect goes heavily realtime — live crew
+dashboards, multiplayer Wiring Lab, team chat as a core feature — Convex's
+reactivity model would start earning its keep. Nothing on the current roadmap
+needs that.
+
 ## Open questions for Evan
 
 | # | Question | Blocks |
