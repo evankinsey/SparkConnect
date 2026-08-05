@@ -1,0 +1,4 @@
+{
+  "//": "Marks this directory as ESM so Node's built-in test runner can execute the circuit engine directly (see docs/v1.1/DECISIONS.md D-05). Metro never reads this file: every import of this directory uses an explicit file path, never a directory import.",
+  "type": "module"
+}

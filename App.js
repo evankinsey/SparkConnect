@@ -3785,7 +3785,9 @@ const SplashScreen = ({ onDone }) => {
         </View>
 
         {/* Version */}
-        <Text style={splashStyles.version}>v1.0 · NEC 2023</Text>
+        {/* CODE-07 / UI-14 — the splash is brand recognition only. A hardcoded
+            version and code edition made the app look dated the moment either
+            moved on; the edition now lives with the results it applies to. */}
       </Animated.View>
     </View>
   );

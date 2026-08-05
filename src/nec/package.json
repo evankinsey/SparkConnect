@@ -1,0 +1,4 @@
+{
+  "//": "ESM marker so Node's built-in test runner can execute this pure module directly (docs/v1.1/DECISIONS.md D-05). Metro never reads it: imports always use explicit file paths.",
+  "type": "module"
+}

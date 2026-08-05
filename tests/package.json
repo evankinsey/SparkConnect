@@ -1,0 +1,4 @@
+{
+  "//": "Marks the test directory as ESM for Node's built-in test runner (docs/v1.1/DECISIONS.md D-05). Not part of the app bundle.",
+  "type": "module"
+}

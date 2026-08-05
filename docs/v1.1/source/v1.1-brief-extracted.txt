@@ -1,0 +1,1788 @@
+==================== /root/.claude/uploads/b5c672ef-21d6-5ccf-b0f6-5b05683061e2/260cee78-_.pdf
+Ignoring wrong pointing object 11 0 (offset 0)
+==================================================
+PART 7 — MONETIZATION OF TRAINING, CONTINUED
+==================================================
+PRO:
+- All current simulations
+- All troubleshooting scenarios
+- Practice and Challenge modes
+- Detailed progress analytics
+- Unlimited custom practice
+- Spark AI explanations of mistakes
+- Full progress history
+- Advanced hints and coaching
+- Future advanced simulation packs while the Pro subscription is active
+Do not promise that every future training product will always be included. 
+Preserve flexibility for future premium course packs, employer plans, school 
+plans, and separately priced advanced curricula.
+Training access must use the existing RevenueCat entitlement architecture.
+Do not create a custom unlock-code system that bypasses Apple or Google in-app 
+purchase requirements.
+Required Superwall placements:
+- simulation_locked
+- troubleshooting_locked
+- challenge_mode_locked
+- ai_simulation_explanation
+- progress_history_locked
+- custom_practice_locked
+The user must always see what is free before encountering the training paywall.
+Free users must be able to finish at least one meaningful wiring simulation 
+completely.
+Do not show the paywall before the user understands the training experience.
+==================================================
+PART 8 — STRIPE-CONNECTED INVOICES
+==================================================
+Evan wants electricians and contractors to be able to create an invoice in 
+SparkConnect and optionally allow their customer to pay that invoice 
+electronically.
+This is separate from SparkConnect’s own digital subscriptions.
+SparkConnect subscriptions, Lifetime Tools, and AI answer packs must continue 
+using Apple/Google in-app purchases through RevenueCat.
+Customer payment collection for real-world electrical services may use Stripe.
+Implement this carefully.
+The intended architecture is:
+Contractor creates invoice
+→ Contractor optionally connects their own Stripe account
+→ SparkConnect creates a customer-facing payment request through the backend
+→ Customer opens a secure hosted Stripe payment page
+→ Customer pays the contractor
+→ Stripe webhook updates the invoice status
+→ SparkConnect displays payment status
+Do not collect raw card details inside SparkConnect.
+Use Stripe-hosted Checkout or an equivalent secure Stripe-hosted payment 
+experience.
+Do not store:
+- Card numbers
+- CVC
+- Stripe secret key
+- OAuth client secret
+- Account access token
+- Refresh token
+- Webhook signing secret
+inside the mobile client.
+All sensitive Stripe operations must occur on the backend.
+==================================================
+PART 9 — STRIPE CONNECT IMPLEMENTATION
+==================================================
+Use Stripe Connect only if the existing backend and account configuration support 
+it safely.
+Preferred approach:
+- Stripe Connect Express accounts for contractors
+- Secure onboarding through Stripe-hosted account onboarding
+- Contractor sees connection status in SparkConnect
+- Contractor can reconnect or manage their Stripe account
+- Backend stores only the minimum required connected-account identifier and status
+- Sensitive tokens remain server-side
+- Use idempotency keys for payment-session creation
+- Verify all webhook signatures
+- Log webhook event IDs to prevent duplicate handling
+Required contractor states:
+- NOT_CONNECTED
+- ONBOARDING_STARTED
+- INFORMATION_REQUIRED
+- PENDING_VERIFICATION
+- ENABLED
+- RESTRICTED
+- DISCONNECTED
+Required invoice payment states:
+- DRAFT
+- READY_TO_SEND
+- SENT
+- VIEWED
+- PAYMENT_PENDING
+- PARTIALLY_PAID
+- PAID
+- OVERDUE
+- VOID
+- REFUNDED
+- PAYMENT_FAILED
+Do not assume a successful redirect means payment succeeded.
+Stripe webhook events are the payment source of truth.
+Create backend handlers for the applicable event set, including conceptually:
+- checkout session completed
+- payment intent succeeded
+- payment intent payment failed
+- charge refunded
+- account updated
+- asynchronous payment succeeded
+- asynchronous payment failed
+Use the actual supported event names from the installed Stripe SDK and current 
+Stripe implementation. Do not invent event names.
+Every webhook handler must:
+1. Verify signature
+2. Reject malformed requests
+3. Check idempotency
+4. Resolve the correct connected account
+5. Resolve the correct SparkConnect invoice
+6. Perform a valid state transition
+7. Record timestamp and event ID
+8. Avoid exposing sensitive payment data
+9. Return an appropriate status code
+10. Log enough information for debugging without logging private financial data
+==================================================
+PART 10 — STRIPE BUSINESS MODEL
+==================================================
+Do not silently introduce payment fees without displaying them clearly.
+Create configuration support for:
+- No SparkConnect platform fee during initial launch
+- Optional future percentage-based application fee
+- Optional future flat transaction fee
+- Feature flag controlling payment collection availability
+- Region/country availability controls
+Do not enable an application fee in production unless an existing verified 
+business decision and Stripe configuration already support it.
+The contractor must be shown:
+- Customer charge amount
+- Contractor payout amount when available
+- Any Stripe processing fee information that can be displayed accurately
+- Any SparkConnect application fee if enabled
+- Refund status
+- Payment status
+- Payment date
+- Connected Stripe account status
+Do not calculate or promise exact Stripe fees from hardcoded assumptions.
+Use Stripe’s actual transaction data where available.
+Include a disclaimer that SparkConnect is not providing accounting, tax, legal, 
+banking, lending, or payment-processing advice.
+==================================================
+PART 11 — CUSTOMER PAYMENT EXPERIENCE
+==================================================
+Invoices must support:
+- Contractor/business name
+- Customer name
+- Customer email
+- Customer phone, optional
+- Billing/service address
+- Invoice number
+- Estimate number
+- Issue date
+- Due date
+- Payment terms
+- Line items
+- Labor
+- Materials
+- Quantity
+- Unit price
+- Tax, optional
+- Discount, optional
+- Deposit, optional
+- Amount paid
+- Balance due
+- Notes
+- Scope of work
+- Exclusions
+- Customer message
+- Contractor license field, optional
+- Logo, optional
+- Payment button when Stripe is connected
+- Offline/manual payment methods
+- Mark paid manually
+- Partial-payment support in the data model, even if the first UI version only 
+supports full payment
+The customer-facing payment page must:
+- Be mobile friendly
+- Show the contractor identity
+- Show invoice number
+- Show amount due
+- Avoid exposing internal notes
+- Avoid exposing SparkConnect account identifiers
+- Use HTTPS
+- Use a secure unguessable payment/session link
+- Expire or invalidate links appropriately
+- Show success, failure, pending, and canceled states
+Do not expose a permanent unrestricted payment link if a session-based flow is 
+safer.
+==================================================
+PART 12 — ESTIMATE TO INVOICE WORKFLOW
+==================================================
+Improve the existing workflow:
+Create estimate
+→ Save draft
+→ Send/share estimate
+→ Mark accepted or declined
+→ Convert accepted estimate to invoice
+→ Preserve customer and line-item data
+→ Allow edits without corrupting the original estimate
+→ Send invoice
+→ Accept payment or mark paid manually
+→ Store payment status
+Required estimate statuses:
+- DRAFT
+- SENT
+- VIEWED
+- ACCEPTED
+- DECLINED
+- EXPIRED
+- CONVERTED_TO_INVOICE
+- ARCHIVED
+When converting an estimate into an invoice:
+- Create a new invoice record
+- Preserve a reference to the source estimate
+- Do not mutate the accepted estimate into an invoice
+- Copy relevant line items and customer details
+- Generate a unique invoice number
+- Preserve an audit trail
+- Let the contractor change final quantities and pricing
+- Warn if changes materially differ from the accepted estimate
+Add:
+- Duplicate estimate
+- Duplicate invoice
+- Convert estimate to invoice
+- Mark sent
+- Mark viewed if supported
+- Mark accepted
+- Mark declined
+- Mark paid manually
+- Mark partially paid
+- Void invoice
+- Record refund
+- Add internal note
+- Add customer-visible note
+==================================================
+PART 13 — PDF AND EXPORT RULES
+==================================================
+The current PDF/export system must be audited for reliability.
+Requirements:
+- Generate a clean customer-ready PDF
+- Do not place “SparkConnect Tools” prominently at the top of a customer’s invoice 
+unless the user deliberately chooses a SparkConnect-branded template
+- Free users may receive a small footer such as:
+  “Generated with SparkConnect: Electric Toolkit”
+- The footer must be professional, subtle, and not interfere with customer 
+branding
+- Pro and Lifetime users must have the SparkConnect footer removed from newly 
+generated documents
+- Existing exported files do not need retroactive modification
+- Respect the current export limits by entitlement
+- Never silently fail
+- Show exact failure stage when PDF generation or sharing fails
+- Cascade through supported share/export methods safely
+- Add retry behavior where appropriate
+- Test on iOS and Android
+- Ensure generated documents use accessible text sizing and proper page breaks
+- Avoid splitting critical invoice totals or signature sections across pages
+Required analytics:
+- pdf_generate_started
+- pdf_generate_succeeded
+- pdf_generate_failed
+- pdf_share_opened
+- pdf_share_completed
+- pdf_share_failed
+- payment_link_created
+- payment_link_creation_failed
+==================================================
+PART 14 — ROLE-BASED ONBOARDING
+==================================================
+Audit the current onboarding before replacing anything.
+Add a concise role question:
+“What best describes you?”
+Options:
+- Apprentice
+- Journeyman
+- Foreman
+- Contractor / Business Owner
+- Instructor / Student
+- Other
+Use this to personalize shortcuts and recommendations.
+Suggested home emphasis:
+APPRENTICE
+- Pipe Bending
+- Wire Colors
+- Learn
+- Wiring Simulator
+- Spark AI
+JOURNEYMAN
+- Calculators
+- Code Tools
+- Job Cam
+- Spark AI
+- Troubleshooting
+FOREMAN
+- Job Cam
+- Estimator
+- Code Tools
+- Material Lists
+- Spark AI
+CONTRACTOR
+- Estimates
+- Invoices
+- Customer Payments
+- Job Cam
+- Material and Labor
+- Spark AI
+INSTRUCTOR / STUDENT
+- Quiz
+- Wiring Simulator
+- Troubleshooting
+- Custom Quiz
+- Progress
+Do not permanently hide features based on role.
+The user must be able to change their role in Settings.
+The role selection must not be presented as proof of licensure or qualification.
+==================================================
+PART 15 — FIRST-WIN ONBOARDING
+==================================================
+Instead of immediately presenting a giant feature list, offer:
+“What do you need to do first?”
+- Calculate something
+- Check code or troubleshoot
+- Practice wiring
+- Build an estimate or invoice
+- Document a job
+Route the user to a meaningful first action.
+Track:
+- onboarding_started
+- onboarding_role_selected
+- onboarding_goal_selected
+- onboarding_first_action_started
+- onboarding_first_action_completed
+- onboarding_abandoned
+Do not show an aggressive subscription wall before the user completes or 
+meaningfully experiences a first action.
+After a first successful action, explain the connected workflow:
+“Calculate it, understand it with Spark AI, save it to the job, and turn it into 
+customer-ready paperwork.”
+Then introduce Pro, Lifetime Tools, or the appropriate limit.
+==================================================
+PART 16 — VALUE-FIRST PAYWALL STRATEGY
+==================================================
+Do not universally hard-paywall the entire app in v1.1.
+Implement feature flags and Superwall experiments so SparkConnect can test:
+EXPERIMENT A — CURRENT FREEMIUM
+- Existing free tier
+- Existing limits
+EXPERIMENT B — FIRST-WIN PAYWALL
+- User completes one meaningful action
+- Paywall appears when saving, exporting, continuing, requesting advanced 
+explanation, or opening locked training
+EXPERIMENT C — AGGRESSIVE TRAINING PAYWALL
+- Foundational simulation free
+- Full simulation/troubleshooting catalog requires Pro or eligible Lifetime access
+EXPERIMENT D — TRIAL-FORWARD PAYWALL
+- Emphasizes the existing eligible free trial
+- Clearly states price, billing interval, renewal, cancellation and trial terms
+- No deceptive toggles
+- No preselected confusing options
+- No hiding the non-trial purchase state
+Do not activate a universal hard paywall without data.
+Required paywall analytics:
+- paywall_presented
+- paywall_placement
+- paywall_variant
+- paywall_dismissed
+- product_selected
+- trial_started
+- purchase_started
+- purchase_completed
+- purchase_failed
+- restore_started
+- restore_completed
+- restore_failed
+- entitlement_granted
+- entitlement_missing_after_purchase
+==================================================
+PART 17 — CONTEXT-AWARE SPARK AI
+==================================================
+Complete the existing “Explain with Spark AI” concept across:
+- Pipe Bending
+- Voltage Drop
+- Box Fill
+- Conduit Fill
+- Ampacity
+- Estimator
+- Invoice / Estimate
+- Quiz answers
+- Wiring simulation mistakes
+- Troubleshooting scenarios
+The AI must receive structured context, not a screenshot-only or vague prompt.
+Example structured payload:
+{
+  tool: "voltage_drop",
+  inputs: {...},
+  result: {...},
+  userRole: "...",
+  adoptedCodeContext: "...",
+  selectedMode: "...",
+  safetyContext: "...",
+  requestedAction: "explain"
+}
+For simulation mistakes, send:
+- Lesson ID
+- Lesson version
+- Component graph
+- User-created connections
+- Validation errors
+- Hint level
+- Attempt count
+- Mode
+Do not allow the AI to override the deterministic circuit engine.
+The deterministic engine decides circuit correctness.
+Spark AI may explain the engine’s verified result but must not mark an invalid 
+circuit as valid.
+The response should include:
+1. Direct explanation
+2. Why the result occurred
+3. What role each relevant conductor/terminal serves
+4. What to inspect next
+5. Common mistake
+6. Safety reminder
+7. Verified reference, if available
+8. Clear uncertainty statement when appropriate
+Do not fabricate code citations.
+==================================================
+PART 18 — SAVED STATE, RESUME, AND HISTORY
+==================================================
+Every major tool should preserve its most recent working state locally:
+- Pipe Bending
+- Voltage Drop
+- Box Fill
+- Conduit Fill
+- Ampacity
+- Estimator
+- Invoice
+- Estimate
+- Quiz
+- Wiring simulation
+- Troubleshooting scenario
+- Job Cam project
+Free users receive last-state restoration as basic usability.
+Pro users receive:
+- Searchable history
+- Multiple saved records
+- Named saved calculations
+- Full simulation attempt history
+- Detailed progress history
+- Cross-workflow linking where implemented
+Lifetime Tools receive saved behavior according to current entitlement definitions 
+and any explicit v1.1 foundational training grant.
+Do not auto-open an old draft unexpectedly.
+Show a clear:
+- Resume draft
+- Start new
+- Discard draft
+choice when appropriate.
+==================================================
+PART 19 — THEME AND ACCESSIBILITY
+==================================================
+Set Appearance default to SYSTEM.
+Support:
+- System
+- Light
+- Dark
+Improve Light Mode:
+- Avoid pure white for every background
+- Use a comfortable off-white or light neutral base
+- Use softly filled cards
+- Maintain adequate contrast
+- Keep selected states obvious
+- Ensure destructive/warning states remain distinguishable
+- Avoid low-contrast gray text
+- Verify sunlight readability where possible
+Accessibility requirements:
+- Dynamic text support where practical
+- Screen-reader labels
+- Adequate tap targets
+- Reduced motion
+- Haptics toggle
+- Sound toggle
+- Flash-effects toggle
+- Color must not be the only signal of correctness
+- Simulation conductor roles must have labels/patterns in addition to color
+- Do not rely on red/green alone
+- Test common color-vision deficiencies conceptually
+==================================================
+PART 20 — REVIEWS, SHARING, AND ORGANIC GROWTH
+==================================================
+Do not ask for an App Store or Play Store rating on first launch.
+Trigger review prompts only after a positive milestone, such as:
+- Five successful calculator uses
+- A completed simulation
+- A completed quiz with a positive score
+- A successful invoice export
+- A successful payment received
+- Multiple return sessions
+Use the native platform rating prompt.
+Add shareable cards for:
+- Code quiz result
+- Daily code challenge
+- Simulation score
+- Troubleshooting score
+- Voltage-drop result
+- Pipe-bending result
+- “Can you solve this wiring setup?”
+- Apprentice streak
+Cards may include subtle SparkConnect branding.
+Do not expose private job, customer, invoice, address, photo, payment, or company 
+information.
+Include an explicit preview before sharing.
+==================================================
+PART 21 — ANALYTICS AND PRIVACY
+==================================================
+Use the existing analytics provider if already installed.
+Do not introduce several overlapping analytics SDKs unnecessarily.
+Track at minimum:
+APP
+- app_opened
+- session_started
+- returning_user
+- role_selected
+TOOLS
+- tool_opened
+- calculation_completed
+- result_saved
+- ai_explanation_clicked
+TRAINING
+- simulation_catalog_opened
+- simulation_started
+- wire_connected
+- circuit_tested
+- simulation_failed
+- simulation_completed
+- hint_used
+- lesson_abandoned
+- challenge_started
+- challenge_completed
+- streak_updated
+INVOICE
+- estimate_created
+- estimate_sent
+- estimate_accepted
+- estimate_declined
+- estimate_converted
+- invoice_created
+- invoice_sent
+- invoice_marked_paid
+- payment_link_created
+- checkout_opened
+- payment_completed
+- payment_failed
+- refund_recorded
+MONETIZATION
+- paywall_presented
+- trial_started
+- subscription_started
+- lifetime_purchased
+- answer_pack_purchased
+- purchase_failed
+- restore_completed
+Do not send:
+- Customer names
+- Email addresses
+- Phone numbers
+- Full addresses
+- Invoice descriptions
+- Job photos
+- Payment details
+- AI prompts containing customer-identifying information
+into general analytics.
+Use anonymous identifiers and privacy-safe event properties.
+==================================================
+PART 22 — DATABASE AND DATA MIGRATION
+==================================================
+Audit current persistence before introducing a new database.
+Create versioned data models and migrations for:
+- User preferences
+- Role
+- Simulation progress
+- Simulation attempt history
+- Invoice
+- Estimate
+- Customer
+- Payment status
+- Stripe connected-account metadata
+- Analytics consent/settings where applicable
+Never destroy existing locally saved:
+- Invoices
+- Estimates
+- Job Cam projects
+- Preferences
+- Purchase state
+- Quiz progress
+Create migration tests using representative data from the current production 
+version.
+Handle migration failure gracefully.
+Back up or preserve old schema data until successful migration is confirmed.
+==================================================
+PART 23 — SECURITY
+==================================================
+Perform a focused security review.
+Required:
+- No secrets in client bundle
+- No private keys committed
+- No sensitive tokens logged
+- Verify Stripe webhook signatures
+- Validate backend input
+- Rate-limit sensitive endpoints
+- Enforce ownership checks for invoices/payment sessions
+- Use unguessable identifiers
+- Avoid sequential publicly exposed invoice IDs
+- Sanitize customer-visible content where applicable
+- Prevent invoice/payment-session access across users
+- Use HTTPS
+- Validate redirect URLs
+- Restrict CORS appropriately
+- Add replay/idempotency protection
+- Redact financial and personal information from logs
+Do not trust a client-supplied:
+- Price
+- Entitlement
+- Connected account
+- Payment status
+- Invoice ownership
+- Platform fee
+- Subscription status
+without server-side verification.
+==================================================
+PART 24 — TESTING REQUIREMENTS
+==================================================
+Add tests for:
+CIRCUIT ENGINE
+- Every valid lesson topology
+- Every switch-state combination
+- Multiple equivalent valid solutions
+- Common-terminal reversal
+- Open traveler
+- Traveler crossover
+- Missing neutral
+- Missing switched leg
+- Direct line-neutral short path
+- Duplicate invalid connections
+- Invalid endpoint common
+- Four-way straight/cross behavior
+- Half-switched receptacle tab state
+- GFCI line/load definitions
+- Panel-identification rules
+SCORING
+- Wrong-attempt deduction
+- Hint deduction
+- Reset deduction
+- Completion bonus
+- Time bonus
+- First-attempt bonus
+- Minimum score bounds
+- Streak updates
+PAYMENTS
+- Connected-account state changes
+- Payment-session creation
+- Duplicate request idempotency
+- Successful payment
+- Failed payment
+- Pending payment
+- Refund
+- Partial refund if supported
+- Duplicate webhook event
+- Invalid webhook signature
+- Payment for wrong invoice
+- Unauthorized invoice access
+- Manual paid status
+- Valid and invalid state transitions
+PURCHASES
+- Free entitlement
+- Pro entitlement
+- Lifetime entitlement
+- Expired subscription
+- Canceled-but-still-active subscription
+- Restored purchase
+- Failed purchase
+- Simulation access by tier
+MIGRATIONS
+- Production schema to v1.1
+- Missing optional fields
+- Corrupt local record
+- Interrupted migration
+- Retry migration
+- No data loss
+UI
+- Light mode
+- Dark mode
+- System mode
+- Reduced motion
+- Haptics disabled
+- Small screen
+- Tablet
+- Keyboard-visible invoice editing
+- Offline state
+- Slow network
+- Payment return flow
+- PDF sharing
+==================================================
+PART 25 — FEATURE FLAGS
+==================================================
+Create or extend a remote/local feature-flag system for:
+- wiringSimulationsEnabled
+- fourWaySimulationEnabled
+- troubleshootingGamesEnabled
+- challengeModeEnabled
+- stripeConnectEnabled
+- customerPaymentsEnabled
+- platformFeesEnabled
+- roleBasedOnboardingEnabled
+- firstWinPaywallEnabled
+- shareCardsEnabled
+- updatedLightThemeEnabled
+Default dangerous or incomplete features to OFF.
+The existing backend kill-switch concept should be reused when appropriate.
+Do not require a full App Store rebuild to disable Stripe payment creation or an 
+incorrect simulation lesson.
+==================================================
+PART 26 — HUMAN TECHNICAL REVIEW GATE
+==================================================
+No electrical simulation may be production-enabled merely because tests pass.
+Each lesson must include:
+- technicalReviewStatus
+- technicalReviewer
+- reviewDate
+- reviewerNotes
+- lessonVersion
+- referenceNotes
+- productionApproved
+Allowed statuses:
+- DRAFT
+- ENGINEERING_TESTED
+- NEEDS_ELECTRICAL_REVIEW
+- CHANGES_REQUESTED
+- APPROVED
+- RETIRED
+Production UI must only show lessons where:
+productionApproved === true
+AND
+technicalReviewStatus === "APPROVED"
+Build an internal review screen or structured review file showing:
+- Lesson
+- Topology
+- Valid solutions
+- Invalid test cases
+- Truth table
+- Hint sequence
+- Safety language
+- References
+- Outstanding concerns
+Seed all newly created lessons as:
+NEEDS_ELECTRICAL_REVIEW
+unless an actual qualified reviewer has approved them.
+Do not falsely populate reviewer names or approval dates.
+==================================================
+PART 27 — IMPLEMENTATION ORDER
+==================================================
+Execute in this order:
+PHASE 1 — AUDIT AND PLAN
+- Inspect repository
+- Identify current architecture
+- Identify risks
+- Produce implementation plan
+- Identify files to modify
+- Identify dependencies
+- Identify backend needs
+- Identify migration needs
+PHASE 2 — FOUNDATIONS
+- Circuit data model
+- Circuit solver
+- Validation engine
+- Lesson schema
+- Tests
+- Feature flags
+- Theme improvements
+- Analytics event wrapper
+PHASE 3 — TRAINING CONTENT
+- Single-pole
+- Three-way source-at-switch
+- Three-way source-at-light
+- Four-way
+- Basic troubleshooting
+- Receptacle
+- GFCI
+- Introductory panel identification
+- Hints
+- Scoring
+- Haptics
+- Accessibility
+PHASE 4 — INVOICE WORKFLOW
+- Estimate states
+- Invoice states
+- Convert estimate to invoice
+- PDF branding rules
+- Saved drafts
+- Payment-model support
+PHASE 5 — STRIPE BACKEND
+- Connected-account onboarding
+- Secure payment-session creation
+- Webhooks
+- Invoice status sync
+- Refund status
+- Feature flags
+- Security tests
+PHASE 6 — CONVERSION
+- Role onboarding
+- First-win flow
+- Superwall placements
+- Paywall variants
+- Review prompts
+- Share cards
+PHASE 7 — QA
+- Automated tests
+- iOS verification
+- Android verification
+- Migration test
+- Offline test
+- Accessibility test
+- Purchase restore test
+- Payment return test
+- Technical-review gate verification
+Do not begin with cosmetic screens while the underlying circuit and payment models 
+remain undefined.
+==================================================
+PART 28 — DEFINITION OF DONE
+==================================================
+A feature is only complete when:
+- It is implemented
+- It builds successfully
+- Its tests pass
+- It does not break existing features
+- It handles errors visibly
+- It is protected by the correct entitlement
+- It is instrumented with analytics
+- It supports iOS and Android where intended
+- It has feature-flag control
+- It has documentation
+- It has migration handling if applicable
+- It has been manually verified
+- Electrical lessons remain disabled until legitimate technical approval
+- Payment features remain disabled until backend secrets, Stripe configuration, 
+webhook endpoint, and account requirements are confirmed
+Do not mark production Stripe payments complete using test-mode credentials alone.
+Do not mark an electrical lesson technically approved without an actual reviewer.
+==================================================
+PART 29 — REQUIRED FINAL REPORT
+==================================================
+At completion, return a structured report containing:
+1. Repository audit summary
+2. Architecture decisions
+3. Files added
+4. Files modified
+5. Dependencies added
+6. Database/storage changes
+7. Migrations
+8. Circuit lessons implemented
+9. Truth-table and validation tests
+10. Lessons awaiting human technical review
+11. Invoice workflow changes
+12. Stripe work completed
+13. Stripe dashboard/manual configuration still required
+14. Environment variables required
+15. Webhook deployment steps
+16. RevenueCat/Superwall work completed
+17. Analytics events added
+18. Feature flags added
+19. Security review findings
+20. Test results
+21. iOS test status
+22. Android test status
+23. Known limitations
+24. Deferred work
+25. Exact production rollout checklist
+26. Exact rollback procedure
+Do not respond with only a summary.
+Make the changes, test them, and provide evidence.
+==================================================
+FINAL ENGINEERING INSTRUCTION
+==================================================
+Think carefully before coding.
+Do not optimize for producing the largest number of files.
+Optimize for:
+- Electrical correctness
+- User trust
+- Safe learning
+- Reliable workflows
+- Conversion after value
+- Payment security
+- Maintainability
+- Testability
+- App-store compliance
+- Fast rollback
+When requirements conflict, prioritize in this order:
+1. Safety
+2. Technical correctness
+3. Security
+4. Existing-user data preservation
+5. Purchase/payment compliance
+6. Reliability
+7. User experience
+8. Conversion
+9. Development speed
+If full implementation is too large for one safe pass, complete the tested 
+foundations and the highest-priority vertical slices first. Do not fake completion 
+or leave partially wired production features active.
+Begin by auditing the existing repository and producing the implementation plan. 
+Then proceed through the phases without asking unnecessary questions when the 
+repository or existing configuration provides the answer.
+==================== /root/.claude/uploads/b5c672ef-21d6-5ccf-b0f6-5b05683061e2/38f3fa17-You_are_the_lead_senior_engine_.pdf
+Ignoring wrong pointing object 29 0 (offset 0)
+You are the lead senior engineer, product architect, QA lead, electrical-training 
+systems designer, and payments engineer for SparkConnect: Electric Toolkit.
+Work inside the EXISTING SparkConnect repository. Do not rebuild the application 
+from scratch. Do not replace working architecture merely because you prefer 
+another pattern. Audit first, understand the current implementation, then extend 
+it carefully.
+Your job is to build SparkConnect v1.1 as a polished, production-safe release 
+focused on:
+1. Correct interactive wiring simulations
+2. Troubleshooting games and apprentice training
+3. Better onboarding and conversion
+4. Stripe-connected customer invoices
+5. Reliable invoice and estimate workflows
+6. Improved light/dark/system themes
+7. Better saved-state behavior
+8. Context-aware Spark AI
+9. Analytics and paywall experimentation
+10. App Store and Google Play compliance
+The final result must feel like a meaningful upgrade, not a random pile of 
+features.
+==================================================
+CURRENT PRODUCT CONTEXT
+==================================================
+SparkConnect is a field toolkit for electricians built in React Native / Expo.
+Current major features include:
+- Spark AI
+- Visual pipe bending
+- Voltage drop
+- Box fill
+- Conduit fill
+- Ampacity lookup
+- Wire color references
+- Formula references
+- Job Cam
+- Invoice / estimate builder
+- Material and labor estimator
+- Code quiz and exam preparation
+- Custom quizzes
+- RevenueCat subscriptions and purchases
+- Superwall paywalls
+- Free, Pro, and Lifetime Tools tiers
+Current monetization:
+FREE
+- 3 Spark AI answers/day
+- Basic tools
+- Limited advanced calculator use
+- 1 Job Cam project
+- Limited workflow access
+LIFETIME TOOLS
+- One-time purchase
+- Core static tools forever
+- 5 Spark AI answers/day
+- 25 Job Cam projects
+- 5 invoice PDF exports/month
+- No full Pro subscription features
+PRO
+- 20 Spark AI answers/day, with fair-use cap
+- All calculators
+- Full Learn / Exam Prep
+- Unlimited Job Cam
+- Unlimited invoice PDF exports
+- Saved history
+- Pro workflow features
+AI answer packs remain consumable in-app purchases.
+Do not accidentally give Lifetime access to every future subscription service. 
+Respect the existing entitlement definitions.
+==================================================
+NON-NEGOTIABLE PRODUCT RULES
+==================================================
+1. Do not break the existing app.
+2. Do not remove existing features.
+3. Do not alter current product identifiers.
+4. Do not bypass RevenueCat or StoreKit/Google Billing for SparkConnect digital 
+purchases.
+5. Do not expose API keys in the client.
+6. Do not store Stripe secret keys, OAuth tokens, or webhook secrets in client 
+code.
+7. Do not present unsafe electrical work as acceptable.
+8. Never teach technically incorrect wiring.
+9. Never imply the simulator replaces supervision, adopted code, manufacturer 
+instructions, lockout/tagout, testing, or qualified instruction.
+10. Wiring logic must be based on a real circuit model, not merely visual 
+matching.
+11. Any feature that is incomplete must remain behind a disabled feature flag.
+12. Preserve offline/local functionality where appropriate.
+13. Add automated tests for every circuit configuration and payment-state 
+transition.
+14. Use staged implementation, but complete as much as can safely be completed in 
+this work session.
+15. Do not claim something is done unless it runs and has been tested.
+Before changing code:
+- Inspect package.json
+- Inspect app.json/app.config
+- Inspect App.js and navigation
+- Inspect purchases.js
+- Inspect products.js
+- Inspect superwall.js
+- Inspect SparkPaywall.js
+- Inspect invoice and estimate components
+- Inspect backend routes
+- Inspect storage utilities
+- Inspect analytics integrations
+- Inspect current theme architecture
+- Inspect existing test setup
+- Inspect current deployment structure
+Create a written implementation plan before editing. Then execute it.
+==================================================
+PART 1 — BUILD A REAL WIRING SIMULATION ENGINE
+==================================================
+Do not build each wiring lesson as an isolated hardcoded animation.
+Create a reusable circuit simulation engine that represents:
+- Components
+- Terminals
+- Conductors
+- Junctions
+- Source
+- Neutral
+- Equipment grounding conductors
+- Line/load relationships
+- Switch states
+- Continuity paths
+- Energized paths for abstract simulation
+- Expected device behavior
+- Invalid connections
+- Missing required connections
+- Dangerous or misleading configurations
+Suggested conceptual structure:
+CircuitDefinition
+- id
+- title
+- difficulty
+- description
+- learningObjectives
+- components[]
+- terminals[]
+- allowedWireTypes[]
+- initialState
+- expectedSolutions[]
+- validationRules[]
+- hintSteps[]
+- safetyNotes[]
+- referenceNotes[]
+- testVectors[]
+Component
+- id
+- type
+- label
+- terminals[]
+- metadata
+Terminal
+- id
+- componentId
+- semanticRole
+- acceptedConductorRoles[]
+- required
+- maxConnections
+- polarityOrFunction
+Conductor
+- id
+- fromTerminal
+- toTerminal
+- role
+- displayColor
+- userAssignedLabel
+Supported semantic roles should include:
+- LINE
+- LOAD
+- NEUTRAL
+- TRAVELER_A
+- TRAVELER_B
+- SWITCHED_HOT
+- EQUIPMENT_GROUND
+- COMMON
+- UNSPECIFIED
+The validation engine must determine correctness from connectivity and function—
+not only from conductor color.
+Example:
+A traveler does not become correct merely because the user colored it red.
+The system should validate:
+- Does line reach the correct common terminal?
+- Does the switched output leave the opposite common?
+- Are both travelers connected between corresponding switch traveler terminals?
+- Is neutral routed to the luminaire/load where required?
+- Is grounding continuity represented?
+- Does each switch-state combination produce expected load behavior?
+- Are there shorts, dead ends, duplicated impossible connections, or improper 
+line-neutral connections?
+- Does the circuit behave correctly for all switch positions?
+Use graph traversal / netlist-style validation.
+Build a deterministic circuit solver capable of evaluating every switch-state 
+combination.
+For each completed configuration, run truth-table tests.
+Example three-way truth-table expectation:
+Switch A position 0 / Switch B position 0 -> defined output
+Switch A position 0 / Switch B position 1 -> opposite output
+Switch A position 1 / Switch B position 0 -> opposite output
+Switch A position 1 / Switch B position 1 -> defined output
+Do not assume a single visual layout is the only valid solution. Allow multiple 
+electrically equivalent configurations when appropriate.
+==================================================
+PART 2 — REQUIRED WIRING SIMULATIONS
+==================================================
+Build at minimum the following interactive lessons for v1.1:
+1. SINGLE-POLE SWITCH
+- Source at switch
+- Source at light
+- Identify line, switched leg, neutral, and equipment ground
+- Check proper device behavior
+2. THREE-WAY SWITCH — SOURCE AT FIRST SWITCH
+- Line enters first 3-way
+- Travelers between switches
+- Opposite common feeds light
+- Neutral routed to light
+- Grounding represented
+- Test all switch positions
+3. THREE-WAY SWITCH — SOURCE AT LIGHT
+- Alternate topology
+- Clearly distinguish conductor functions
+- Avoid teaching outdated or misleading conductor-color assumptions
+- Test all switch positions
+4. FOUR-WAY SWITCH
+- Two 3-way switches at endpoints
+- One 4-way switch between them
+- Correct traveler-pair routing
+- Straight-through versus crossed internal state
+- Test all 8 combinations of three switch positions
+- Confirm the load can be toggled from every location
+5. THREE-WAY TROUBLESHOOTING
+Scenarios:
+- Light only works when one switch is in a certain position
+- Common and traveler mistakenly reversed
+- One traveler open
+- Missing line or load connection
+- Incorrect conductor assignment
+6. FOUR-WAY TROUBLESHOOTING
+Scenarios:
+- Traveler pair landed incorrectly
+- Four-way switch rotated/misidentified conceptually
+- One traveler disconnected
+- Endpoint common miswired
+- Load works from only two locations
+7. SWITCHED RECEPTACLE
+- Full switched receptacle
+- Half-switched receptacle concept
+- Correct tab-removal concept
+- Neutral continuity
+- Clearly distinguish conceptual simulation from manufacturer-specific 
+installation
+8. GFCI LINE VS LOAD TRAINER
+- Identify line conductors
+- Identify optional protected load conductors
+- Explain consequences of line/load reversal in general terms
+- Do not instruct energized testing
+- Include manufacturer-instruction verification reminder
+9. BASIC RECEPTACLE CIRCUIT
+- Line, neutral, ground
+- Feed-through concept
+- Correct continuity
+- Identify open hot, open neutral, and open ground scenarios
+10. INTRODUCTORY PANEL / BRANCH CIRCUIT IDENTIFICATION
+This is not a full service design simulator yet.
+Teach:
+- Branch-circuit hot
+- Neutral termination concept
+- Equipment grounding conductor concept
+- Breaker-to-circuit relationship
+- Neutral-ground separation concept in downstream equipment
+- Clear warning that actual panel work requires qualified procedures, de-
+energization where possible, PPE, testing, adopted code, listing instructions, and 
+supervision
+Do not simulate bare-handed energized panel work.
+==================================================
+PART 3 — SIMULATION USER EXPERIENCE
+==================================================
+Create a polished interactive lesson experience.
+User flow:
+Choose lesson
+→ See learning objective
+→ Optional short explanation
+→ Enter simulation
+→ Drag/tap conductors between valid terminals
+→ Select conductor role/color
+→ Test circuit
+→ Receive result
+→ Use hints if needed
+→ Correct mistakes
+→ Complete lesson
+→ Receive score, XP, explanation, and next lesson
+Required controls:
+- Drag conductor
+- Tap terminal
+- Remove conductor
+- Change conductor role/color
+- Undo
+- Redo
+- Reset
+- Test circuit
+- Request hint
+- View schematic
+- View simplified physical layout
+- Toggle labels
+- Accessibility settings
+Use a clear distinction between:
+- Physical-layout view
+- Schematic/conceptual view
+Do not make the physical representation so realistic that users confuse it with a 
+universal manufacturer-specific wiring instruction.
+==================================================
+PART 4 — WRONG-ANSWER FEEDBACK
+==================================================
+Evan wants the experience to feel game-like.
+When the user submits an incorrect or unsafe configuration:
+- Use a short haptic vibration
+- Briefly pulse the incorrect area red
+- Show a non-graphic spark/electricity animation if tasteful
+- Play an optional short error sound
+- Reduce score
+- Explain the category of mistake without immediately giving away the answer
+Do NOT portray a realistic electrocution.
+Do NOT imply the user was literally shocked.
+Do NOT use disturbing injury visuals.
+Use language such as:
+- “Circuit check failed”
+- “That path would not operate as intended”
+- “Possible short path detected”
+- “Common terminal appears incorrect”
+- “One traveler path is incomplete”
+- “Neutral continuity is missing”
+Add an accessibility setting:
+- Haptics ON/OFF
+- Sound ON/OFF
+- Flash animation ON/OFF
+- Reduced motion support
+Respect system reduced-motion settings.
+==================================================
+PART 5 — HINTS, TIMER, SCORING, XP, AND STREAKS
+==================================================
+Every simulation needs graduated hints.
+Hint Level 1:
+- General concept
+- No terminal identified
+Hint Level 2:
+- Identify the component or circuit section containing the issue
+Hint Level 3:
+- Identify the conductor role or terminal family
+Hint Level 4:
+- Show a direct corrective clue
+Hint Level 5:
+- Reveal that connection and explain why
+Scoring example:
+Base score: 1,000
+- Wrong test: -100
+- Hint 1: -25
+- Hint 2: -50
+- Hint 3: -75
+- Hint 4: -100
+- Reveal: -200
+- Reset: -50
+- Fast completion bonus: up to +200
+- First-attempt bonus: +150
+Timer modes:
+- Learn Mode: no timer
+- Practice Mode: optional visible timer
+- Challenge Mode: countdown or par-time scoring
+Do not make the default learning experience stressful.
+Add:
+- Completion percentage
+- Best score
+- Best time
+- Attempts
+- Hints used
+- Lessons completed
+- Current streak
+- XP
+- Apprentice rank progression
+Suggested rank system:
+- Helper
+- First-Year Apprentice
+- Second-Year Apprentice
+- Third-Year Apprentice
+- Fourth-Year Apprentice
+- Journeyman Candidate
+- Field Troubleshooter
+Do not represent these as actual licenses, certifications, or accredited 
+credentials.
+Display:
+“Training rank only — not a license or certification.”
+==================================================
+PART 6 — TECHNICAL ACCURACY SYSTEM
+==================================================
+The most important requirement is that SparkConnect does not teach incorrect 
+wiring.
+Implement all of the following:
+1. Truth-table tests for every switching simulation
+2. Unit tests for every valid circuit
+3. Unit tests for common invalid circuits
+4. Snapshot tests for lesson definitions
+5. Validation-rule documentation
+6. Separate circuit logic from UI
+7. Version each lesson definition
+8. Add internal “Needs Technical Review” state
+9. Do not expose lessons marked unreviewed in production
+10. Add reviewer notes field
+11. Add references field
+12. Add a feature flag per simulation
+Create an internal review checklist:
+- Source path correct?
+- Load path correct?
+- Neutral path correct?
+- Equipment grounding represented?
+- All switch states tested?
+- Multiple valid topologies considered?
+- Conductor re-identification caveats considered?
+- Manufacturer-specific differences avoided?
+- NEC references stated carefully?
+- Local code/AHJ disclaimer included?
+- Safety language included?
+- No energized-work encouragement?
+- Reviewed by qualified electrician/instructor?
+The app should state:
+“For training and conceptual reference only. Circuit configurations, conductor 
+identification, box requirements, grounding, device listings, local amendments, 
+and permitted methods may vary. Always verify with the currently adopted NEC, 
+local AHJ, plans/specifications, manufacturer instructions, and qualified 
+supervision. De-energize and verify absence of voltage before work when required.”
+Do not fabricate NEC citations.
+If a reliable citation is not in the existing verified knowledge base, use a 
+general reference label and mark it for human review rather than inventing a 
+section number.
+==================================================
+PART 7 — MONETIZATION OF TRAINING
+==================================================
+Do not lock the entire app immediately.
+Use value-first gating.
+FREE:
+- Single-pole lesson
+- One full three-way lesson
+- First troubleshooting scenario
+- Learn Mode
+- Limited daily challenge
+- View basic score
+LIFETIME TOOLS:
+- Static core tools remain available according to existing entitlement
+- Decide carefully whether Lifetime gets the original v1.1 simulation pack
+- Recommended: Lifetime receives the foundational simulation pack released with 
+v1.1:
+  - Single pole
+  - Three-way
+  - Four-way
+- Lifetime does not automatically receive every future cloud-based course, AI 
+coaching feature, team dashboard, or advanced training expansion
+PRO:
+- All current simulations
+- All troubleshooting scenarios
+- Challenge Mode
+- Detailed analytics
+- Unlimited custom practice
+- Spark AI explanations of mistakes
+- Full progress history
+- Future advanced simulation
+==================== /root/.claude/uploads/b5c672ef-21d6-5ccf-b0f6-5b05683061e2/ea5dac2c-Bottom_line.pdf
+Ignoring wrong pointing object 7 0 (offset 0)
+Ignoring wrong pointing object 31 0 (offset 0)
+Bottom line
+SparkConnect is already broader than most competitors, but it is not yet deeper 
+than the category leaders in their specialties.
+Your best move is not to cram every possible electrical feature into v1.1. It is 
+to make v1.1 visibly prove three things:
+1. SparkConnect stays current with the code.
+2. SparkConnect teaches—not just calculates.
+3. SparkConnect connects field work from calculation → explanation → documentation 
+→ invoice.
+And yes, the UI can absolutely become better. It is already respectable, but 
+several screens still feel like different versions of the brand stitched together.
+Competitor landscape
+Competitor What they currently own Where SparkConnect can beat them
+QuickBend Deep conduit-bending credibility, centerline-radius calculations, 
+bender-specific precision, 3,900 ratings and a 4.8 score Broader connected 
+workflow, AI explanations, training, Job Cam and invoices
+Field Bend Extremely simple step-by-step bending experience; 77 ratings at 
+4.6 More bend depth, better value proposition, Lifetime option, and broader 
+tools
+Ask BONBON Focused NEC AI identity, voice input and “2026 compliant” 
+marketing Deterministic calculators, simulations, saved workflows, 
+documentation and business tools
+SparkAi Electrician Calculator Your most direct emerging competitor: 2026 NEC AI, 
+15 bend calculators, bender database, 8 electrical calculators Better trust, UX, 
+training, Job Cam, estimates/invoices, community and founder-led marketing
+Ugly’s Electrical References Reference authority, 2026 update, videos, offline 
+tables, NEMA configurations, motor/transformer data and 1,500 ratings Modern 
+interface, interactivity, AI, personalized workflows and game-based learning
+NEC Exam by Dakota 3,000+ questions, state-specific exam tracks, streaks, 
+detailed walkthroughs and personalized statistics Field tools plus learning 
+in one product; interactive wiring and troubleshooting instead of only questions
+PLC Simulator 2 Functional ladder editor, timers, counters, latches, 25 rungs, 
+animations and 4.9 from 110 ratings Electrical-to-controls progression, motor-
+control context, Spark AI explanations and career-oriented curriculum
+QuickBend’s advantage is not “having a pipe calculator.” It says its calculations 
+account for shoe/bender radius and conduit diameter, and it has years of review 
+credibility. 
+Field Bend’s advantage is simplicity. Its store page emphasizes clear, step-by-
+step marks for offsets, rolling offsets, saddles and 90s, but reviews also show 
+resistance to subscription-only pricing—which supports keeping your Lifetime 
+option. 
+Your most dangerous new competitor may actually be SparkAi Electrician Calculator. 
+It currently markets 2026 NEC AI with 2023 difference callouts, 15 bending 
+calculators, a brand/model bender database, motor FLC, residential load and wire-
+pulling tension. That is very close to your territory. 
+That does not mean you are cooked. It means these should become priorities:
+* Bender database
+* Pulling-tension and sidewall-pressure tools
+* Motor/control references
+* Interactive training
+* Better code-version handling
+* Stronger workflow integration
+The 2026 NEC issue: address it immediately
+The 2026 NEC is now the current edition, but adoption is fragmented. As of August 
+3, 2026, NFPA’s enforcement map showed only six states enforcing the 2026 edition, 
+while 20 were on 2023 and 15 were still on 2020. 
+That means the wrong move is:
+“SparkConnect is now universally based on the 2026 NEC.”
+The right move is an edition-aware system.
+Add a Code Edition Center
+In onboarding or Settings:
+Code edition used in your area
+○ 2020 NEC
+● 2023 NEC
+○ 2026 NEC
+○ Not sure
+Then display the selected edition visibly in:
+* Spark AI
+* Code Quiz
+* Formula/Code Reference
+* Calculator explanations
+* Result cards
+* Saved work
+* Share cards
+Add:
+“What changed in 2026?”
+Organize it as:
+* New and relocated articles
+* Services and feeders
+* Grounding and bonding
+* GFCI/AFCI
+* EV and emerging technology
+* Limited-energy systems
+* Medium-voltage reorganization
+* Motors, transformers and controls
+* Important table changes
+* 2023 → 2026 comparison lessons
+NFPA confirms the 2026 edition continues a major reorganization intended to be 
+completed in 2029, so users need help finding relocated material—not merely a 
+badge that says “2026.” 
+Ugly’s already updated its app for the 2026 NEC and specifically advertises 
+expanded transformer FLC, larger EMT conductor-count coverage, grounding 
+conductors, non-dwelling lighting loads and summaries of 2020/2023/2026 changes. 
+The feature that would make you look genuinely current
+Add a result label like:
+Based on selected edition: 2023 NEC
+2026 edition may differ — view changes.
+Or:
+2026 edition selected
+Your jurisdiction may still enforce an earlier edition.
+That is more credible than BONBON or SparkAi merely saying “2026 compliant.”
+Also remove the hardcoded:
+v1.0 · 2023 Code Edition
+from the splash screen. It already makes the app look dated. Make it dynamic or 
+remove code edition from the splash entirely.
+Should PLC be added?
+Yes—but PLC should not be shoved into the current wiring simulator as an 
+afterthought.
+PLC training can add money because it opens a higher-value audience:
+* Industrial electricians
+* Maintenance technicians
+* Controls apprentices
+* Mechatronics students
+* IEC/technical-school students
+* Electricians attempting to move from commercial work into industrial controls
+Existing PLC apps prove there is demand for mobile ladder-logic training. PLC 
+Simulator 2 offers configurable ladder logic, timers, counters, latches, compare 
+instructions, saved programs and animated systems, and its users specifically 
+praise the combination of game and learning. 
+But PLC is a separate product engine. Before PLC, build the bridge between regular 
+electrical work and controls.
+Correct progression
+v1.1: Wiring Lab
+* Single-pole
+* Three-way
+* Four-way
+* GFCI line/load
+* Switched receptacle
+* Basic troubleshooting
+* Panel/branch-circuit identification
+* Scores, hints, haptics and challenge mode
+v1.2: Motor Controls Lab
+* Start/stop three-wire control
+* Seal-in/holding circuit
+* Overload contact
+* Forward/reverse starter
+* Interlocking
+* HOA selector
+* Control transformer
+* Float switch
+* Pressure switch
+* Basic relay logic
+* Troubleshooting with a virtual meter
+v1.3: PLC Foundations
+* Normally open/normally closed instructions
+* Inputs and outputs
+* Rungs and scan cycle
+* Seal-in circuit translated from relay logic
+* TON, TOF and RTO
+* Counters
+* Compare blocks
+* Latch/unlatch
+* Motor-starter simulation
+* Conveyor
+* Tank fill
+* Traffic light
+* Fault diagnosis
+* Spark AI explaining each rung
+That progression is powerful because you can market:
+Go from basic switching to motor controls to PLC logic in one electrician app.
+Competitors usually serve either field calculations, exam prep, or PLC practice. 
+Your opportunity is connecting all three.
+Monetization
+I would make:
+* First motor-control lesson free
+* First PLC start/stop project free
+* Full Controls Lab: Pro
+* Detailed AI coaching: Pro
+* Instructor classroom packs later
+* Lifetime receives the initial foundational offline pack, but not every future 
+cloud course
+What SparkConnect still needs
+High priority
+1. Bender database
+QuickBend and SparkAi are making generic multiplier calculations look less 
+credible by accounting for specific equipment. Add:
+* Brand
+* Model
+* Conduit type
+* Size
+* Deduct/take-up
+* Centerline radius
+* Gain
+* Shoe-specific notes
+* Hand/mechanical/electric/hydraulic
+Do not populate data from guesses. Each entry should have verification status.
+2. Wire-pull planner
+Add:
+* Pull length
+* Total bend degrees
+* Individual bend sequence
+* Conductor count and size
+* Conduit type/size
+* Estimated pulling tension
+* Sidewall pressure
+* Pulling-lubricant reminder
+* Pull-box/checkpoint recommendation
+* Assumptions and engineering disclaimer
+SparkAi already advertises pulling tension and sidewall pressure, so this is no 
+longer a distant “nice to have.” 
+3. Motor and transformer section
+Your Formula Reference mentions motors and transformers, but competitors go 
+deeper. Ugly’s includes motor/transformer full-load data, motor 
+starter/breaker/heater sizing, locked-rotor current and power-factor correction. 
+Add:
+* Motor FLC lookup
+* Branch-circuit conductor sizing
+* OCPD range helper
+* Overload sizing helper
+* Transformer FLC
+* Primary/secondary conductor helper
+* Transformer OCPD helper
+* Control transformer basics
+* Spark AI explanation
+Keep deterministic calculations separate from AI.
+4. Adaptive study
+Your 171 questions are a start, but dedicated exam apps advertise 1,200–3,000+ 
+questions, detailed explanations, streaks and adaptive weakness tracking. 
+Do not race immediately to 3,000 mediocre questions. Add:
+* Accuracy by category
+* Weakest three topics
+* Missed-question review
+* Spaced repetition
+* Code-navigation drills
+* 10-minute daily study plan
+* 2020/2023/2026 edition filter
+* Florida and state-specific exam profiles later
+* Question technical-review status
+UI review from your screenshots
+What is already good
+* Consistent card structure
+* Large targets suitable for field use
+* Clear bottom navigation
+* Calculator list is readable
+* Dark theme looks professional
+* Home communicates the core product quickly
+* Icons make features scannable
+The app does not look amateur. But it does look like blue-version SparkConnect, 
+orange-version SparkConnect and the paywall were designed at different times.
+UI issues to fix
+1. Unify the brand colors
+Your app’s main interface is blue.
+Your splash screen and paywall heavily use orange.
+Spark AI uses yellow.
+That can work, but right now it feels inconsistent rather than intentional.
+Use:
+* Electric blue: navigation, primary action, selected state
+* Safety orange: Pro, alerts, paid upgrade and important field callouts
+* Spark yellow: AI and learning rewards
+* Green: success only
+* Red: errors/danger only
+The paywall can stay orange because Pro is the upgrade identity, but the outer 
+logo ring, buttons and typography should still feel like the same product.
+2. Redesign the paywall
+The comparison table is informative but visually dense. On a phone, users must 
+read too much before reaching the options.
+New hierarchy:
+SparkConnect Pro
+Get the complete field workflow:
+Calculate → Ask Spark AI → Save → Document → Invoice
+[ Start 3-Day Free Trial ]
+$49.99/year • Best value • $4.17/month
+or $7.99 monthly
+✓ All calculators
+✓ 20 Spark AI answers/day
+✓ Wiring & troubleshooting lab
+✓ Unlimited Job Cam and PDF exports
+✓ Saved history
+View full comparison
+Lifetime Tools — $29.99
+Annual should be the default visual recommendation, not monthly.
+Lifetime should be visually secondary because otherwise it competes against 
+recurring revenue and causes the user to stop and analyze the entitlement table.
+Also, “Priority new features” is vague. Replace it with a concrete benefit or 
+remove it.
+3. Remove the duplicate sales experience
+You currently have:
+* Superwall paywall
+* A large Pro card inside Settings
+The Settings card should summarize status and open the same paywall—not feel like 
+a second separately designed checkout page.
+4. Fix the Spark AI header
+The text:
+“Built for field work — works with your tools, calcs & estimates”
+is wrapping into a narrow, awkward column because the counters consume the row.
+Make it:
+ Spark AI
+Electrical field assistant
+[2 free answers left] [227 pack answers]
+Then move mode chips below.
+Also shorten the chips:
+* Ask
+* Code
+* Troubleshoot
+* Explain
+You do not need “General” plus a long welcome explanation every session.
+5. Make Learn feel alive
+The large disabled “COMING SOON” box weakens the product.
+Replace it with:
+* Wiring Lab
+* Daily Streak
+* Continue Quiz
+* Weak Areas
+* 2026 Code Changes
+* Motor Controls — Coming Next
+A locked or coming feature should have a preview and purpose—not a gray graveyard.
+6. Improve Job Cam’s empty state
+There is too much unused space.
+Show templates:
+Start a project
+[ New Construction ]
+[ Service Call ]
+[ Panel Upgrade ]
+[ Underground / Sitework ]
+[ Custom ]
+Underneath:
+Suggested photos: plans, rough-in, concealed work, labels, inspections, 
+before/after.
+That immediately teaches the value of Job Cam.
+7. Improve Home prioritization
+The Daily Question currently dominates the screen.
+After personalization, Home should show:
+1. Continue where you left off
+2. Role-based quick action
+3. Daily question
+4. Spark AI
+5. Quick tools
+6. Recent work
+A contractor should not receive the exact same homepage emphasis as an apprentice.
+8. Improve Pipe Bending visual credibility
+The 3-point saddle illustration is too generic compared with competitors 
+emphasizing precise marks and equipment-specific calculations.
+Results should show:
+* Mark 1
+* Center mark
+* Mark 3
+* Distance between marks
+* Bend directions
+* Arrow/star/notch alignment
+* Shrink
+* Developed length
+* Bender/model assumptions
+* Step-by-step instructions
+Also, your screen shows an EMT 90° take-up reference while the selected bend is a 
+3-point saddle. Even if technically useful, it feels unrelated to the current 
+task. Put it in a collapsible Reference section rather than directly under the 
+result.
+9. Splash screen
+It is visually solid, but:
+* It is too long if users repeatedly see it.
+* v1.0 looks stale once v1.1 ships.
+* 2023 Code Edition makes the whole app look behind.
+* The floating feature pills are unnecessary during load.
+Use the splash only for brand recognition, then open quickly.
+My revised v1.1 recommendation
+Must ship
+SPARKCONNECT v1.1 — WIRING LAB + CODE EDITIONS
+✓ 2020 / 2023 / 2026 edition selector
+✓ 2026 changes center
+✓ Dynamic code-edition labeling
+✓ Single-pole, three-way and four-way simulations
+✓ Troubleshooting scenarios
+✓ Hints, scoring, haptics and challenge mode
+✓ Role-based Home
+✓ System appearance default
+✓ Paywall redesign
+✓ Spark AI header cleanup
+✓ Job Cam templates
+✓ Estimate → invoice workflow
+✓ Stripe Connect behind a feature flag
+✓ Better review prompts
+✓ Full analytics funnel
+Build immediately after v1.1
+✓ Bender database
+✓ Wire-pull tension / sidewall pressure
+✓ Motors and transformers
+✓ Motor Controls Lab
+✓ Adaptive study statistics
+PLC after the control foundation
+✓ Ladder editor
+✓ Animated machines
+✓ Timers and counters
+✓ Relay-to-PLC conversion lessons
+✓ Fault finding
+✓ AI rung explanations
+The positioning to own
+Do not position SparkConnect as:
+“Another electrician calculator.”
+Position it as:
+The electrician operating system for the field and apprenticeship.
+CALCULATE
+Pipe bending • Voltage drop • Fill • Motors
+UNDERSTAND
+Spark AI • Code editions • Verified explanations
+PRACTICE
+Wiring • Troubleshooting • Controls • PLC
+DOCUMENT
+Job Cam • Saved work • Inspection proof
+GET PAID
+Estimates • Invoices • Customer payments
+That is broader than Field Bend, more operational than BONBON, more interactive 
+than Ugly’s and more field-connected than a dedicated exam or PLC app.
+Your biggest immediate warning: competitors are already marketing “2026 NEC” while 
+your splash still says 2023. Fix the presentation quickly—but build edition 
+awareness correctly instead of merely changing every “2023” label to “2026.”
