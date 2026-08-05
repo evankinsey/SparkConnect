@@ -17,7 +17,7 @@
 // and top the horizon back up every time the app opens.
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getQuestionForDate, dayNumber } from './dailyQuestions';
+import { getQuestionForDate, dayNumber } from './core/content/dailyQuestions';
 
 const CHANNEL_ID = 'daily-code-question';
 const ID_PREFIX = 'sc-daily-q-';

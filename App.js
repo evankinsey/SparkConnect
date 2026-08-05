@@ -4,7 +4,7 @@ import SparkPaywall from './src/SparkPaywall';
 import OnboardingFlow from './src/OnboardingFlow';
 import { useGating } from './src/useGating';
 import { analytics } from './src/analytics';
-import { getDailyQuestion } from './src/dailyQuestions';
+import { getDailyQuestion } from './src/core/content/dailyQuestions';
 import {
   refreshDailyQuestionNotifications,
   enableDailyQuestionNotifications,
@@ -202,7 +202,7 @@ const DARK = {
 };
 
 // ─── NEC DAILY QUESTIONS ─────────────────────────────────────────────────────
-// Question bank + date-stable selection now live in ./src/dailyQuestions so the
+// Question bank + date-stable selection now live in ./src/core/content/dailyQuestions so the
 // Home card and the morning notification always resolve to the same question.
 
 // ─── FORMULAS ─────────────────────────────────────────────────────────────────

@@ -54,7 +54,12 @@ export const lineItem = ({
   kind,
   description,
   quantity: Number.isFinite(quantity) && quantity >= 0 ? quantity : 0,
-  unitPriceCents: Number.isInteger(unitPriceCents) ? unitPriceCents : 0,
+  // An explicit `null` means "not priced yet" and is preserved — that is a real
+  // state on a draft estimate, and it is different from "free". Anything else
+  // non-integer falls back to 0.
+  unitPriceCents: unitPriceCents === null
+    ? null
+    : (Number.isInteger(unitPriceCents) ? unitPriceCents : 0),
   taxable: !!taxable,
 });
 
