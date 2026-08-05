@@ -29,6 +29,11 @@ export const DEFAULTS = Object.freeze({
   firstWinPaywallEnabled: false,        // FLG-09
   shareCardsEnabled: false,             // FLG-10
 
+  // Community — needs a server. A community stored on one phone is not a
+  // community, so these stay off until src/core/backend exists.
+  communityEnabled: false,
+  jobsBoardEnabled: false,
+
   // Theme — safe, reversible, no entitlement or safety surface.
   updatedLightThemeEnabled: true,       // FLG-11
 });

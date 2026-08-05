@@ -40,6 +40,9 @@ export const HOME_CARDS = Object.freeze([
   { id: 'calculators', kind: CardKind.SHORTCUT, tab: 'calculators', title: 'All Calculators', sub: 'Everything in one list', icon: 'calculator', group: 'Tools' },
 
   // Work
+  { id: 'projects', kind: CardKind.SHORTCUT, tab: 'projects', title: 'Projects', sub: 'Job records and photos', icon: 'folder-open', group: 'Work' },
+  { id: 'materials', kind: CardKind.SHORTCUT, tab: 'materials', title: 'Material List', sub: 'Build it, send it', icon: 'cart', group: 'Work' },
+  { id: 'community', kind: CardKind.SHORTCUT, tab: 'community', title: 'Community', sub: 'Questions and jobs', icon: 'people', group: 'Work' },
   { id: 'jobcam', kind: CardKind.SHORTCUT, tab: 'jobcam', title: 'Job Cam', sub: 'Document the job', icon: 'camera', group: 'Work' },
   { id: 'estimator', kind: CardKind.SHORTCUT, tab: 'estimator', title: 'Estimator', sub: 'Material and labour', icon: 'hammer', group: 'Work' },
 ]);

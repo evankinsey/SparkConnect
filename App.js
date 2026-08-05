@@ -8,6 +8,9 @@ import { getGate } from './ProGatingContext';
 import WiringLabScreen from './src/screens/WiringLabScreen';
 import TroubleshootScreen from './src/screens/TroubleshootScreen';
 import FlashcardsScreen from './src/screens/FlashcardsScreen';
+import ProjectsScreen from './src/screens/ProjectsScreen';
+import MaterialsScreen from './src/screens/MaterialsScreen';
+import CommunityScreen from './src/screens/CommunityScreen';
 import { HomeCards, HomeCustomizeScreen, useHomeLayout } from './src/screens/HomeCards';
 import { getDailyQuestion } from './src/core/content/dailyQuestions';
 import {
@@ -4005,7 +4008,7 @@ export default function App() {
   // src/core/home/layout.js so adding a Home feature is a data change.
   const { layout: homeLayout, save: saveHomeLayout } = useHomeLayout();
 
-  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','wiringlab','troubleshoot','flashcards','customizehome'];
+  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','wiringlab','troubleshoot','flashcards','customizehome','projects','materials','community'];
 
   // Stable handlers — avoids stale closure in Settings toggle rows
   const handleDailyQToggle = React.useCallback((v) => {
@@ -4106,6 +4109,9 @@ export default function App() {
       case 'wiringlab':   return <WiringLabScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
       case 'troubleshoot':return <TroubleshootScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
       case 'flashcards':  return <FlashcardsScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
+      case 'projects':    return <ProjectsScreen C={C} setTab={navigateTo} />;
+      case 'materials':   return <MaterialsScreen C={C} setTab={navigateTo} />;
+      case 'community':   return <CommunityScreen C={C} setTab={navigateTo} />;
       case 'customizehome': return <HomeCustomizeScreen C={C} layout={homeLayout} onSave={saveHomeLayout} onDone={() => { setHomeKey(k => k + 1); navigateTo('home'); }} />;
       case 'settings':    return <SettingsScreen C={C} themePreference={themePreference} setThemePreference={setThemePreference} showDailyQ={showDailyQ} onDailyQToggle={handleDailyQToggle} appLanguage={appLanguage} setAppLanguage={setAppLanguage} />;
       case 'jobcam':      return <JobCamScreen C={C} setTab={navigateTo} />;

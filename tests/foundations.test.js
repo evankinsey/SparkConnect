@@ -28,7 +28,11 @@ test('FLG-01…FLG-11: all eleven required flags exist', () => {
   ]) {
     assert.ok(FLAG_NAMES.includes(name), `missing flag ${name}`);
   }
-  assert.equal(FLAG_NAMES.length, 11);
+  // More flags may be added over time; the eleven above are the contract.
+  assert.ok(FLAG_NAMES.length >= 11);
+  for (const name of FLAG_NAMES) {
+    assert.equal(typeof DEFAULTS[name], 'boolean', `${name} needs a boolean default`);
+  }
 });
 
 test('FLG-12: every incomplete or money-touching feature defaults OFF', () => {

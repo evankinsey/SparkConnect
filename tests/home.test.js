@@ -68,7 +68,7 @@ test('the catalog marks what is already on Home', () => {
 test('every shortcut tab is one App.js knows about', () => {
   const VALID = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity',
     'estimator','necai','examprep','jobcam','settings','calculators','learn','wiringlab',
-    'troubleshoot','flashcards','customizehome'];
+    'troubleshoot','flashcards','customizehome','projects','materials','community'];
   for (const c of HOME_CARDS) {
     if (c.kind === CardKind.SHORTCUT) assert.ok(VALID.includes(c.tab), `${c.id} -> unknown tab ${c.tab}`);
   }
