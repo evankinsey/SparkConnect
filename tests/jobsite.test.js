@@ -12,6 +12,14 @@ import {
   STATIONS, SPAWN, MAP_W, MAP_H, PLAYER_RADIUS, Tile, TaskKind,
 } from '../src/core/game/jobsite.js';
 import { ALL_LESSONS } from '../src/circuit/lessons/index.js';
+import {
+  CHARACTERS, CAST_IDS, STATION_DIALOGUE, dialogueFor,
+} from '../src/core/game/cast.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const grid = buildMap();
 
@@ -150,4 +158,48 @@ test('percent runs 0 to 100 across every station', () => {
   assert.equal(jobsitePercent(p), 0);
   for (const s of STATIONS) p = completeStation(p, s.id);
   assert.equal(jobsitePercent(p), 100);
+});
+
+// ─── Cast ────────────────────────────────────────────────────────────────────
+// The crew from the series brief the work. Three ways that breaks silently:
+// a station with no character, a character with no portrait file, and a
+// portrait map that drifts from the cast list.
+
+test('every station has a character briefing it', () => {
+  for (const s of STATIONS) {
+    const d = dialogueFor(s.id);
+    assert.ok(d, `${s.id} has nobody to hand out the job`);
+    assert.ok(CHARACTERS[d.character], `${s.id} names unknown character "${d.character}"`);
+    assert.ok(d.brief && d.brief.length > 10, `${s.id} brief is empty`);
+    assert.ok(d.done && d.done.length > 5, `${s.id} has no sign-off line`);
+  }
+});
+
+test('no dialogue is written for a station that does not exist', () => {
+  const ids = new Set(STATIONS.map((s) => s.id));
+  for (const stationId of Object.keys(STATION_DIALOGUE)) {
+    assert.ok(ids.has(stationId), `dialogue written for missing station "${stationId}"`);
+  }
+});
+
+test('every character has a portrait file on disk', () => {
+  for (const id of CAST_IDS) {
+    const file = join(root, 'assets', 'cast', `${id}.png`);
+    assert.ok(existsSync(file), `${id} has no portrait at assets/cast/${id}.png`);
+  }
+});
+
+test('the portrait map and the cast list agree exactly', () => {
+  // castImages.js cannot be imported here (it requires PNGs), so read it as
+  // text — the point is that the two lists never drift apart.
+  const src = readFileSync(join(root, 'src', 'screens', 'castImages.js'), 'utf8');
+  const mapped = [...src.matchAll(/^\s{2}(\w+):\s*require\(/gm)].map((m) => m[1]);
+  assert.deepEqual(mapped.sort(), [...CAST_IDS].sort());
+});
+
+test('every character is actually used on the site', () => {
+  const used = new Set(Object.values(STATION_DIALOGUE).map((d) => d.character));
+  for (const id of CAST_IDS) {
+    assert.ok(used.has(id), `${id} was drawn into the cast but never appears on the job site`);
+  }
 });

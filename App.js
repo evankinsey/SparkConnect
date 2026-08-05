@@ -12,6 +12,7 @@ import { analytics } from './src/analytics';
 // the lazyScreen() note further down. Home still imports statically because the
 // layout hook runs during the root render.
 import { HomeCards, HomeCustomizeScreen, useHomeLayout } from './src/screens/HomeCards';
+import { CAST_IMAGES } from './src/screens/castImages';
 import { getDailyQuestion } from './src/core/content/dailyQuestions';
 import {
   refreshDailyQuestionNotifications,
@@ -29,7 +30,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput,
   SafeAreaView, StatusBar, Platform, Switch, Dimensions, useColorScheme,
-  Share, Alert, Animated, Linking, AppState, Keyboard,
+  Share, Alert, Animated, Linking, AppState, Keyboard, Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 // expo-image-picker & expo-sharing — lazy-loaded so the app never crashes if package isn't installed
@@ -948,9 +949,18 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
             </TouchableOpacity>
           </View>
           <TouchableOpacity onPress={() => setTab('jobsite')} activeOpacity={0.85}
-            style={{ marginTop: 10, backgroundColor: 'rgba(244,161,29,0.14)', borderRadius: 11, paddingVertical: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: 'rgba(244,161,29,0.5)' }}>
-            <Ionicons name="walk" size={16} color={C.amber} />
-            <Text style={{ fontSize: 13, fontWeight: '800', color: C.amber }}>Enter the Job Site</Text>
+            style={{ marginTop: 10, backgroundColor: 'rgba(244,161,29,0.14)', borderRadius: 11, paddingVertical: 11, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: 'rgba(244,161,29,0.5)' }}>
+            {/* The crew, overlapped — the cast is the reason to tap this */}
+            <View style={{ flexDirection: 'row' }}>
+              {['miguel', 'jerry', 'dante', 'renee'].map((id, i) => (
+                <Image key={id} source={CAST_IMAGES[id]}
+                  style={{ width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, borderColor: '#0D1B3E', marginLeft: i === 0 ? 0 : -9 }} />
+              ))}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: C.amber }}>Enter the Job Site</Text>
+              <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>Work the crew's punch list</Text>
+            </View>
             <View style={{ backgroundColor: C.amber, paddingHorizontal: 6, paddingVertical: 1.5, borderRadius: 5 }}>
               <Text style={{ fontSize: 8.5, fontWeight: '800', color: '#0D1B3E', letterSpacing: 0.4 }}>NEW</Text>
             </View>

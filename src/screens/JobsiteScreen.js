@@ -8,15 +8,17 @@
 // and are tested there. This file renders and reads the d-pad.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, Dimensions, Vibration, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, Dimensions, Vibration, Platform, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Svg, { Rect, Circle, G, Path, Line } from 'react-native-svg';
+import Svg, { Rect, Circle, G, Path, Image as SvgImage, ClipPath, Defs } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   buildMap, movePlayer, nearestStation, completeStation, emptyJobsiteProgress,
   isComplete, jobsitePercent, STATIONS, ROOMS, SPAWN, Tile, TaskKind,
 } from '../core/game/jobsite';
+import { dialogueFor, characterForStation } from '../core/game/cast';
+import { portraitFor } from './castImages';
 import WiringLabScreen from './WiringLabScreen';
 import TroubleshootScreen from './TroubleshootScreen';
 
@@ -73,9 +75,11 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate }) {
     persist(completeStation(progress, station.id));
     setActive(null);
     if (!already) {
-      setToast(`${station.label} signed off · +${station.xp} XP`);
+      const who = characterForStation(station.id);
+      const line = dialogueFor(station.id);
+      setToast({ who, text: line?.done, xp: station.xp });
       try { if (Platform.OS !== 'web') Vibration.vibrate(30); } catch (e) { /* ignore */ }
-      setTimeout(() => setToast(null), 2600);
+      setTimeout(() => setToast(null), 3400);
     }
   }, [progress, persist]);
 
@@ -139,29 +143,24 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate }) {
       {/* Prompt / hint line */}
       <View style={{ paddingHorizontal: 16, minHeight: 92, justifyContent: 'center' }}>
         {toast ? (
-          <View style={{ backgroundColor: C.successBg, borderRadius: 12, padding: 12, borderLeftWidth: 4, borderLeftColor: C.success }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: C.success }}>{toast}</Text>
+          <View style={{ backgroundColor: C.greenBg, borderRadius: 16, padding: 13, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: C.green }}>
+            {toast.who && portraitFor(toast.who.id) && (
+              <Image source={portraitFor(toast.who.id)}
+                style={{ width: 44, height: 44, borderRadius: 22, borderWidth: 2, borderColor: C.green }} />
+            )}
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 12, fontWeight: '800', color: C.green }}>{toast.who?.name}</Text>
+              <Text style={{ fontSize: 11.5, color: C.text, lineHeight: 16 }}>“{toast.text}”</Text>
+            </View>
+            <Text style={{ fontSize: 13, fontWeight: '800', color: C.green }}>+{toast.xp} XP</Text>
           </View>
         ) : near ? (
-          <TouchableOpacity
-            onPress={() => startStation(near)}
-            activeOpacity={0.88}
-            style={{ backgroundColor: C.surface, borderRadius: 14, padding: 13, borderWidth: 1.5, borderColor: C.blue, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <View style={{ width: 40, height: 40, borderRadius: 11, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name={near.icon} size={20} color={C.blue} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 13.5, fontWeight: '800', color: C.text }}>
-                {near.label}{isComplete(progress, near.id) ? '  ✓' : ''}
-              </Text>
-              <Text style={{ fontSize: 11.5, color: C.textSec, lineHeight: 16 }}>{near.brief}</Text>
-            </View>
-            <View style={{ backgroundColor: C.blue, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 8 }}>
-              <Text style={{ fontSize: 12, fontWeight: '800', color: '#fff' }}>
-                {isComplete(progress, near.id) ? 'Redo' : 'Start'}
-              </Text>
-            </View>
-          </TouchableOpacity>
+          <StationCard
+            C={C}
+            station={near}
+            done={isComplete(progress, near.id)}
+            onStart={() => startStation(near)}
+          />
         ) : (
           <Text style={{ fontSize: 12, color: C.textTert, textAlign: 'center', lineHeight: 18 }}>
             Walk up to a room or the truck to pick up the job.
@@ -172,6 +171,53 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate }) {
       {/* D-pad */}
       <DPad C={C} dir={dir} />
     </View>
+  );
+}
+
+// ─── The brief ───────────────────────────────────────────────────────────────
+// Who hands you the job matters more than the job description. Miguel teaching
+// the four-way and Jerry refusing to sign it off until it works from every
+// position are the same lesson in two voices, and the voice is the reason it
+// lands.
+
+function StationCard({ C, station, done, onStart }) {
+  const who = characterForStation(station.id);
+  const line = dialogueFor(station.id);
+  const art = who ? portraitFor(who.id) : null;
+  const accent = who?.accent ?? C.blue;
+
+  return (
+    <TouchableOpacity
+      onPress={onStart}
+      activeOpacity={0.88}
+      style={{
+        backgroundColor: C.surface, borderRadius: 16, padding: 13,
+        borderWidth: 1.5, borderColor: done ? C.green : accent,
+        flexDirection: 'row', alignItems: 'center', gap: 12,
+      }}>
+      {art && (
+        <Image
+          source={art}
+          style={{ width: 52, height: 52, borderRadius: 26, borderWidth: 2, borderColor: accent }}
+        />
+      )}
+      <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={{ fontSize: 13, fontWeight: '800', color: C.text }}>{who?.name}</Text>
+          <Text style={{ fontSize: 10, color: C.textTert }}>{who?.role}</Text>
+          {done && <Ionicons name="checkmark-circle" size={13} color={C.green} />}
+        </View>
+        <Text style={{ fontSize: 11.5, color: C.textSec, lineHeight: 16.5, marginTop: 2 }}>
+          “{done ? line?.done : line?.brief}”
+        </Text>
+        <Text style={{ fontSize: 10, fontWeight: '700', color: accent, marginTop: 3 }}>
+          {station.label} · +{station.xp} XP
+        </Text>
+      </View>
+      <View style={{ backgroundColor: done ? C.green : accent, borderRadius: 10, paddingHorizontal: 13, paddingVertical: 9 }}>
+        <Text style={{ fontSize: 12, fontWeight: '800', color: '#fff' }}>{done ? 'Redo' : 'Start'}</Text>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -212,29 +258,53 @@ function WorldView({ C, grid, pos, progress, near }) {
               : null
           )))}
 
-          {/* Stations */}
+          {/* Crew — each station is a person from the series, standing there */}
+          <Defs>
+            {STATIONS.map((s) => (
+              <ClipPath key={`clip-${s.id}`} id={`clip-${s.id}`}>
+                <Circle cx={s.x * TS} cy={s.y * TS} r={TS * 0.42} />
+              </ClipPath>
+            ))}
+          </Defs>
           {STATIONS.map((s) => {
             const cdone = isComplete(progress, s.id);
             const isNear = near?.id === s.id;
-            const cx = s.x * TS, cy = s.y * TS;
+            const who = characterForStation(s.id);
+            const art = who ? portraitFor(who.id) : null;
+            const cx = s.x * TS, cy = s.y * TS, r = TS * 0.42;
             return (
               <G key={s.id}>
-                {isNear && <Circle cx={cx} cy={cy} r={TS * 0.62} fill="none" stroke="#2563EB" strokeWidth={3} />}
-                <Circle cx={cx} cy={cy} r={TS * 0.4} fill={cdone ? '#16A34A' : '#F4A11D'} stroke="#1F2937" strokeWidth={1.5} />
-                {cdone
-                  ? <Path d={`M ${cx - TS * 0.16} ${cy} l ${TS * 0.12} ${TS * 0.13} l ${TS * 0.22} ${-TS * 0.25}`}
-                      stroke="#fff" strokeWidth={2.6} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                  : <Path d={`M ${cx + TS * 0.06} ${cy - TS * 0.19} L ${cx - TS * 0.11} ${cy + TS * 0.02} L ${cx + TS * 0.01} ${cy + TS * 0.02} L ${cx - TS * 0.04} ${cy + TS * 0.2} L ${cx + TS * 0.13} ${cy - TS * 0.03} L ${cx + TS * 0.01} ${cy - TS * 0.03} Z`}
-                      fill="#fff" />}
+                <Circle cx={cx} cy={cy + TS * 0.42} r={TS * 0.26} fill="rgba(0,0,0,0.22)" />
+                {art && (
+                  <SvgImage
+                    x={cx - r} y={cy - r} width={r * 2} height={r * 2}
+                    href={art} preserveAspectRatio="xMidYMid slice"
+                    clipPath={`url(#clip-${s.id})`}
+                  />
+                )}
+                <Circle
+                  cx={cx} cy={cy} r={r} fill="none"
+                  stroke={isNear ? '#2563EB' : cdone ? '#16A34A' : (who?.accent ?? '#F4A11D')}
+                  strokeWidth={isNear ? 4 : 3}
+                />
+                {cdone && (
+                  <G>
+                    <Circle cx={cx + r * 0.72} cy={cy - r * 0.72} r={TS * 0.17} fill="#16A34A" stroke="#fff" strokeWidth={1.5} />
+                    <Path
+                      d={`M ${cx + r * 0.72 - TS * 0.07} ${cy - r * 0.72} l ${TS * 0.05} ${TS * 0.055} l ${TS * 0.095} ${-TS * 0.11}`}
+                      stroke="#fff" strokeWidth={2.2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                  </G>
+                )}
               </G>
             );
           })}
 
-          {/* The electrician: hard hat, shirt, boots */}
+          {/* You — in the crew uniform: black SparkConnect tee, amber hard hat */}
           <G>
             <Circle cx={pos.x * TS} cy={pos.y * TS + TS * 0.36} r={TS * 0.2} fill="rgba(0,0,0,0.22)" />
-            <Rect x={pos.x * TS - TS * 0.2} y={pos.y * TS - TS * 0.06} width={TS * 0.4} height={TS * 0.42} rx={TS * 0.09} fill="#1D4ED8" />
-            <Circle cx={pos.x * TS} cy={pos.y * TS - TS * 0.16} r={TS * 0.16} fill="#F2C79B" />
+            <Rect x={pos.x * TS - TS * 0.2} y={pos.y * TS - TS * 0.06} width={TS * 0.4} height={TS * 0.42} rx={TS * 0.09} fill="#1A1A1F" />
+            <Path d={`M ${pos.x * TS + TS * 0.04} ${pos.y * TS + TS * 0.02} L ${pos.x * TS - TS * 0.06} ${pos.y * TS + TS * 0.15} L ${pos.x * TS} ${pos.y * TS + TS * 0.15} L ${pos.x * TS - TS * 0.03} ${pos.y * TS + TS * 0.3} L ${pos.x * TS + TS * 0.08} ${pos.y * TS + TS * 0.14} L ${pos.x * TS + TS * 0.01} ${pos.y * TS + TS * 0.14} Z`} fill="#F4A11D" />
+            <Circle cx={pos.x * TS} cy={pos.y * TS - TS * 0.16} r={TS * 0.16} fill="#C98C5A" />
             <Path d={`M ${pos.x * TS - TS * 0.22} ${pos.y * TS - TS * 0.2} a ${TS * 0.22} ${TS * 0.22} 0 0 1 ${TS * 0.44} 0 Z`} fill="#F4A11D" />
             <Rect x={pos.x * TS - TS * 0.26} y={pos.y * TS - TS * 0.22} width={TS * 0.52} height={TS * 0.06} rx={TS * 0.03} fill="#F4A11D" />
           </G>
