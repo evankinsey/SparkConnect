@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.sparkconnect.tools",
-      "buildNumber": "7",
+      "buildNumber": "8",
       "infoPlist": {
         "NSCameraUsageDescription": "SparkConnect Job Cam uses your camera to photograph job site conditions, panel layouts, and rough-in work.",
         "NSPhotoLibraryUsageDescription": "SparkConnect Job Cam needs access to your photo library to import job site photos.",
@@ -29,7 +29,7 @@
         "backgroundColor": "#0A0A0F"
       },
       "package": "com.sparkconnect.tools",
-      "versionCode": 7,
+      "versionCode": 8,
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
@@ -68,11 +68,8 @@
         "projectId": "6be503ce-d7a7-4ae2-8b8d-3ae0bdc781ba"
       }
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
     "updates": {
-      "url": "https://u.expo.dev/6be503ce-d7a7-4ae2-8b8d-3ae0bdc781ba"
+      "enabled": false
     }
   }
 }
