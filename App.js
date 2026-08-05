@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-// ─ Box Fill + Conduit Fill: 3 free/day, Proconst SC_LOGO = null; // set to require('./assets/SparkConnectLogo.png') after import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+// The Snack export once glued this declaration into the comment above it,
+// which left SC_LOGO undefined and would have crashed the splash screen on
+// its very first render. Keep it a real statement.
+const SC_LOGO = null; // set to require('./assets/SparkConnectLogo.png') to show the logo PNG on the splash
 import SparkPaywall from './src/SparkPaywall';
 import OnboardingFlow from './src/OnboardingFlow';
 import { useGating } from './src/useGating';
@@ -2556,7 +2559,20 @@ const JobCamScreen = ({ C, setTab }) => {
     } catch(e) {
       safeLog('JobCam.pick', 'Image picker error');
       Alert.alert('Photo Error', 'Could not access photos. Try: Settings → SparkConnect → grant camera/photos permission.');
-const handleShare = async (photo, caption) => {
+    }
+  };
+  // ^ These two closers are the fix for the launch crash that killed builds
+  // 6-13. The Snack export dropped them, so this catch block swallowed the
+  // next ~1,400 lines: handleShare, this screen's JSX, and then every
+  // component through SplashScreen ended up function-scoped inside
+  // pickOrCapture instead of at module top level. The file still parsed,
+  // because two stray closers at the bottom balanced the braces - so every
+  // build compiled, exported, and then died on the phone the moment App()
+  // rendered <SplashScreen/>: ReferenceError, Property 'SplashScreen'
+  // doesn't exist. tests/scope.test.js now fails the suite if any screen
+  // component ever leaves module scope again.
+
+  const handleShare = async (photo, caption) => {
     const shareCaption = caption || photo.note || photo.label;
     try {
       // Try expo-sharing for file-based share (passes actual image to social apps)
@@ -3778,8 +3794,8 @@ const SplashScreen = ({ onDone }) => {
 
     // Hold then fade out
     const timer = setTimeout(() => {
-      Animated.timing(fadeAnim, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => onDone());
-    }, 2200);
+      Animated.timing(fadeAnim, { toValue: 0, duration: 350, useNativeDriver: true }).start(() => onDone());
+    }, 1300); // long enough to read the brand, short enough to not feel like a gate
 
     return () => clearTimeout(timer);
   }, []);
@@ -3944,9 +3960,9 @@ const splashStyles = StyleSheet.create({
 // Implementation lives in ./src/dailyNotifications. See that file for why this
 // is a scheduled local notification rather than a true Home Screen widget, and
 // why each day is scheduled individually instead of with a repeating trigger.
+// (Two stray closers used to sit here - the other half of the launch-crash
+// brace mangle fixed up in pickOrCapture's catch block above.)
 
-};
-};
 // ─── LAZY SCREENS ────────────────────────────────────────────────────────────
 // Importing these at the top of App.js meant a module-level failure in any one
 // of them threw while App.js itself was still evaluating — which no error
@@ -4192,8 +4208,10 @@ export default function App() {
     }
   };
 
+  // ProGatingProvider used to wrap this tree, but its import is gone and the
+  // gate is deliberately inert (see the note in NecAiScreen). Rendering an
+  // unimported component is a ReferenceError - the wrapper goes, not the app.
   return (
-      <ProGatingProvider>
     <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
       <StatusBar barStyle={C.statusBar} backgroundColor={C.surface} />
 
@@ -4243,7 +4261,6 @@ export default function App() {
         ))}
       </View>
     </SafeAreaView>
-    </ProGatingProvider>
     );
 }
 

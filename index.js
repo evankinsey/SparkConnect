@@ -1,32 +1,21 @@
 // ─── ENTRY POINT ─────────────────────────────────────────────────────────────
-// SAFE BOOT — build 12 is a controlled experiment, not another speculative fix.
+// This file is armored, and the armor is not decorative. Builds 6-13 all died
+// at launch with SIGABRT on com.facebook.react.ExceptionsManagerQueue. The
+// cause (found via the SAFE_BOOT diagnostic below, build 13) was a brace
+// mangle in App.js that left SplashScreen and friends function-scoped -
+// "ReferenceError: Property 'SplashScreen' doesn't exist" on first render.
+// tests/scope.test.js now guards that class of bug at test time; this file
+// guards it at runtime:
 //
-// Builds 6, 9, 10 and 11 all died the same way: EXC_CRASH / SIGABRT on
-// com.facebook.react.ExceptionsManagerQueue, and progressively faster
-// (635 ms → 343 ms → 130 ms → 93 ms).
+//   1. ./src/errorTrap imports nothing and loads first, covering both of
+//      React Native's fatal paths (RN$handleException + ErrorUtils) so a
+//      fatal JS error draws a screen instead of calling abort().
+//   2. expo and App.js load via require() inside try/catch - a throw at
+//      module scope never reaches any handler otherwise.
+//   3. An ErrorBoundary covers ordinary render errors underneath.
 //
-// Build 11 installed a trap covering both of React Native's fatal paths —
-// global.RN$handleException and ErrorUtils.setGlobalHandler. In React Native
-// 0.81.5 those are the only two routes to NativeExceptionsManager.reportException,
-// which is the only call that reaches RCTFatal and abort(). The trap was verified
-// against a real production bundle. Build 11 aborted anyway.
-//
-// There is only one explanation left: this JavaScript is not running when the
-// app dies. The failure is below the bundle — native module setup, the embedded
-// bundle itself, or the build configuration.
-//
-// So build 12 changes exactly ONE variable. Nothing in app.json, eas.json or
-// package.json moved. This file now boots the smallest possible React tree:
-// React, four React Native primitives, and nothing else. App.js is not
-// evaluated until the button is pressed.
-//
-//   • Crashes before the boot screen appears  → the fault is native/build
-//     configuration. JavaScript is exonerated and I stop editing it.
-//   • Boot screen appears                     → the JS runtime is healthy and
-//     the fault is inside App.js's tree, which "Open SparkConnect" then isolates
-//     with the error trap already armed.
-//
-// Either outcome is decisive. To turn this off, set SAFE_BOOT to false below.
+// SAFE_BOOT=true boots a minimal diagnostic screen instead of the app, with
+// App.js left unevaluated until a button press. Keep it off for releases.
 
 import './src/errorTrap';
 
@@ -34,7 +23,7 @@ import { capture, getCapturedError, clearCapturedError, subscribe } from './src/
 import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
 
-const SAFE_BOOT = true;
+const SAFE_BOOT = false; // flip to true to boot into the diagnostic screen instead of the app
 
 // Checkpoints, recorded as this file evaluates. Whatever the last one says is
 // how far the bundle got.
@@ -78,7 +67,7 @@ function BootScreen({ onOpen, failure }) {
           </Text>
         ))}
         <Text selectable style={{ color: '#6B7280', fontSize: 12, lineHeight: 19 }}>
-          platform {Platform.OS} {String(Platform.Version)} · build 12
+          platform {Platform.OS} {String(Platform.Version)}
         </Text>
         {!!failure && (
           <Text selectable style={{ color: '#F4A11D', fontSize: 12.5, fontWeight: '700', marginTop: 10 }}>
