@@ -5,6 +5,8 @@ import OnboardingFlow from './src/OnboardingFlow';
 import { useGating } from './src/useGating';
 import { analytics } from './src/analytics';
 import { getGate } from './ProGatingContext';
+import WiringLabScreen from './src/screens/WiringLabScreen';
+import TroubleshootScreen from './src/screens/TroubleshootScreen';
 import { getDailyQuestion } from './src/core/content/dailyQuestions';
 import {
   refreshDailyQuestionNotifications,
@@ -3178,13 +3180,31 @@ const LearnScreen = ({ setTab, C, onStreakUpdate }) => {
         <Ionicons name="chevron-forward" size={16} color={C.textTert} />
       </TouchableOpacity>
 
-      {/* Coming Soon */}
-      <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: C.border, marginBottom: 10, opacity: 0.5 }}>
-        <Text style={{ fontSize: 12, fontWeight: '700', color: C.textSec, marginBottom: 6 }}>COMING SOON</Text>
-        <Text style={{ fontSize: 14, color: C.text, marginBottom: 3 }}>📚 Flashcards</Text>
-        <Text style={{ fontSize: 14, color: C.text, marginBottom: 3 }}>🔖 Saved Sparky Explanations</Text>
-        <Text style={{ fontSize: 14, color: C.text }}>📊 Quiz Score History</Text>
-      </View>
+      {/* UI-09 — was a greyed-out COMING SOON box, which reads as an abandoned
+          product on the tab that is supposed to prove you teach. */}
+      <TouchableOpacity onPress={() => setTab('wiringlab')} activeOpacity={0.85}
+        style={{ backgroundColor: C.surface, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: C.border, borderLeftWidth: 4, borderLeftColor: C.blue, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="git-network" size={21} color={C.blue} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 2 }}>Wiring Lab</Text>
+          <Text style={{ fontSize: 12, color: C.textSec }}>Single-pole, three-way and four-way. Wire it, then test it.</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={C.textTert} />
+      </TouchableOpacity>
+
+      <TouchableOpacity onPress={() => setTab('troubleshoot')} activeOpacity={0.85}
+        style={{ backgroundColor: C.surface, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: C.border, borderLeftWidth: 4, borderLeftColor: C.amber, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: C.amberBg, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="build" size={20} color={C.amber} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 2 }}>Troubleshooting</Text>
+          <Text style={{ fontSize: 12, color: C.textSec }}>Six real service calls. Find the fault.</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={C.textTert} />
+      </TouchableOpacity>
     </ScrollView>
   );
 };
@@ -3976,7 +3996,7 @@ export default function App() {
 
   const [homeKey, setHomeKey] = React.useState(0); // force HomeScreen remount on prefs change
 
-  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn'];
+  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','wiringlab','troubleshoot'];
 
   // Stable handlers — avoids stale closure in Settings toggle rows
   const handleDailyQToggle = React.useCallback((v) => {
@@ -4074,6 +4094,8 @@ export default function App() {
       case 'necai':       return <NecAiScreen C={C} setTab={navigateTo} initialSearch={necaiInitSearch} clearInitSearch={() => setNecaiInitSearch('')} />;
       case 'examprep':    return <ExamPrepScreen C={C} onStreakUpdate={updateStreak} />;
       case 'learn':       return <LearnScreen setTab={navigateTo} C={C} onStreakUpdate={updateStreak} />;
+      case 'wiringlab':   return <WiringLabScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
+      case 'troubleshoot':return <TroubleshootScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
       case 'settings':    return <SettingsScreen C={C} themePreference={themePreference} setThemePreference={setThemePreference} showDailyQ={showDailyQ} onDailyQToggle={handleDailyQToggle} appLanguage={appLanguage} setAppLanguage={setAppLanguage} />;
       case 'jobcam':      return <JobCamScreen C={C} setTab={navigateTo} />;
       default:            return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} />;
