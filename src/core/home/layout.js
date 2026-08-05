@@ -18,12 +18,14 @@ export const CardKind = {
  */
 export const HOME_CARDS = Object.freeze([
   // Widgets
-  { id: 'daily_challenge', kind: CardKind.WIDGET, title: 'Daily Field Challenge', sub: 'Rotates daily — code, bends, faults', icon: 'flame', group: 'Daily' },
+  // daily_challenge was removed from the catalog on purpose: with the Daily
+  // Code Question pinned to the top of Home it read as the same widget twice.
+  // sanitizeLayout drops unknown ids, so saved layouts self-heal on load.
   { id: 'daily_question', kind: CardKind.WIDGET, title: 'Daily Code Question', sub: "Today's NEC question", icon: 'school', group: 'Daily' },
   { id: 'streak', kind: CardKind.WIDGET, title: 'Streak & Rank', sub: 'Progress at a glance', icon: 'trophy', group: 'Daily' },
 
   // Training
-  { id: 'wiring_lab', kind: CardKind.SHORTCUT, tab: 'wiringlab', title: 'Wiring Lab', sub: 'Wire it, then test it', icon: 'git-network', group: 'Training' },
+  { id: 'wiring_lab', kind: CardKind.SHORTCUT, tab: 'wiringlab', title: 'Wiring Simulator', sub: 'Wire it, then test it', icon: 'git-network', group: 'Training' },
   { id: 'troubleshoot', kind: CardKind.SHORTCUT, tab: 'troubleshoot', title: 'Troubleshooting', sub: 'Find the fault', icon: 'build', group: 'Training' },
   { id: 'flashcards', kind: CardKind.SHORTCUT, tab: 'flashcards', title: 'Flashcards', sub: 'Spaced repetition', icon: 'albums', group: 'Training' },
   { id: 'examprep', kind: CardKind.SHORTCUT, tab: 'examprep', title: 'Code Quiz', sub: 'Exam practice', icon: 'ribbon', group: 'Training' },
@@ -50,20 +52,22 @@ export const HOME_CARDS = Object.freeze([
 export const CARD_IDS = HOME_CARDS.map((c) => c.id);
 export const cardById = (id) => HOME_CARDS.find((c) => c.id === id) ?? null;
 
-/** Sensible starting Home. Everything else is one tap away in Customize. */
+/** Sensible starting Home. The Daily Question, Quick Tools, Wiring Simulator
+ *  and Sparky search are pinned by HomeScreen itself, so the default strip
+ *  covers the work side. Everything else is one tap away in Customize. */
 export const DEFAULT_LAYOUT = Object.freeze([
-  'daily_challenge', 'wiring_lab', 'spark_ai', 'bend', 'troubleshoot', 'calculators',
+  'calculators', 'jobcam', 'estimator',
 ]);
 
 // ONB-04 — role tunes the default order. It never hides anything permanently
 // (ONB-05); every card stays available in Customize.
 export const ROLE_LAYOUTS = Object.freeze({
-  apprentice: ['daily_challenge', 'wiring_lab', 'flashcards', 'bend', 'wire', 'spark_ai'],
-  journeyman: ['daily_challenge', 'calculators', 'troubleshoot', 'spark_ai', 'bend', 'jobcam'],
-  foreman: ['jobcam', 'estimator', 'calculators', 'spark_ai', 'daily_challenge', 'volt'],
-  contractor: ['estimator', 'jobcam', 'spark_ai', 'calculators', 'daily_challenge', 'bend'],
-  instructor: ['daily_challenge', 'examprep', 'wiring_lab', 'troubleshoot', 'flashcards', 'streak'],
-  student: ['daily_challenge', 'wiring_lab', 'flashcards', 'examprep', 'troubleshoot', 'streak'],
+  apprentice: ['flashcards', 'examprep', 'bend', 'wire'],
+  journeyman: ['calculators', 'bend', 'jobcam', 'volt'],
+  foreman: ['jobcam', 'estimator', 'calculators', 'projects'],
+  contractor: ['estimator', 'jobcam', 'calculators', 'projects'],
+  instructor: ['examprep', 'flashcards', 'streak', 'calculators'],
+  student: ['flashcards', 'examprep', 'streak', 'wire'],
 });
 
 export const layoutForRole = (role) =>

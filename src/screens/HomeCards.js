@@ -68,7 +68,8 @@ export function HomeCards({ C, setTab, layout, streak = 0, xp = 0, onCustomize }
 
       {cards.map((card) => {
         if (card.kind === CardKind.WIDGET) {
-          if (card.id === 'daily_challenge') return <ChallengeWidget key={card.id} C={C} />;
+          // daily_challenge left the catalog — the pinned Daily Code Question
+          // made it read as the same widget twice on Home.
           if (card.id === 'streak') return <StreakWidget key={card.id} C={C} streak={streak} xp={xp} />;
           return null; // daily_question is rendered by HomeScreen itself
         }

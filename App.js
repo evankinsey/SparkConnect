@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 // its very first render. Keep it a real statement.
 const SC_LOGO = null; // set to require('./assets/SparkConnectLogo.png') to show the logo PNG on the splash
 import SparkPaywall from './src/SparkPaywall';
+import { initPurchases, purchaseProduct, restorePurchases as rcRestorePurchases } from './src/purchases';
 import OnboardingFlow from './src/OnboardingFlow';
 import { useGating } from './src/useGating';
 import { analytics } from './src/analytics';
@@ -28,7 +29,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput,
   SafeAreaView, StatusBar, Platform, Switch, Dimensions, useColorScheme,
-  Share, Alert, Animated, Linking, AppState,
+  Share, Alert, Animated, Linking, AppState, Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 // expo-image-picker & expo-sharing — lazy-loaded so the app never crashes if package isn't installed
@@ -804,6 +805,7 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
   const q = getDailyQuestion();
   const [revealed, setRevealed] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [homeAsk, setHomeAsk] = useState('');
 
   // Home shows 4 core field tools — everything else lives in Calculators tab
   const tools = [
@@ -814,9 +816,10 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
   ];
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ paddingBottom: 32 }} showsVerticalScrollIndicator={false}>
-      <HomeCards C={C} setTab={setTab} layout={homeLayout} streak={streak}
-        onCustomize={() => setTab('customizehome')} />
+    <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ paddingBottom: 32 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      {/* Home order is deliberate: Daily Question → Quick Tools → Wiring
+          Simulator → Sparky search → custom cards. The user asked for exactly
+          this — do not shuffle it back. */}
 
       {/* Daily Question */}
       {showDailyQ && <View style={{ padding: 16 }}>
@@ -897,30 +900,6 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
         </View>
       )}
 
-      {/* Featured: Sparky AI — navy card with amber lightning accent */}
-      <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
-        <TouchableOpacity
-          onPress={() => setTab('necai')}
-          activeOpacity={0.88}
-          style={{ backgroundColor: '#0D1B3E', borderRadius: 16, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 6, borderWidth: 1, borderColor: 'rgba(244,161,29,0.25)' }}>
-          <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center', shadowColor: C.amber, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 4 }}>
-            <Ionicons name="flash" size={28} color="#fff" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-              <Text style={{ fontSize: 17, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.3 }}>Sparky AI</Text>
-              <View style={{ backgroundColor: C.amber, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 }}>
-                <Text style={{ fontSize: 9, fontWeight: '800', color: '#0D1B3E', letterSpacing: 0.5 }}>AI</Text>
-              </View>
-            </View>
-            <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 18 }}>Code · estimates · photo analysis · trade help</Text>
-          </View>
-          <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.6)" />
-          </View>
-        </TouchableOpacity>
-      </View>
-
       {/* Quick Tools — 2×2 grid */}
       <View style={{ paddingHorizontal: 16, marginBottom: 4 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -943,6 +922,67 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
           ))}
         </View>
       </View>
+
+      {/* ── Wiring Simulator — the training hero, troubleshooting folded in ── */}
+      <View style={{ paddingHorizontal: 16, marginTop: 12, marginBottom: 12 }}>
+        <View style={{ backgroundColor: '#0D1B3E', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: 'rgba(244,161,29,0.25)', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 6 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <View style={{ width: 46, height: 46, borderRadius: 13, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="git-network" size={24} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 17, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.3 }}>Wiring Simulator</Text>
+              <Text style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.72)', marginTop: 2 }}>Wire real circuits · flip the switch · find the fault</Text>
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity onPress={() => setTab('wiringlab')} activeOpacity={0.85}
+              style={{ flex: 1, backgroundColor: C.amber, borderRadius: 11, paddingVertical: 12, alignItems: 'center' }}>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: '#0D1B3E' }}>⚡ Build Circuits</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setTab('troubleshoot')} activeOpacity={0.85}
+              style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 11, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' }}>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: '#fff' }}>🔧 Find the Fault</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+
+      {/* ── Sparky AI search bar — type here, land in the chat with an answer ── */}
+      <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
+        <View style={{ backgroundColor: '#0D1B3E', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: 'rgba(244,161,29,0.25)' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="flash" size={14} color="#fff" />
+            </View>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: '#fff' }}>Sparky AI</Text>
+            <View style={{ backgroundColor: C.amber, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 }}>
+              <Text style={{ fontSize: 8.5, fontWeight: '800', color: '#0D1B3E', letterSpacing: 0.5 }}>AI</Text>
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TextInput
+              value={homeAsk}
+              onChangeText={setHomeAsk}
+              placeholder="Ask anything electrical…"
+              placeholderTextColor="rgba(255,255,255,0.45)"
+              returnKeyType="search"
+              onSubmitEditing={() => { const t = homeAsk.trim(); setHomeAsk(''); setTab('necai', t); }}
+              style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 12, paddingHorizontal: 14, paddingVertical: Platform.OS === 'ios' ? 11 : 8, fontSize: 14, color: '#fff', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' }}
+            />
+            <TouchableOpacity
+              onPress={() => { const t = homeAsk.trim(); setHomeAsk(''); setTab('necai', t); }}
+              style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="arrow-forward" size={18} color="#0D1B3E" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+
+      {/* ── Your custom cards ── */}
+      <HomeCards C={C} setTab={setTab} layout={homeLayout} streak={streak}
+        onCustomize={() => setTab('customizehome')} />
+
       {/* Job Cam shortcut */}
       <TouchableOpacity onPress={() => setTab('jobcam')} activeOpacity={0.85}
         style={{ marginHorizontal: 16, marginTop: 10, marginBottom: 12, backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -1873,7 +1913,7 @@ const getExamQuestions = (level, category, count) => {
   return shuffled.slice(0, Math.min(count, shuffled.length));
 };
 
-const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch }) => {
+const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade, onBuyPacks }) => {
   const [inputText, setInputText] = React.useState(initialSearch || '');
   const [messages, setMessages] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
@@ -1888,6 +1928,29 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch }) => {
   const inputRef = React.useRef(null);
   const sentInitial = React.useRef(false);
   const [activeMode, setActiveMode] = React.useState('general');
+
+  // ── Keyboard: lift the input bar above the keyboard ──
+  // The app has no navigation library and the tab bar is a plain sibling View,
+  // so KeyboardAvoidingView's offset math has nothing reliable to anchor to.
+  // Tracking the keyboard frame directly and padding the screen is exact: the
+  // keyboard covers the tab bar (~70pt of it), so the content only needs to
+  // rise by the difference.
+  const [kbLift, setKbLift] = React.useState(0);
+  React.useEffect(() => {
+    const TAB_BAR_COVERED = 70;
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillChangeFrame' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = (e) => {
+      try {
+        const winH = Dimensions.get('window').height;
+        const kbH = Math.max(0, winH - (e?.endCoordinates?.screenY ?? winH));
+        setKbLift(Math.max(0, kbH - TAB_BAR_COVERED));
+      } catch { /* a keyboard event must never crash the chat */ }
+    };
+    const s = Keyboard.addListener(showEvt, onShow);
+    const h = Keyboard.addListener(hideEvt, () => setKbLift(0));
+    return () => { try { s.remove(); h.remove(); } catch {} };
+  }, []);
 
   const SPARKY_MODES = [
     { id: 'general',     emoji: '⚡', label: 'General',           prefix: '' },
@@ -2200,11 +2263,11 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch }) => {
             {/* Rate limit CTAs */}
             {msg.isRateLimit && (
               <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-                <TouchableOpacity onPress={() => setTab('settings')}
+                <TouchableOpacity onPress={() => (onUpgrade ? onUpgrade() : setTab('settings'))}
                   style={{ flex: 1, backgroundColor: C.blue, borderRadius: 10, padding: 10, alignItems: 'center' }}>
                   <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff' }}>⚡ Go Pro</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => setTab('settings')}
+                <TouchableOpacity onPress={() => (onBuyPacks ? onBuyPacks() : setTab('settings'))}
                   style={{ flex: 1, backgroundColor: C.amberBg, borderRadius: 10, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: C.amber }}>
                   <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber }}>Buy Pack</Text>
                 </TouchableOpacity>
@@ -2238,7 +2301,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch }) => {
   ];
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg }}>
+    <View style={{ flex: 1, backgroundColor: C.bg, paddingBottom: kbLift }}>
 
       {/* ── Top bar ── */}
       <View style={{ backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border }}>
@@ -3213,7 +3276,7 @@ const LearnScreen = ({ setTab, C, onStreakUpdate }) => {
           <Ionicons name="git-network" size={21} color={C.blue} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 2 }}>Wiring Lab</Text>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 2 }}>Wiring Simulator</Text>
           <Text style={{ fontSize: 12, color: C.textSec }}>Single-pole, three-way and four-way. Wire it, then test it.</Text>
         </View>
         <Ionicons name="chevron-forward" size={16} color={C.textTert} />
@@ -3554,7 +3617,7 @@ const ExamPrepScreen = ({ C, onStreakUpdate }) => {
   );
 };
 
-const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = true, onDailyQToggle, appLanguage = 'english', setAppLanguage }) => {
+const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = true, onDailyQToggle, appLanguage = 'english', setAppLanguage, isPro = false, onUpgrade, onBuyPacks, onRestore }) => {
   const [keepOn, setKeepOn] = useState(true);
   const [haptics, setHaptics] = useState(true);
   const [notifEnabled, setNotifEnabled] = useState(false);
@@ -3578,11 +3641,9 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
     openLink(buildMailtoURL('support@sparkconnect.pro', 'SparkConnect Feature Suggestion', 'Feature idea:\n\nWhat problem would this solve?\n\n'));
   };
   const handleRestore = async () => {
+    if (restoring) return;
     setRestoring(true);
-    // TODO: replace with: const { customerInfo } = await Purchases.restorePurchases();
-    await new Promise(r => setTimeout(r, 1200));
-    setRestoring(false);
-    Alert.alert('Restore Purchases', 'No active subscription found.\n\nContact support@sparkconnect.pro if you believe this is an error.');
+    try { await onRestore?.(); } finally { setRestoring(false); }
   };
 
   const SectionTitle = ({ title }) => (
@@ -3623,13 +3684,20 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
               <Text style={{ fontSize: 12, color: C.text, fontWeight: '500' }}>{f}</Text>
             </View>
           ))}
-          <TouchableOpacity
-            onPress={() => Alert.alert('Coming Soon', "Pro subscriptions are launching soon. You'll be notified when available.")}
-            style={{ backgroundColor: C.blue, borderRadius: 10, padding: 13, alignItems: 'center', marginTop: 14, flexDirection: 'row', justifyContent: 'center', gap: 8, shadowColor: C.blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}
-            activeOpacity={0.85}>
-            <Ionicons name="flash" size={16} color="#fff" />
-            <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>Upgrade to Pro</Text>
-          </TouchableOpacity>
+          {isPro ? (
+            <View style={{ backgroundColor: C.greenBg ?? 'rgba(34,197,94,0.12)', borderRadius: 10, padding: 13, alignItems: 'center', marginTop: 14, flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+              <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
+              <Text style={{ fontSize: 15, fontWeight: '700', color: '#22C55E' }}>Pro Active</Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              onPress={onUpgrade}
+              style={{ backgroundColor: C.blue, borderRadius: 10, padding: 13, alignItems: 'center', marginTop: 14, flexDirection: 'row', justifyContent: 'center', gap: 8, shadowColor: C.blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}
+              activeOpacity={0.85}>
+              <Ionicons name="flash" size={16} color="#fff" />
+              <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>Upgrade to Pro</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={handleRestore} style={{ alignItems: 'center', paddingVertical: 10 }}>
             <Text style={{ fontSize: 12, color: C.textTert }}>{restoring ? 'Restoring...' : 'Restore Purchases'}</Text>
           </TouchableOpacity>
@@ -3643,13 +3711,15 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
           <Text style={{ fontSize: 12, fontWeight: '600', color: C.amber }}>Need more answers? Add a Sparky AI pack anytime.</Text>
         </View>
         {[{ label: '15 Sparky AI Answers', price: '$1.99' },{ label: '50 Sparky AI Answers', price: '$4.99' },{ label: '150 Sparky AI Answers', price: '$9.99' }].map((pack, i, arr) => (
-          <View key={pack.label} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 13, borderBottomWidth: i < arr.length - 1 ? 1 : 0, borderBottomColor: C.borderLight }}>
+          <TouchableOpacity key={pack.label} onPress={onBuyPacks} activeOpacity={0.7}
+            style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 13, borderBottomWidth: i < arr.length - 1 ? 1 : 0, borderBottomColor: C.borderLight }}>
             <Ionicons name="chatbubble-ellipses-outline" size={16} color={C.amber} style={{ marginRight: 10 }} />
             <Text style={{ flex: 1, fontSize: 13, fontWeight: '500', color: C.text }}>{pack.label}</Text>
             <View style={{ backgroundColor: C.amberBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
               <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber }}>{pack.price}</Text>
             </View>
-          </View>
+            <Ionicons name="chevron-forward" size={15} color={C.textTert} style={{ marginLeft: 8 }} />
+          </TouchableOpacity>
         ))}
       </Card>
 
@@ -3778,6 +3848,9 @@ const SCREEN_LABELS = {
   estimator: 'Material Estimator', necai: 'Sparky AI',
   examprep: 'Code Quiz', jobcam: 'Job Cam', settings: 'Settings',
   calculators: 'Calculators', learn: 'Learn',
+  wiringlab: 'Wiring Simulator', troubleshoot: 'Troubleshoot',
+  flashcards: 'Flashcards', projects: 'Projects', materials: 'Material List',
+  community: 'Community', customizehome: 'Customize Home',
 };
 
 // ─── SPLASH SCREEN ───────────────────────────────────────────────────────────
@@ -4006,7 +4079,7 @@ const lazyScreen = (name, load) => {
   return Lazy;
 };
 
-const WiringLabScreen   = lazyScreen('Wiring Lab',      () => require('./src/screens/WiringLabScreen'));
+const WiringLabScreen   = lazyScreen('Wiring Simulator',      () => require('./src/screens/WiringLabScreen'));
 const TroubleshootScreen = lazyScreen('Troubleshooting', () => require('./src/screens/TroubleshootScreen'));
 const FlashcardsScreen  = lazyScreen('Flashcards',      () => require('./src/screens/FlashcardsScreen'));
 const ProjectsScreen    = lazyScreen('Projects',        () => require('./src/screens/ProjectsScreen'));
@@ -4021,6 +4094,45 @@ export default function App() {
   const [onboardingChecked, setOnboardingChecked] = useState(false);
   const [showDailyQ, setShowDailyQ] = useState(true);
   const [streak, setStreak] = useState(0);
+
+  // ── Purchases: real RevenueCat state, not a hardcoded flag ──
+  // paywall: null | 'pro' | 'packs' — which sheet is open.
+  const [paywall, setPaywall] = useState(null);
+  const [isPro, setIsPro] = useState(false);
+  React.useEffect(() => {
+    // initPurchases never throws; a billing SDK problem must never block launch.
+    Promise.resolve(initPurchases())
+      .then(({ isPro: pro }) => { if (pro) setIsPro(true); })
+      .catch(e => safeLog('purchases.init', e));
+  }, []);
+
+  const handlePurchase = React.useCallback(async (productId) => {
+    const res = await purchaseProduct(productId);
+    if (res.cancelled) return;
+    if (res.ok) {
+      if (res.isPro) setIsPro(true);
+      setPaywall(null);
+      Alert.alert(
+        res.isPro ? 'Welcome to Pro! ⚡' : 'Purchase complete ⚡',
+        res.isPro ? 'Everything is unlocked. Get after it.' : 'Your Sparky AI answers have been added.',
+      );
+    } else if (res.error) {
+      Alert.alert('Purchase failed', res.error);
+    }
+  }, []);
+
+  const handleRestorePurchases = React.useCallback(async () => {
+    const res = await rcRestorePurchases();
+    if (res.ok && res.isPro) {
+      setIsPro(true);
+      setPaywall(null);
+      Alert.alert('Restored ✅', 'Your Pro subscription is active.');
+    } else if (res.ok) {
+      Alert.alert('Nothing to restore', 'No active Pro subscription found for this Apple ID.');
+    } else {
+      Alert.alert('Restore failed', res.error || 'Please try again.');
+    }
+  }, []);
   React.useEffect(() => {
     // Every launch path below is wrapped. Nothing read from storage and nothing
     // scheduled with the OS is allowed to take the app down on open — an
@@ -4192,7 +4304,7 @@ export default function App() {
       case 'conduitfill': return <ConduitFillScreen C={C} setTab={navigateTo} />;
       case 'ampacity':    return <AmpacityScreen C={C} />;
       case 'estimator':   return <EstimatorScreen C={C} setTab={navigateTo} />;
-      case 'necai':       return <NecAiScreen C={C} setTab={navigateTo} initialSearch={necaiInitSearch} clearInitSearch={() => setNecaiInitSearch('')} />;
+      case 'necai':       return <NecAiScreen C={C} setTab={navigateTo} initialSearch={necaiInitSearch} clearInitSearch={() => setNecaiInitSearch('')} onUpgrade={() => setPaywall('pro')} onBuyPacks={() => setPaywall('packs')} />;
       case 'examprep':    return <ExamPrepScreen C={C} onStreakUpdate={updateStreak} />;
       case 'learn':       return <LearnScreen setTab={navigateTo} C={C} onStreakUpdate={updateStreak} />;
       case 'wiringlab':   return <WiringLabScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
@@ -4202,7 +4314,7 @@ export default function App() {
       case 'materials':   return <MaterialsScreen C={C} setTab={navigateTo} />;
       case 'community':   return <CommunityScreen C={C} setTab={navigateTo} />;
       case 'customizehome': return <HomeCustomizeScreen C={C} layout={homeLayout} onSave={saveHomeLayout} onDone={() => { setHomeKey(k => k + 1); navigateTo('home'); }} />;
-      case 'settings':    return <SettingsScreen C={C} themePreference={themePreference} setThemePreference={setThemePreference} showDailyQ={showDailyQ} onDailyQToggle={handleDailyQToggle} appLanguage={appLanguage} setAppLanguage={setAppLanguage} />;
+      case 'settings':    return <SettingsScreen C={C} themePreference={themePreference} setThemePreference={setThemePreference} showDailyQ={showDailyQ} onDailyQToggle={handleDailyQToggle} appLanguage={appLanguage} setAppLanguage={setAppLanguage} isPro={isPro} onUpgrade={() => setPaywall('pro')} onBuyPacks={() => setPaywall('packs')} onRestore={handleRestorePurchases} />;
       case 'jobcam':      return <JobCamScreen C={C} setTab={navigateTo} />;
       default:            return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} />;
     }
@@ -4260,6 +4372,16 @@ export default function App() {
           </TouchableOpacity>
         ))}
       </View>
+
+      {/* ── Paywall — the ONE purchase surface, wired to real RevenueCat ── */}
+      <SparkPaywall
+        visible={paywall !== null}
+        isPacks={paywall === 'packs'}
+        onClose={() => setPaywall(null)}
+        onPurchase={handlePurchase}
+        onBuyPack={handlePurchase}
+        onRestore={handleRestorePurchases}
+      />
     </SafeAreaView>
     );
 }

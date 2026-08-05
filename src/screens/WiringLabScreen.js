@@ -19,14 +19,15 @@ import { validate, primaryFailure } from '../circuit/validator';
 import { conductor, ConductorRole } from '../circuit/model';
 import { attributionFor, TRAINING_DISCLAIMER } from '../circuit/review';
 import { scoreAttempt, nextHint, rankForXp, TimerMode } from '../circuit/scoring';
+import CircuitCanvas, { ROLE_COLORS } from './CircuitCanvas';
 
 const ROLE_CHIPS = [
-  { role: ConductorRole.LINE, label: 'Line', color: '#111827' },
-  { role: ConductorRole.SWITCHED_HOT, label: 'Switched', color: '#DC2626' },
-  { role: ConductorRole.TRAVELER_A, label: 'Traveler A', color: '#DC2626' },
-  { role: ConductorRole.TRAVELER_B, label: 'Traveler B', color: '#EA580C' },
-  { role: ConductorRole.NEUTRAL, label: 'Neutral', color: '#9CA3AF' },
-  { role: ConductorRole.EQUIPMENT_GROUND, label: 'Ground', color: '#16A34A' },
+  { role: ConductorRole.LINE, label: 'Line', color: ROLE_COLORS.LINE },
+  { role: ConductorRole.SWITCHED_HOT, label: 'Switched', color: ROLE_COLORS.SWITCHED_HOT },
+  { role: ConductorRole.TRAVELER_A, label: 'Traveler A', color: ROLE_COLORS.TRAVELER_A },
+  { role: ConductorRole.TRAVELER_B, label: 'Traveler B', color: ROLE_COLORS.TRAVELER_B },
+  { role: ConductorRole.NEUTRAL, label: 'Neutral', color: ROLE_COLORS.NEUTRAL },
+  { role: ConductorRole.EQUIPMENT_GROUND, label: 'Ground', color: ROLE_COLORS.EQUIPMENT_GROUND },
 ];
 
 const shortTerminal = (id) => String(id).split('.').pop();
@@ -62,7 +63,7 @@ function LessonList({ C, lessons, onPick, setTab }) {
           <Ionicons name="git-network" size={22} color={C.blue} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 20, fontWeight: '800', color: C.text }}>Wiring Lab</Text>
+          <Text style={{ fontSize: 20, fontWeight: '800', color: C.text }}>Wiring Simulator</Text>
           <Text style={{ fontSize: 12, color: C.textTert }}>Wire it. Test it. Find out why.</Text>
         </View>
       </View>
@@ -244,40 +245,17 @@ function LessonPlayer({ C, lesson, onExit, onStreakUpdate }) {
         </>
       )}
 
-      {/* Components + terminals */}
-      {components.map((c) => (
-        <View key={c.id} style={{ backgroundColor: C.surface, borderRadius: 14, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: C.border }}>
-          <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, marginBottom: 9 }}>{c.label}</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
-            {c.terminals.map((t) => {
-              const isPending = pending === t.id;
-              const isBad = highlighted.has(t.id);
-              const count = wires.filter((w) => w.fromTerminal === t.id || w.toTerminal === t.id).length;
-              return (
-                <TouchableOpacity
-                  key={t.id}
-                  onPress={() => tapTerminal(t.id)}
-                  activeOpacity={0.8}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${c.label} ${t.label}${count ? `, ${count} connected` : ', not connected'}`}
-                  style={{
-                    paddingHorizontal: 11, paddingVertical: 10, borderRadius: 10, minHeight: 44, justifyContent: 'center',
-                    backgroundColor: isPending ? C.blue : isBad ? C.dangerBg : count ? C.successBg : C.inputBg,
-                    borderWidth: 1.5,
-                    borderColor: isPending ? C.blue : isBad ? C.danger : count ? C.success : C.border,
-                  }}>
-                  <Text style={{
-                    fontSize: 12, fontWeight: '700',
-                    color: isPending ? '#fff' : isBad ? C.danger : count ? C.success : C.textSec,
-                  }}>
-                    {t.label}{count > 0 ? ` ·${count}` : ''}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-      ))}
+      {/* The circuit, drawn — devices, screws, and colored conductors */}
+      <CircuitCanvas
+        C={C}
+        components={components}
+        wires={wires}
+        pending={pending}
+        highlighted={highlighted}
+        lit={solved}
+        onTapTerminal={tapTerminal}
+        onTapWire={removeWire}
+      />
 
       {pending && (
         <Text style={{ fontSize: 12, color: C.blue, fontWeight: '600', marginBottom: 10, textAlign: 'center' }}>

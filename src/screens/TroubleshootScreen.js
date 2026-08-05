@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { SCENARIOS, buildScenario, answerScenario } from '../core/training/troubleshooting';
 import { TRAINING_DISCLAIMER } from '../circuit/review';
+import CircuitCanvas from './CircuitCanvas';
 
 export default function TroubleshootScreen({ C, setTab, onStreakUpdate }) {
   const [openId, setOpenId] = useState(null);
@@ -63,9 +64,10 @@ function ScenarioPlayer({ C, scenarioId, onExit, onStreakUpdate }) {
   const [picked, setPicked] = useState(null);
   const [outcome, setOutcome] = useState(null);
   const [showTable, setShowTable] = useState(false);
+  const [showDiagram, setShowDiagram] = useState(true);
 
   if (!built) return null;
-  const { scenario, symptom } = built;
+  const { scenario, symptom, healthyCircuit, lesson } = built;
 
   const submit = (i) => {
     if (outcome?.correct) return;
@@ -91,6 +93,26 @@ function ScenarioPlayer({ C, scenarioId, onExit, onStreakUpdate }) {
       <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: C.border }}>
         <Text style={{ fontSize: 10.5, fontWeight: '800', color: C.textTert, letterSpacing: 0.6, marginBottom: 6 }}>THE CALL</Text>
         <Text style={{ fontSize: 14, color: C.text, lineHeight: 21, fontStyle: 'italic' }}>“{scenario.customerReport}”</Text>
+      </View>
+
+      {/* The as-designed circuit. Drawing the DESIGN, not the faulted copy, is
+          deliberate: in the field the wiring looks right until you test it —
+          drawing the fault would print the answer on the screen. */}
+      <View style={{ marginBottom: 12 }}>
+        <TouchableOpacity onPress={() => setShowDiagram((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8 }}>
+          <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5 }}>
+            AS-DESIGNED CIRCUIT
+          </Text>
+          <Ionicons name={showDiagram ? 'chevron-up' : 'chevron-down'} size={13} color={C.textSec} />
+        </TouchableOpacity>
+        {showDiagram && (
+          <CircuitCanvas
+            C={C}
+            components={lesson.components()}
+            wires={healthyCircuit.conductors}
+            lit={false}
+          />
+        )}
       </View>
 
       {/* Engine-derived symptom */}

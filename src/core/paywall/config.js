@@ -114,8 +114,8 @@ export const ALL_PLACEMENTS = Object.values(Placement);
  */
 export const PLACEMENT_COPY = Object.freeze({
   [Placement.SIMULATION_LOCKED]: {
-    eyebrow: 'Wiring Lab',
-    headline: 'Keep going in the Wiring Lab',
+    eyebrow: 'Wiring Simulator',
+    headline: 'Keep going in the Wiring Simulator',
     sub: 'You finished the free lesson. Pro unlocks every wiring and troubleshooting lesson.',
   },
   [Placement.TROUBLESHOOTING_LOCKED]: {
@@ -171,7 +171,7 @@ export const PLACEMENT_COPY = Object.freeze({
   [Placement.ONBOARDING_COMPLETE]: {
     eyebrow: 'Nice work',
     headline: 'That is one of about forty tools',
-    sub: 'Pro opens the rest, plus the Wiring Lab and unlimited Spark AI.',
+    sub: 'Pro opens the rest, plus the Wiring Simulator and unlimited Spark AI.',
   },
 });
 
