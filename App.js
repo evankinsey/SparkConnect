@@ -4,11 +4,24 @@ import SparkPaywall from './src/SparkPaywall';
 import OnboardingFlow from './src/OnboardingFlow';
 import { useGating } from './src/useGating';
 import { analytics } from './src/analytics';
+import { getDailyQuestion } from './src/dailyQuestions';
+import {
+  refreshDailyQuestionNotifications,
+  enableDailyQuestionNotifications,
+  disableDailyQuestionNotifications,
+  isDailyQuestionEnabled,
+  getReminderTime,
+  cycleReminderTime,
+  formatReminderTime,
+  addDailyQuestionTapListener,
+  getInitialDailyQuestionResponse,
+  clearBadge,
+} from './src/dailyNotifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput,
   SafeAreaView, StatusBar, Platform, Switch, Dimensions, useColorScheme,
-  Share, Alert, Animated, Linking,
+  Share, Alert, Animated, Linking, AppState,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 // expo-image-picker & expo-sharing — lazy-loaded so the app never crashes if package isn't installed
@@ -189,20 +202,8 @@ const DARK = {
 };
 
 // ─── NEC DAILY QUESTIONS ─────────────────────────────────────────────────────
-const NEC_QUESTIONS = [
-  {id:'q1',question:'Max recommended voltage drop for a branch circuit per NEC informational notes?',choices:['2%','3%','5%','10%'],correct:1,explanation:'NEC 210.19(A) Informational Note recommends ≤3% on branch circuits, ≤5% total feeder + branch.',ref:'NEC 210.19(A)',difficulty:'Apprentice',category:'Voltage Drop'},
-  {id:'q2',question:'GFCI protection is required for 125V 15/20A receptacles in which location?',choices:['Living rooms','Bathrooms','Closets','Hallways'],correct:1,explanation:'NEC 210.8(A)(1) requires GFCI in all dwelling bathrooms, plus kitchens, garages, outdoors, and more.',ref:'NEC 210.8(A)(1)',difficulty:'Apprentice',category:'GFCI'},
-  {id:'q3',question:'A continuous load OCPD must be rated at what % of the load?',choices:['100%','115%','125%','150%'],correct:2,explanation:'NEC 210.20(A): OCPD ≥125% of continuous load. Continuous = 3+ hours of operation.',ref:'NEC 210.20(A)',difficulty:'Journeyman',category:'Overcurrent'},
-  {id:'q4',question:'A #12 AWG conductor counts as how many cubic inches in box fill?',choices:['1.75','2.00','2.25','2.50'],correct:2,explanation:'NEC 314.16(B) Table: #12 AWG = 2.25 in³ per conductor.',ref:'NEC 314.16(B)',difficulty:'Apprentice',category:'Box Fill'},
-  {id:'q5',question:'Max conduit fill % for 3 or more conductors?',choices:['31%','40%','53%','60%'],correct:1,explanation:'NEC Ch.9 Table 1: 53% (1 wire), 31% (2 wires), 40% (3+ wires).',ref:'NEC Chapter 9, Table 1',difficulty:'Journeyman',category:'Conduit Fill'},
-  {id:'q6',question:'The EGC primarily provides what?',choices:['Load current return','Low-impedance fault path to trip OCPD','Voltage drop reduction','120V neutral'],correct:1,explanation:'NEC 250.4(A)(5): the EGC provides a low-impedance fault-current path so the breaker trips fast.',ref:'NEC 250.4(A)(5)',difficulty:'Apprentice',category:'Grounding'},
-  {id:'q7',question:'Which NEC article covers EV charging equipment?',choices:['Article 210','Article 250','Article 625','Article 700'],correct:2,explanation:'NEC Article 625 covers EVSE: circuit sizing, GFCI, and disconnecting means.',ref:'NEC Article 625',difficulty:'Journeyman',category:'EV Charging'},
-  {id:'q8',question:'Max equivalent 90° bends in EMT between pull points?',choices:['180°','270°','360°','450°'],correct:2,explanation:'NEC 358.26 limits total bends to 360° (four quarter-bends) between pull boxes.',ref:'NEC 358.26',difficulty:'Apprentice',category:'Conduit'},
-];
-const getDailyQuestion = () => {
-  const day = Math.floor((Date.now() - new Date(new Date().getFullYear(),0,0).getTime())/86400000);
-  return NEC_QUESTIONS[day % NEC_QUESTIONS.length];
-};
+// Question bank + date-stable selection now live in ./src/dailyQuestions so the
+// Home card and the morning notification always resolve to the same question.
 
 // ─── FORMULAS ─────────────────────────────────────────────────────────────────
 const FORMULAS = [
@@ -786,10 +787,12 @@ const BendDiagram = ({ type, result, stub, offsetH, offsetA, C }) => {
 const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate }) => {
   const [notifPromptShown, setNotifPromptShown] = React.useState(false);
   const [notifEnabled, setNotifEnabled] = React.useState(false);
-  const [notifDismissed, setNotifDismissed] = React.useState(false);
+  const [notifDismissed, setNotifDismissed] = React.useState(true); // assume hidden until storage answers
+  const [reminderTime, setReminderTimeState] = React.useState({ hour: 7, minute: 30 });
   React.useEffect(() => {
-    safeStorageGet('@sc_notif_dismissed').then(v => { if (v === 'true') setNotifDismissed(true); });
-    safeStorageGet('@sc_notif_enabled').then(v => { if (v === 'true') setNotifEnabled(true); });
+    isDailyQuestionEnabled().then(setNotifEnabled);
+    safeStorageGet('@sc_notif_dismissed').then(v => setNotifDismissed(v === 'true'));
+    getReminderTime().then(setReminderTimeState);
   }, []);
   const q = getDailyQuestion();
   const [revealed, setRevealed] = useState(false);
@@ -813,7 +816,7 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate }
               <Ionicons name="school" size={16} color={C.blue} />
             </View>
             <View>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: C.blue }}></Text>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.blue }}>Daily Code Question</Text>
               <Text style={{ fontSize: 10, color: C.textTert }}>{q.category} · {q.difficulty}</Text>
             </View>
           </View>
@@ -854,23 +857,20 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate }
           <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.border, borderLeftWidth: 4, borderLeftColor: C.blue }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <Ionicons name="notifications-outline" size={18} color={C.blue} />
-              <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>Get your  reminder</Text>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>Get your morning code question</Text>
             </View>
-            <Text style={{ fontSize: 12, color: C.textSec, lineHeight: 18, marginBottom: 12 }}>One notification per day — today's code question, no spam.</Text>
+            <Text style={{ fontSize: 12, color: C.textSec, lineHeight: 18, marginBottom: 12 }}>One notification per day at {formatReminderTime(reminderTime)} — that day's code question, no spam.</Text>
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <TouchableOpacity onPress={async () => {
-                try {
-                  const N = await import('expo-notifications');
-                  const { status } = await N.requestPermissionsAsync();
-                  if (status === 'granted') {
-                    setNotifEnabled(true);
-                    await safeStorageSet('@sc_notif_enabled', 'true');
-                    scheduleDailyNECNotification();
-                    Alert.alert('✅ Reminder Set!', "You'll get a  at 7:30 AM.");
-                  } else {
-                    Alert.alert('Notifications Blocked', 'Enable notifications in Settings → SparkConnect → Notifications to get daily reminders.');
-                  }
-                } catch(e) { safeLog('notif', e); }
+                const result = await enableDailyQuestionNotifications();
+                if (result.ok) {
+                  setNotifEnabled(true);
+                  Alert.alert('✅ Reminder Set!', `You'll get a code question every morning at ${formatReminderTime(reminderTime)}.`);
+                } else if (result.reason === 'denied') {
+                  Alert.alert('Notifications Blocked', 'Enable notifications in Settings → SparkConnect → Notifications to get your daily code question.');
+                } else {
+                  Alert.alert('Not Available Here', 'Daily reminders need the full SparkConnect app — they cannot run in Expo Go or the web preview.');
+                }
                 setNotifDismissed(true);
                 await safeStorageSet('@sc_notif_dismissed', 'true');
               }} style={{ flex: 1, backgroundColor: C.blue, borderRadius: 10, padding: 10, alignItems: 'center' }}>
@@ -3494,9 +3494,11 @@ const ExamPrepScreen = ({ C, onStreakUpdate }) => {
 const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = true, onDailyQToggle, appLanguage = 'english', setAppLanguage }) => {
   const [keepOn, setKeepOn] = useState(true);
   const [haptics, setHaptics] = useState(true);
-  const [notifEnabled, setNotifEnabled] = useState(true);
+  const [notifEnabled, setNotifEnabled] = useState(false);
+  const [reminderTime, setReminderTimeState] = useState({ hour: 7, minute: 30 });
   React.useEffect(() => {
-    safeStorageGet('@sc_notif_enabled').then(v => { if (v === 'false') setNotifEnabled(false); });
+    isDailyQuestionEnabled().then(setNotifEnabled);
+    getReminderTime().then(setReminderTimeState);
   }, []);
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
@@ -3616,18 +3618,29 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
       <SectionTitle title="App Settings" />
       <Card C={C} style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
 
-        <Row icon="notifications-outline" label=" Alert" toggle togVal={notifEnabled} onTog={async (v) => {
-          setNotifEnabled(v);
-          await safeStorageSet('@sc_notif_enabled', v ? 'true' : 'false');
-          if (v) scheduleDailyNECNotification();
-          else {
-            const N = await import('expo-notifications').catch(() => null);
-            if (N) await N.cancelAllScheduledNotificationsAsync();
+        <Row icon="notifications-outline" label="Daily Code Question Alert" toggle togVal={notifEnabled} onTog={async (v) => {
+          if (v) {
+            const result = await enableDailyQuestionNotifications();
+            setNotifEnabled(result.ok);
+            if (!result.ok) {
+              Alert.alert(
+                result.reason === 'denied' ? 'Notifications Blocked' : 'Not Available Here',
+                result.reason === 'denied'
+                  ? 'Enable notifications in Settings → SparkConnect → Notifications to get your daily code question.'
+                  : 'Daily reminders need the full SparkConnect app — they cannot run in Expo Go or the web preview.',
+              );
+            }
+          } else {
+            setNotifEnabled(false);
+            await disableDailyQuestionNotifications();
           }
         }} iconBg={C.blueSub} iconColor={C.blue} />
+        <Row icon="alarm-outline" label="Reminder Time" val={formatReminderTime(reminderTime)}
+          onPress={async () => { setReminderTimeState(await cycleReminderTime()); }}
+          iconBg={C.blueSub} iconColor={C.blue} />
         <Row icon="phone-portrait" label="Keep Screen On" toggle togVal={keepOn} onTog={setKeepOn} />
         <Row icon="radio-button-on" label="Haptic Feedback" toggle togVal={haptics} onTog={setHaptics} />
-        <Row icon="school" label="" toggle togVal={showDailyQ} onTog={onDailyQToggle} iconBg={C.blueSub} iconColor={C.blue} />
+        <Row icon="school" label="Show Daily Question on Home" toggle togVal={showDailyQ} onTog={onDailyQToggle} iconBg={C.blueSub} iconColor={C.blue} />
         <Row icon="book-outline" label="NEC Edition" val="2023" iconBg={C.amberBg} iconColor={C.amber} />
         <Row icon="ruler-outline" label="Units" val="Imperial (in/ft)" iconBg={C.purpleBg} iconColor={C.purple} />
       </Card>
@@ -3879,65 +3892,9 @@ const splashStyles = StyleSheet.create({
 });
 
 // ─── DAILY NOTIFICATION SCHEDULER ────────────────────────────────────────────
-// Schedules a daily lock-screen/home-screen notification with today's NEC question.
-// Uses expo-notifications (add to app.json plugins if needed for production builds).
-// On iOS, user must grant notification permission. On Android, API 33+ requires permission.
-//
-// The notification shows: question text, multiple choice options, and the NEC article.
-// User taps notification → opens SparkConnect directly to the Daily Question.
-//
-// Lock/home screen widget: React Native doesn't support true home-screen widgets
-// (requires native iOS WidgetKit / Android AppWidget, not available in Expo Go).
-// The BEST cross-platform equivalent is a scheduled daily push notification —
-// it shows on the lock screen, banners, and notification center automatically.
-//
-const scheduleDailyNECNotification = async () => {
-  try {
-    // Dynamically import — graceful if not available in Expo Go
-    const Notifications = await import('expo-notifications').catch(() => null);
-    if (!Notifications) return;
-
-    // Request permission
-    const { status: existing } = await Notifications.getPermissionsAsync();
-    let finalStatus = existing;
-    if (existing !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-    if (finalStatus !== 'granted') return; // User declined — respect it
-
-    // Cancel any existing daily NEC notification before rescheduling
-    await Notifications.cancelAllScheduledNotificationsAsync();
-
-    // Get today's question
-    const q = getDailyQuestion();
-    const choicePreview = q.choices.slice(0, 2).map((c, i) => `${String.fromCharCode(65+i)}) ${c}`).join('  ');
-
-    // Schedule for 7:30 AM every day
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: '⚡ ',
-        body: `${q.question}
-${choicePreview}
-📖 ${q.ref}`,
-        subtitle: `${q.category} · ${q.difficulty}`,
-        data: { screen: 'home', type: 'daily_question' },
-        sound: true,
-        // Badge count (iOS) — shows number on app icon
-        badge: 1,
-      },
-      trigger: {
-        hour: 7,
-        minute: 30,
-        repeats: true,
-      },
-    });
-
-    safeLog('Notifications', ' scheduled for 7:30 AM');
-  } catch(e) {
-    safeLog('scheduleDailyNECNotification', 'Notifications not available in this environment');
-  }
-};
+// Implementation lives in ./src/dailyNotifications. See that file for why this
+// is a scheduled local notification rather than a true Home Screen widget, and
+// why each day is scheduled individually instead of with a repeating trigger.
 
 };
 };
@@ -3954,9 +3911,9 @@ export default function App() {
       const done = val === 'true';
       setOnboardingDone(done);
       setOnboardingChecked(true);
-      // If already onboarded, reschedule the daily notification on each app open
-      // (ensures it stays active even after OS clears it on update/reinstall)
-      if (done) scheduleDailyNECNotification();
+      // Top up the rolling notification horizon on every launch. Silent: it
+      // never prompts, and does nothing unless the user already opted in.
+      if (done) refreshDailyQuestionNotifications();
     });
     safeStorageGet('@sc_show_daily_q').then(val => { if (val === 'false') setShowDailyQ(false); });
     // Streak: check last quiz date
@@ -4008,6 +3965,34 @@ export default function App() {
     setHomeKey(k => k + 1); // force HomeScreen to remount with new pref
   }, []);
 
+  // ── Daily Code Question notification: open Home on the question when tapped ──
+  const openDailyQuestion = React.useCallback(() => {
+    setShowDailyQ(true);
+    safeStorageSet('@sc_show_daily_q', 'true');
+    setTab('home');
+    setHistory(['home']);
+    setHomeKey(k => k + 1); // remount so the card re-reads today's question
+    clearBadge();
+  }, []);
+
+  React.useEffect(() => {
+    // Cold start: the app was launched *by* the notification, so no listener
+    // was mounted in time to see the tap.
+    getInitialDailyQuestionResponse().then(res => { if (res) openDailyQuestion(); });
+    // Warm taps while the app is running or backgrounded.
+    const unsubscribe = addDailyQuestionTapListener(openDailyQuestion);
+    return unsubscribe;
+  }, [openDailyQuestion]);
+
+  React.useEffect(() => {
+    // Returning to the foreground tops the rolling horizon back up, so the
+    // reminders keep coming without needing a cold start.
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshDailyQuestionNotifications();
+    });
+    return () => { try { sub.remove(); } catch (e) { safeLog('AppState', e); } };
+  }, []);
+
   const [necaiInitSearch, setNecaiInitSearch] = React.useState('');
   const navigateTo = (newTab, initSearch = '') => {
     // SECURITY: validate tab ID before navigating
@@ -4047,8 +4032,9 @@ export default function App() {
       <OnboardingScreen C={C} onAccept={async () => {
         await safeStorageSet('@sc_onboarding_done', 'true');
         setOnboardingDone(true);
-        // Schedule  notification after user accepts onboarding
-        scheduleDailyNECNotification();
+        // Ask for notification permission once, right after onboarding. If the
+        // user declines, the Home opt-in card gives them a second chance.
+        enableDailyQuestionNotifications();
       }} />
     );
   }

@@ -9,3 +9,25 @@ All projects created in Snack are publicly available, so you can easily share th
 If you're having problems, you can tweet to us [@expo](https://twitter.com/expo) or ask in our [forums](https://forums.expo.dev/c/expo-dev-tools/61) or [Discord](https://chat.expo.dev/).
 
 Snack is Open Source. You can find the code on the [GitHub repo](https://github.com/expo/snack).
+
+## Daily Code Question reminder
+
+One NEC question is delivered every morning to the lock screen / notification centre,
+and tapping it opens SparkConnect on that day's question.
+
+- Bank and date-stable selection: `src/dailyQuestions.js`
+- Scheduling, permissions, tap handling: `src/dailyNotifications.js`
+- User controls: Settings → App Settings → **Daily Code Question Alert** / **Reminder Time**
+
+**It will not fire in Expo Go or the web preview.** Expo Go dropped notification
+support on Android in SDK 53, so this needs a development build or a real
+TestFlight / Play build:
+
+```
+npx expo install expo-notifications      # keep it on the SDK-matched version
+eas build --profile development --platform ios     # or android
+```
+
+There is no true Home Screen *widget*: that requires native iOS WidgetKit (Swift)
+and Android AppWidgetProvider (Kotlin), neither of which can be written in JS.
+The scheduled notification is the cross-platform equivalent.
