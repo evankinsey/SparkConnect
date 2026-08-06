@@ -10,6 +10,7 @@ import {
   buildMap, isWall, movePlayer, nearestStation, completeStation,
   emptyJobsiteProgress, isComplete, jobsitePercent, sanitizeProgress,
   STATIONS, SPAWN, MAP_W, MAP_H, PLAYER_RADIUS, Tile, TaskKind,
+  pathBetween, distanceFeet, nextObjective,
 } from '../src/core/game/jobsite.js';
 import { ALL_LESSONS } from '../src/circuit/lessons/index.js';
 import {
@@ -219,4 +220,61 @@ test('sanitizeProgress drops unknown stations and recomputes XP', () => {
   const p = sanitizeProgress({ completed: [s.id, 'st-ghost', s.id], xp: 999999 });
   assert.deepEqual(p.completed, [s.id], 'unknown and duplicate ids must be dropped');
   assert.equal(p.xp, s.xp, 'XP is recomputed, so a tampered total cannot survive');
+});
+
+// ─── Wayfinding ──────────────────────────────────────────────────────────────
+// The route is drawn on screen, so a path through a wall is not a cosmetic
+// bug — it tells the player to walk somewhere they cannot walk.
+
+test('a route never passes through a wall', () => {
+  const grid = buildMap();
+  for (const st of STATIONS) {
+    const path = pathBetween(grid, SPAWN, st);
+    assert.ok(path.length > 0, `no route to ${st.id}`);
+    for (const p of path) {
+      assert.equal(isWall(grid, Math.floor(p.x), Math.floor(p.y)), false,
+        `route to ${st.id} crosses a wall at ${p.x},${p.y}`);
+    }
+  }
+});
+
+test('a route starts at the player and ends on the station', () => {
+  const grid = buildMap();
+  const st = STATIONS[0];
+  const path = pathBetween(grid, SPAWN, st);
+  assert.deepEqual(path[0], { x: SPAWN.x, y: SPAWN.y });
+  assert.equal(path[path.length - 1].x, st.x);
+  assert.equal(path[path.length - 1].y, st.y);
+});
+
+test('every step of a route is adjacent to the last', () => {
+  const grid = buildMap();
+  const path = pathBetween(grid, SPAWN, STATIONS[4]);
+  for (let i = 1; i < path.length; i++) {
+    const d = Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
+    assert.ok(d <= 1.6, `jump of ${d} between steps ${i - 1} and ${i}`);
+  }
+});
+
+test('an unreachable or invalid target returns no route rather than a lie', () => {
+  const grid = buildMap();
+  assert.deepEqual(pathBetween(grid, SPAWN, { x: 0, y: 0 }), [], 'target inside the boundary wall');
+  assert.deepEqual(pathBetween(grid, { x: 0, y: 0 }, SPAWN), [], 'starting inside a wall');
+  assert.deepEqual(pathBetween(grid, SPAWN, { x: -5, y: -5 }), []);
+});
+
+test('the objective is the nearest station still to be signed off', () => {
+  const first = nextObjective(SPAWN, emptyJobsiteProgress());
+  assert.ok(first, 'a fresh site has an objective');
+  const done = { completed: [first.id], xp: 0 };
+  assert.notEqual(nextObjective(SPAWN, done).id, first.id, 'a finished station is not the objective');
+  const all = { completed: STATIONS.map((s) => s.id), xp: 0 };
+  assert.equal(nextObjective(SPAWN, all), null, 'a finished site has no objective');
+});
+
+test('distance is reported in feet and grows with separation', () => {
+  const near = distanceFeet({ x: 0, y: 0 }, { x: 1, y: 0 });
+  const far = distanceFeet({ x: 0, y: 0 }, { x: 10, y: 0 });
+  assert.ok(far > near && near > 0);
+  assert.equal(distanceFeet({ x: 3, y: 3 }, { x: 3, y: 3 }), 0);
 });

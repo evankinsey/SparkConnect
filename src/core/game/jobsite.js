@@ -255,4 +255,71 @@ export const jobsitePercent = (progress) => {
   return Math.round((done / STATIONS.length) * 100);
 };
 
+
+// ─── Wayfinding ──────────────────────────────────────────────────────────────
+
+/**
+ * Shortest walkable path between two points, as tile centres.
+ *
+ * Breadth-first over the tile grid, because a straight line from the player to
+ * the objective would cut through walls and the whole point of drawing the
+ * route is that it is a route you can actually walk.
+ *
+ * Returns [] when there is no path, so the caller draws nothing rather than
+ * drawing a lie.
+ */
+export const pathBetween = (grid, from, to) => {
+  const sx = Math.floor(from.x), sy = Math.floor(from.y);
+  const tx = Math.floor(to.x), ty = Math.floor(to.y);
+  if (isWall(grid, sx, sy) || isWall(grid, tx, ty)) return [];
+  if (sx === tx && sy === ty) return [{ x: to.x, y: to.y }];
+
+  const key = (x, y) => y * MAP_W + x;
+  const prev = new Map();
+  const seen = new Set([key(sx, sy)]);
+  const queue = [[sx, sy]];
+  let head = 0;
+
+  while (head < queue.length) {
+    const [x, y] = queue[head++];
+    if (x === tx && y === ty) break;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (isWall(grid, nx, ny) || seen.has(key(nx, ny))) continue;
+      seen.add(key(nx, ny));
+      prev.set(key(nx, ny), [x, y]);
+      queue.push([nx, ny]);
+    }
+  }
+  if (!seen.has(key(tx, ty))) return [];
+
+  const out = [];
+  let cur = [tx, ty];
+  while (cur) {
+    out.push({ x: cur[0] + 0.5, y: cur[1] + 0.5 });
+    cur = prev.get(key(cur[0], cur[1])) ?? null;
+  }
+  out.reverse();
+  // Anchor the ends on the real positions so the line starts at the player's
+  // feet and finishes on the station, not on the tile centres nearest them.
+  out[0] = { x: from.x, y: from.y };
+  out[out.length - 1] = { x: to.x, y: to.y };
+  return out;
+};
+
+/** Straight-line distance in feet, for the badge on the route. */
+export const distanceFeet = (a, b, feetPerTile = 4) =>
+  Math.round(Math.hypot(b.x - a.x, b.y - a.y) * feetPerTile);
+
+/** The next station worth walking to: nearest one not yet signed off. */
+export const nextObjective = (pos, progress, stations = STATIONS) => {
+  let best = null, bestD = Infinity;
+  for (const s of stations) {
+    if (isComplete(progress, s.id)) continue;
+    const d = Math.hypot(s.x - pos.x, s.y - pos.y);
+    if (d < bestD) { best = s; bestD = d; }
+  }
+  return best;
+};
+
 export { ROOMS };
