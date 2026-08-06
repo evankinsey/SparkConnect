@@ -375,8 +375,36 @@ test('the terminal labels teach, and never imply DC polarity', () => {
     assert.ok(!/screw\s*\d/i.test(label), `"${label}" implies an order that does not exist`);
   }
   assert.ok(labels.filter((l) => /brass/i.test(l)).length === 2, 'both switched terminals are brass');
-  assert.match(sw.metadata.terminalNote, /either/i, 'the note must say the screws are interchangeable');
-  assert.match(sw.metadata.terminalNote, /GFCI/, 'and must contrast with the device where it does matter');
+
+  const note = sw.metadata.terminalNote;
+  assert.match(note, /either/i, 'the note must say the screws are interchangeable');
+
+  // The scope of that claim is the safety-critical part. "Switches have no
+  // line/load orientation" is true of a plain mechanical single-pole switch and
+  // false of most devices that share its shape and its box. A learner who
+  // generalises it wires a dimmer backwards, or a GFCI backwards — and a
+  // backwards GFCI leaves everything downstream unprotected while still
+  // testing fine at the face.
+  assert.match(note, /mechanical|plain/i, 'the note must scope the claim to this device');
+  assert.match(note, /dimmer/i, 'and must name the electronic devices it does NOT apply to');
+  assert.match(note, /LINE and LOAD/, 'and must say those are marked LINE and LOAD');
+  assert.match(note, /GFCI/, 'and must call out the device where reversing it is dangerous');
+  assert.ok(!/[+−]|positive|negative/i.test(note), 'and must never imply DC polarity');
+});
+
+test('the switch note is covered by the review gate', () => {
+  const lesson = lessonById('single-pole-source-at-switch');
+  const fp = lessonFingerprint(lesson);
+  const edited = {
+    ...lesson,
+    components: () => lesson.components().map((c) => (
+      c.type === ComponentType.SWITCH_SINGLE_POLE
+        ? { ...c, metadata: { ...c.metadata, terminalNote: 'either screw, always, on anything' } }
+        : c
+    )),
+  };
+  assert.notEqual(lessonFingerprint(edited), fp,
+    'rewriting a device note must invalidate the approval — it is content a learner acts on');
 });
 
 // ─── The bench-test readout ──────────────────────────────────────────────────

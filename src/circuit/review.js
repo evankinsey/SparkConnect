@@ -144,6 +144,11 @@ export const lessonFingerprint = (lesson) => {
     components: components.map((c) => ({
       id: c.id, type: c.type, label: c.label,
       terminals: (c.terminals ?? []).map((t) => ({ id: t.id, label: t.label, role: t.semanticRole })),
+      // Device notes render on screen and a learner acts on them. Leaving them
+      // out meant the sentence "either brass screw takes the line" could be
+      // rewritten under a sign-off that never covered it — the same hole the
+      // fingerprint was built to close, one level down.
+      note: c.metadata?.terminalNote ?? null,
     })),
     solution: solution.map((w) => [w.fromTerminal, w.toTerminal, w.role].sort()),
     expectations: lesson.expectations ?? {},

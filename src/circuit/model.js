@@ -99,13 +99,21 @@ export const singlePoleSwitch = (id, label = 'Single-Pole Switch') => ({
     positionLabels: ['OFF', 'ON'],
     // Shown under the component. "Screw 1 / Screw 2" was accurate and taught
     // nothing — it implied an order that does not exist. Naming the metal is
-    // what an electrician actually looks for in a box, and stating the
-    // interchangeability outright heads off the mental model that would do real
-    // damage later: on a GFCI, line and load are NOT interchangeable, and
-    // reversing them leaves everything downstream unprotected while the device
-    // still appears to work. Nothing here should imply polarity on an AC
-    // switch — there is no plus or minus to find.
-    terminalNote: 'Both screws are brass and either one can take the line — a single-pole switch has no line/load orientation. (A GFCI does. That one matters.)',
+    // what an electrician actually looks for in a box.
+    //
+    // The scope of the claim is the safety-critical part, and the first version
+    // of this note got it wrong by being too broad. "A switch has no line/load
+    // orientation" is true of THIS device and false of most of the things that
+    // share its shape and its box: dimmers, timers, smart switches and
+    // occupancy sensors all contain electronics, are marked LINE and LOAD, and
+    // do not work — or do not survive — wired backwards. A GFCI is worse again,
+    // because reversing line and load leaves every downstream receptacle
+    // unprotected while the device itself still tests fine at the face.
+    //
+    // And nothing here may imply polarity. A brass/silver pair on a receptacle
+    // is hot/neutral, not plus/minus; there is no plus or minus anywhere on a
+    // 120 V AC branch circuit.
+    terminalNote: 'Both screws are brass, and on a plain mechanical single-pole switch either one can take the line — there is no line/load orientation and no polarity to get backwards. That is specific to this device: dimmers, timers, smart switches and occupancy sensors are marked LINE and LOAD and must be wired that way, and on a GFCI, reversing line and load leaves everything downstream unprotected.',
   },
   terminals: [
     mkTerminal(id, 'a', TerminalRole.SWITCH_LINE_SIDE, { required: true, label: 'Brass A' }),

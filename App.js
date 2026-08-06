@@ -265,7 +265,7 @@ const FORMULAS = [
   {id:'b2',cat:'Bending',name:'Offset 30°',f:'Spacing = Height × 2.0',v:'Height=rise',u:'30° offset marks.',ex:'4" × 2.0 = 8"'},
   {id:'b3',cat:'Bending',name:'Rolling Offset',f:'Travel = √(Rise² + Roll²)',v:'Rise=vert · Roll=horiz',u:'Diagonal travel.',ex:'√(6²+4²)=7.21"'},
   {id:'bf1',cat:'Box Fill',name:'Box Fill',f:'Σ conductors + 2×devices + 1×grounds + 1×clamps',v:'volume per NEC 314.16(B)',u:'Box cubic inches.',ex:'#12 = 2.25 in³ ea',ref:'NEC 314.16(B)'},
-  {id:'cf1',cat:'Conduit Fill',name:'Fill %',f:'Fill% = (wire area ÷ conduit area) × 100',v:'areas: NEC Ch.9 T4 & T5',u:'Verify ≤40%.',ex:'3×#12 in ½"EMT = 32.7%',ref:'NEC Ch.9 Table 1'},
+  {id:'cf1',cat:'Conduit Fill',name:'Fill %',f:'Fill% = (wire area ÷ conduit area) × 100',v:'areas: NEC Ch.9 T4 & T5',u:'Area is the conduit TOTAL from Ch.9 T4, not the 40% column. Verify ≤40%.',ex:'3×#12 in ½"EMT = 0.0399÷0.304 = 13.1%',ref:'NEC Ch.9 Table 1'},
 ];
 
 // ─── NEC KNOWLEDGE BASE ───────────────────────────────────────────────────────
@@ -292,7 +292,7 @@ const NEC_KB = [
    short:'1 wire = 53%, 2 wires = 31%, 3+ wires = 40% max fill.',
    refs:['NEC Chapter 9, Table 1','NEC Chapter 9, Table 4','NEC Chapter 9, Table 5'],
    explain:'Table 1 = max fill %. Table 4 = conduit areas. Table 5 = wire areas. Divide total wire area by conduit area.',
-   example:'3×#12 THHN (0.0133 ea) = 0.0399 in² ÷ ½" EMT (0.122) = 32.7% ✓',
+   example:'3×#12 THHN (0.0133 ea) = 0.0399 in² ÷ ½" EMT total 0.304 in² = 13.1% ✓ (0.122 is the 40% LIMIT, not the area)',
    related:['NEC Chapter 9','NEC 300.17']},
   {id:'kb5',topic:'Voltage Drop',calcTab:'volt',tags:['voltage drop','3%','5%','210.19','215.2'],
    short:'NEC recommends (not mandates) ≤3% branch, ≤5% total. Informational Notes only.',
@@ -528,7 +528,18 @@ const VD_RES={'14 AWG':[3.14,5.17],'12 AWG':[1.98,3.25],'10 AWG':[1.24,2.04],'8 
 const VD_AMP={'14 AWG':15,'12 AWG':20,'10 AWG':30,'8 AWG':50,'6 AWG':65,'4 AWG':85,'2 AWG':115,'1/0 AWG':150,'2/0 AWG':175,'4/0 AWG':230,'250 kcmil':255};
 const VD_GAUGES=['14 AWG','12 AWG','10 AWG','8 AWG','6 AWG','4 AWG','2 AWG','1/0 AWG','2/0 AWG','4/0 AWG','250 kcmil'];
 const CONDUCTOR_VOL={'#18':1.5,'#16':1.75,'#14':2.0,'#12':2.25,'#10':2.5,'#8':3.0,'#6':5.0};
-const COND_AREAS={EMT:{'1/2"':0.122,'3/4"':0.213,'1"':0.346,'1-1/4"':0.598,'1-1/2"':0.814,'2"':1.342},IMC:{'1/2"':0.137,'3/4"':0.235,'1"':0.384,'1-1/4"':0.659,'1-1/2"':0.890,'2"':1.452},RMC:{'1/2"':0.122,'3/4"':0.213,'1"':0.346,'1-1/4"':0.598,'1-1/2"':0.814,'2"':1.342},'PVC-40':{'1/2"':0.122,'3/4"':0.216,'1"':0.355,'1-1/4"':0.610,'1-1/2"':0.829,'2"':1.363}};
+// NEC Chapter 9, Table 4 — TOTAL internal cross-sectional area, in².
+//
+// These used to hold the 40% column, while `calc` divided by them and then
+// compared the result to MAX_FILL (40). That required fill to be 40% of the 40%
+// area — 16% of the conduit — and told people a 1/2" EMT holds three #12 THHN
+// when Table C.1 permits nine. RMC was a copy of the EMT row and PVC-40 was
+// partly RMC's, so two of the four conduit types were the wrong pipe entirely.
+//
+// Fill % is a percentage of the TOTAL area (Chapter 9, Table 1). Store the total
+// here and let MAX_FILL do the limiting, which is the one arrangement where the
+// numbers reproduce Table C.1 — see tests/conduitFill.test.js.
+const COND_AREAS={EMT:{'1/2"':0.304,'3/4"':0.533,'1"':0.864,'1-1/4"':1.496,'1-1/2"':2.036,'2"':3.356},IMC:{'1/2"':0.342,'3/4"':0.586,'1"':0.959,'1-1/4"':1.647,'1-1/2"':2.225,'2"':3.630},RMC:{'1/2"':0.314,'3/4"':0.549,'1"':0.887,'1-1/4"':1.526,'1-1/2"':2.071,'2"':3.408},'PVC-40':{'1/2"':0.285,'3/4"':0.508,'1"':0.832,'1-1/4"':1.453,'1-1/2"':1.986,'2"':3.291}};
 const WIRE_AREAS_CF={THHN:{'14':0.0097,'12':0.0133,'10':0.0211,'8':0.0366,'6':0.0507,'4':0.0824,'2':0.1158,'1/0':0.1855,'2/0':0.2223},XHHW:{'14':0.0139,'12':0.0181,'10':0.0243,'8':0.0437,'6':0.0590,'4':0.0814,'2':0.1146,'1/0':0.1825,'2/0':0.2190}};
 const MAX_FILL={1:53,2:31,3:40};
 const AMPACITY={copper:{'60C':{'14':15,'12':20,'10':30,'8':40,'6':55,'4':70,'3':85,'2':95,'1':110,'1/0':125,'2/0':145,'3/0':165,'4/0':195},'75C':{'14':20,'12':25,'10':35,'8':50,'6':65,'4':85,'3':100,'2':115,'1':130,'1/0':150,'2/0':175,'3/0':200,'4/0':230},'90C':{'14':25,'12':30,'10':40,'8':55,'6':75,'4':95,'3':110,'2':130,'1':150,'1/0':170,'2/0':195,'3/0':225,'4/0':260}},aluminum:{'60C':{'12':15,'10':25,'8':30,'6':40,'4':55,'3':65,'2':75,'1':85,'1/0':100,'2/0':115,'3/0':130,'4/0':150},'75C':{'12':20,'10':30,'8':40,'6':50,'4':65,'3':75,'2':90,'1':100,'1/0':120,'2/0':135,'3/0':155,'4/0':180},'90C':{'12':25,'10':35,'8':45,'6':60,'4':75,'3':85,'2':100,'1':115,'1/0':135,'2/0':150,'3/0':175,'4/0':205}}};
@@ -1878,8 +1889,8 @@ const EXAM_QUESTIONS = [
   {id:'cf03',level:'Apprentice',cat:'Conduit Fill',q:'Maximum fill for a single conductor in conduit?',ch:['40%','50%','53%','60%'],c:2,exp:'NEC Chapter 9 Table 1: 1 conductor = 53% maximum fill.',ref:'NEC Ch.9 Table 1'},
   {id:'cf04',level:'Journeyman',cat:'Conduit Fill',q:'NEC Chapter 9 Table 4 provides:',ch:['Wire cross-sectional areas','Conduit internal cross-sectional areas','Fill percentages','Ampacity ratings'],c:1,exp:'Table 4 lists internal cross-sectional areas of conduit types and trade sizes.',ref:'NEC Ch.9 Table 4'},
   {id:'cf05',level:'Journeyman',cat:'Conduit Fill',q:'NEC Chapter 9 Table 5 provides:',ch:['Conduit areas','Wire cross-sectional areas including insulation','Fill percentages','Burial depths'],c:1,exp:'Table 5 lists cross-sectional areas of conductors including insulation.',ref:'NEC Ch.9 Table 5'},
-  {id:'cf06',level:'Journeyman',cat:'Conduit Fill',q:'Three #12 THHN (0.0133 in² each) in ½" EMT (area 0.122 in²). Fill %?',ch:['21.7%','26.4%','32.7%','43.6%'],c:2,exp:'(3 × 0.0133) ÷ 0.122 × 100 = 32.7%. Below 40% — PASS.',ref:'NEC Ch.9'},
-  {id:'cf07',level:'Journeyman',cat:'Conduit Fill',q:'Four #12 THHN in ½" EMT — pass or fail?',ch:['Pass — 32.7%','Pass — 39.4%','Fail — 43.6%','Fail — 50%'],c:2,exp:'4 × 0.0133 ÷ 0.122 = 43.6%. Exceeds 40% — FAIL.',ref:'NEC Ch.9 Table 1'},
+  {id:'cf06',level:'Journeyman',cat:'Conduit Fill',q:'Three #12 THHN (0.0133 in² each) in ½" EMT (total internal area 0.304 in²). Fill %?',ch:['13.1%','21.7%','32.7%','43.6%'],c:0,exp:'(3 × 0.0133) ÷ 0.304 × 100 = 13.1%. Fill is a percentage of the conduit TOTAL area from Ch.9 Table 4 — not of the 40% column. Well below the 40% limit — PASS.',ref:'NEC Ch.9 Table 1'},
+  {id:'cf07',level:'Journeyman',cat:'Conduit Fill',q:'Four #12 THHN in ½" EMT — pass or fail?',ch:['Pass — 17.5%','Pass — 39.4%','Fail — 43.6%','Fail — 50%'],c:0,exp:'4 × 0.0133 = 0.0532 in² ÷ 0.304 in² = 17.5%. Comfortably under 40% — PASS. Annex C Table C.1 permits nine #12 THHN in ½" EMT.',ref:'NEC Ch.9 Table 1'},
   {id:'cf08',level:'Apprentice',cat:'Conduit Fill',q:'How is conduit fill percentage calculated?',ch:['Wire count ÷ conduit size','Total wire area ÷ conduit area × 100','Wire diameter only','NEC table lookup only'],c:1,exp:'Fill % = sum of wire cross-sectional areas ÷ conduit internal area × 100.',ref:'NEC Chapter 9'},
   {id:'cf09',level:'Journeyman',cat:'Conduit Fill',q:'Three different-sized conductors in 1" EMT. Which table gives the conduit area?',ch:['Table 1','Table 4','Table 5','Table 310.15'],c:1,exp:'Table 4 gives conduit internal areas. Table 5 gives wire areas. Table 1 gives max fill %.',ref:'NEC Ch.9 Table 4'},
   {id:'cf10',level:'Journeyman',cat:'Conduit Fill',q:'The maximum fill % for raceways with 3+ conductors was designed to:',ch:['Save money on conduit','Allow for heat dissipation and easy conductor pulling','Match wire ampacity','Meet OSHA requirements'],c:1,exp:'Fill limits prevent overheating and allow conductors to be pulled without damage.',ref:'NEC Ch.9 Table 1'},
@@ -1899,7 +1910,7 @@ const EXAM_QUESTIONS = [
   {id:'gb04',level:'Apprentice',cat:'Grounding',q:'An insulated EGC must be:',ch:['White','Gray','Green or green with yellow stripe','Bare only'],c:2,exp:'NEC 250.119: Insulated EGCs must be green, green/yellow stripes, or bare.',ref:'NEC 250.119'},
   {id:'gb05',level:'Journeyman',cat:'Grounding',q:'Minimum EGC size is determined by:',ch:['NEC Table 250.66','NEC Table 250.122','NEC Table 310.15','Load calculation'],c:1,exp:'NEC 250.122: Minimum EGC size based on rating of OCPD protecting the circuit.',ref:'NEC 250.122'},
   {id:'gb06',level:'Journeyman',cat:'Grounding',q:'At a subpanel in the same building:',ch:['Bond neutral to ground','Keep neutral and ground separate','Use same bus for both','Bond at each outlet'],c:1,exp:'NEC 250.142(B): Subpanels require separate neutral and ground buses — do not bond.',ref:'NEC 250.142(B)'},
-  {id:'gb07',level:'Journeyman',cat:'Grounding',q:'GEC size at a 200A service with 3/0 Cu conductors is per NEC Table 250.66:',ch:['#6 AWG Cu','#4 AWG Cu','#2 AWG Cu','1/0 AWG Cu'],c:2,exp:'NEC Table 250.66: 3/0 AWG service conductor → minimum #2 AWG Cu GEC.',ref:'NEC Table 250.66'},
+  {id:'gb07',level:'Journeyman',cat:'Grounding',q:'GEC size at a 200A service with 3/0 Cu conductors is per NEC Table 250.66:',ch:['#6 AWG Cu','#4 AWG Cu','#2 AWG Cu','1/0 AWG Cu'],c:1,exp:'NEC Table 250.66 is indexed by the largest ungrounded SERVICE conductor, not by the service rating: 2/0 or 3/0 Cu → #4 Cu GEC. #2 Cu is the next row up, for service conductors over 3/0 through 350 kcmil.',ref:'NEC Table 250.66'},
   {id:'gb08',level:'Journeyman',cat:'Grounding',q:'Bonding is defined as:',ch:['Installing a ground rod','Connecting metallic parts for electrical continuity','Running ground wire to panel','Connecting neutral to earth'],c:1,exp:'NEC Art.100: Bonding connects metallic parts to establish electrical continuity.',ref:'NEC Article 100'},
   // ── VOLTAGE DROP ──
   {id:'vd01',level:'Apprentice',cat:'Voltage Drop',q:'NEC recommended max voltage drop for a branch circuit:',ch:['1%','2%','3%','5%'],c:2,exp:'NEC 210.19(A) Informational Note: Recommends ≤3% on branch circuits.',ref:'NEC 210.19(A)'},
@@ -1920,7 +1931,7 @@ const EXAM_QUESTIONS = [
   {id:'sf01',level:'Journeyman',cat:'Services',q:'Maximum service disconnects at one location?',ch:['1','3','6','12'],c:2,exp:'NEC 230.71(A): Maximum 6 service disconnects permitted at one location.',ref:'NEC 230.71(A)'},
   {id:'sf02',level:'Journeyman',cat:'Services',q:'Service disconnect must be located:',ch:['Only outdoors','At or near where conductors enter building','In main panelboard only','Utility-accessible only'],c:1,exp:'NEC 230.70(A): Service disconnect must be at readily accessible location near entry point.',ref:'NEC 230.70(A)'},
   {id:'sf03',level:'Journeyman',cat:'Services',q:'Neutral-to-ground bond in a subpanel in the same building:',ch:['Always bond','Never — keep separate','Bond only on main feeder','Bond only if over 100A'],c:1,exp:'NEC 250.142(B): Separate neutral and ground required in subpanels in same building.',ref:'NEC 250.142(B)'},
-  {id:'sf04',level:'Journeyman',cat:'Services',q:'GEC for a 200A service with 3/0 Cu conductors (Table 250.66):',ch:['#4 AWG Cu','#2 AWG Cu','1/0 AWG Cu','3/0 AWG Cu'],c:1,exp:'NEC Table 250.66: 3/0 AWG Cu service conductor → #2 AWG Cu minimum GEC.',ref:'NEC Table 250.66'},
+  {id:'sf04',level:'Journeyman',cat:'Services',q:'GEC for a 200A service with 3/0 Cu conductors (Table 250.66):',ch:['#4 AWG Cu','#2 AWG Cu','1/0 AWG Cu','3/0 AWG Cu'],c:0,exp:'NEC Table 250.66: 2/0 or 3/0 Cu service conductor → #4 Cu GEC minimum. Note the connection to a rod electrode is separately capped at #6 Cu by 250.66(A).',ref:'NEC Table 250.66'},
   // ── LOAD CALCULATIONS ──
   {id:'lc01',level:'Journeyman',cat:'Load Calc',q:'Continuous load is defined as operating at maximum current for at least:',ch:['1 hour','2 hours','3 hours','4 hours'],c:2,exp:'NEC Article 100: Continuous load = expected to operate at maximum current for 3+ hours.',ref:'NEC Article 100'},
   {id:'lc02',level:'Journeyman',cat:'Load Calc',q:'OCPD protecting a continuous load must be rated:',ch:['100% of load','110% of load','125% of load','150% of load'],c:2,exp:'NEC 210.20(A): OCPD must not be less than 125% of continuous load.',ref:'NEC 210.20(A)'},
@@ -1950,7 +1961,7 @@ const EXAM_QUESTIONS = [
   {id:'sa02',level:'Apprentice',cat:'Safety',q:'Before touching any conductor, you must:',ch:['Assume it is de-energized','Test with a calibrated meter','Check circuit directory','Put gloves on first'],c:1,exp:'Always test with a calibrated, properly rated meter before touching — never assume de-energized.',ref:'NFPA 70E'},
   {id:'sa03',level:'Apprentice',cat:'Safety',q:'Minimum working clearance in front of a 120V–250V panelboard:',ch:['18 inches','2 feet','3 feet','4 feet'],c:2,exp:'NEC 110.26(A)(1): Minimum 3-foot depth of working clearance for 0–150V conditions.',ref:'NEC 110.26(A)(1)'},
   {id:'sa04',level:'Journeyman',cat:'Safety',q:'Arc flash PPE requirements are governed by:',ch:['OSHA 1926 Subpart K only','NFPA 70E','NEC Article 250','NEC 110.26'],c:1,exp:'NFPA 70E: Standard for Electrical Safety in the Workplace governs arc flash PPE.',ref:'NFPA 70E'},
-  {id:'sa05',level:'Journeyman',cat:'Safety',q:'Minimum headroom in front of electrical equipment per NEC 110.26(A)(3):',ch:['6 feet','6 feet 3 inches','7 feet','8 feet'],c:1,exp:'NEC 110.26(A)(3): Minimum 6 feet 3 inches of headroom in front of electrical equipment.',ref:'NEC 110.26(A)(3)'},
+  {id:'sa05',level:'Journeyman',cat:'Safety',q:'Minimum headroom of working space about electrical equipment per NEC 110.26(A)(3):',ch:['6 feet','6 feet 3 inches','6 feet 6 inches','7 feet'],c:2,exp:'NEC 110.26(A)(3): the working space must be clear to a height of 6½ ft (2.0 m), or the height of the equipment, whichever is greater.',ref:'NEC 110.26(A)(3)'},
 
   // ── BOX FILL (additional) ──
   {id:'bf11',level:'Apprentice',cat:'Box Fill',q:'What NEC article section covers box fill calculations?',ch:['NEC 110.26','NEC 314.16','NEC 250.122','NEC 230.70'],c:1,exp:'NEC 314.16 covers outlet box fill. 314.16(A) lists common box volumes; 314.16(B) gives the calculation method.',ref:'NEC 314.16'},
@@ -1959,7 +1970,7 @@ const EXAM_QUESTIONS = [
 
   // ── CONDUIT FILL (additional) ──
   {id:'cf11',level:'Apprentice',cat:'Conduit Fill',q:'What conduit type has the largest internal area for a given trade size?',ch:['EMT','IMC','RMC','PVC-40'],c:1,exp:'IMC has a slightly larger internal area than EMT for the same trade size, allowing more conductors.',ref:'NEC Ch.9 Table 4'},
-  {id:'cf12',level:'Journeyman',cat:'Conduit Fill',q:'You have 6 #10 THHN conductors (0.0211 in² each). Which conduit gives <40% fill?',ch:['½" EMT (0.122 in²)','¾" EMT (0.213 in²)','1" EMT (0.346 in²)','All of the above'],c:1,exp:'6 × 0.0211 = 0.1266 in². ¾" EMT: 0.1266 ÷ 0.213 = 59.4% — too much. 1" EMT: 0.1266 ÷ 0.346 = 36.6% — PASS.',ref:'NEC Ch.9'},
+  {id:'cf12',level:'Journeyman',cat:'Conduit Fill',q:'You have 6 #10 THHN conductors (0.0211 in² each). What is the smallest EMT that stays under 40% fill?',ch:['½" EMT (0.304 in²)','¾" EMT (0.533 in²)','1" EMT (0.864 in²)','1-¼" EMT (1.496 in²)'],c:1,exp:'6 × 0.0211 = 0.1266 in². ½" EMT: 0.1266 ÷ 0.304 = 41.6% — over. ¾" EMT: 0.1266 ÷ 0.533 = 23.8% — PASS, and it is the smallest that does.',ref:'NEC Ch.9'},
 
   // ── GFCI/AFCI (additional) ──
   {id:'ga11',level:'Journeyman',cat:'GFCI/AFCI',q:'A GFCI receptacle can protect downstream outlets when wired to the:',ch:['HOT terminals only','LOAD terminals','LINE terminals','Neutral bar only'],c:1,exp:'Connecting downstream receptacles to the LOAD terminals of a GFCI receptacle extends GFCI protection to all downstream outlets.',ref:'NEC 210.8'},
@@ -1996,7 +2007,7 @@ const EXAM_QUESTIONS = [
   // ── WIRING METHODS (additional) ──
   {id:'wm07',level:'Journeyman',cat:'Wiring Methods',q:'Minimum burial depth for PVC Schedule 40 conduit under a residential driveway?',ch:['6 inches','12 inches','18 inches','24 inches'],c:1,exp:'NEC 300.5 Table: PVC under a residential driveway = 12 inches minimum depth.',ref:'NEC 300.5'},
   {id:'wm08',level:'Apprentice',cat:'Wiring Methods',q:'NM cable must be supported every:',ch:['3 feet','4.5 feet','6 feet','10 feet'],c:1,exp:'NEC 334.30: NM cable must be secured every 4.5 feet and within 12 inches of every box.',ref:'NEC 334.30'},
-  {id:'wm09',level:'Journeyman',cat:'Wiring Methods',q:'Liquidtight flexible metal conduit (LFMC) maximum length without grounding conductor:',ch:['18 inches','24 inches','36 inches','6 feet'],c:1,exp:'NEC 350.60: LFMC up to 6 feet used for listed equipment may serve as EGC. Over 6 feet, a separate EGC is required.',ref:'NEC 350.60'},
+  {id:'wm09',level:'Journeyman',cat:'Wiring Methods',q:'Liquidtight flexible metal conduit (LFMC) may serve as the equipment grounding conductor only up to what length in the ground-return path?',ch:['18 inches','24 inches','36 inches','6 feet'],c:3,exp:'NEC 250.118: LFMC qualifies as an EGC only when the fittings are listed for grounding, the length in the ground-return path is 6 ft or less, and the circuit overcurrent protection is within the limits for the trade size. Beyond that, run a separate EGC.',ref:'NEC 250.118'},
   {id:'wm10',level:'Journeyman',cat:'Wiring Methods',q:'Type MC cable with interlocking metal tape armor may be used:',ch:['Outdoors only','Indoors in dry locations only','In wet, damp, or corrosive locations if listed','Residential only'],c:2,exp:'NEC 330.10: MC cable is permitted in wet, damp, or corrosive locations when the cable and fittings are listed for such use.',ref:'NEC 330.10'},
 
   // ── OVERCURRENT (additional) ──
@@ -2016,11 +2027,11 @@ const EXAM_QUESTIONS = [
   // ── NEW CATEGORY: THREE PHASE ──
   {id:'tp01',level:'Journeyman',cat:'Three Phase',q:'On a 208/120V three-phase wye system, the line-to-neutral voltage is:',ch:['120V','208V','240V','277V'],c:0,exp:'In a 208/120V wye system, 120V is the line-to-neutral (phase) voltage. 208V is the line-to-line voltage.',ref:'Electrical theory'},
   {id:'tp02',level:'Journeyman',cat:'Three Phase',q:'Line-to-line voltage on a 480/277V wye system is:',ch:['277V','346V','480V','600V'],c:2,exp:'Line-to-line = 277 × √3 = 480V. This is standard commercial high-voltage distribution for lighting and HVAC.',ref:'Electrical theory'},
-  {id:'tp03',level:'Journeyman',cat:'Three Phase',q:'Three-phase power formula: P = √3 × V_LL × I × PF. If V=208V, I=50A, PF=1.0, what is power?',ch:['10,400W','14,400W','18,000W','24,000W'],c:1,exp:'P = 1.732 × 208 × 50 × 1.0 = 18,013W ≈ 18 kW.',ref:'Electrical theory'},
+  {id:'tp03',level:'Journeyman',cat:'Three Phase',q:'Three-phase power formula: P = √3 × V_LL × I × PF. If V=208V, I=50A, PF=1.0, what is power?',ch:['10,400W','14,400W','18,000W','24,000W'],c:2,exp:'P = 1.732 × 208 × 50 × 1.0 = 18,013W ≈ 18 kW.',ref:'Electrical theory'},
   {id:'tp04',level:'Journeyman',cat:'Three Phase',q:'The high leg on a 240V delta system carries approximately what voltage to neutral?',ch:['120V','208V','240V','277V'],c:1,exp:'The high leg (wild leg) on a 240V 4-wire delta = 208V to neutral. Must be colored orange. Do NOT connect 120V loads.',ref:'NEC 110.15'},
 
   // ── FORMULAS IN PRACTICE ──
-  {id:'fp01',level:'Journeyman',cat:'Voltage Drop',q:'A 120V, 20A circuit with #12 Cu runs 75 feet one-way. Using VD = 2×K×I×D/CM with K=12.9 and CM=6,530 for #12: VD ≈?',ch:['1.8V (1.5%)','2.8V (2.3%)','3.8V (3.2%)','4.8V (4.0%)'],c:1,exp:'VD = (2 × 12.9 × 20 × 75) / 6,530 = 38,700 / 6,530 ≈ 5.93V → 4.9%. Actually ≈ 2.8V (2.3%) for 75ft. Use calc for precision.',ref:'NEC 210.19(A)'},
+  {id:'fp01',level:'Journeyman',cat:'Voltage Drop',q:'A 120V, 20A circuit with #12 Cu runs 75 feet one-way. Using VD = 2×K×I×D/CM with K=12.9 and CM=6,530 for #12: VD ≈?',ch:['3.0V (2.5%)','4.4V (3.7%)','5.9V (4.9%)','7.4V (6.2%)'],c:2,exp:'VD = (2 × 12.9 × 20 × 75) ÷ 6,530 = 38,700 ÷ 6,530 = 5.93V, and 5.93 ÷ 120 = 4.9%. That is past the 3% the informational note recommends for a branch circuit, so this run wants #10.',ref:'NEC 210.19(A)'},
   {id:'fp02',level:'Journeyman',cat:'Motors',q:'A 5HP 230V single-phase motor per NEC Table 430.248 has an FLC of 28A. Max conductor size allowed (NEC 430.22)?',ch:['28A','30A','35A','40A'],c:2,exp:'Conductors ≥ 28 × 1.25 = 35A. #8 AWG Cu at 75°C = 50A ampacity — satisfies the 35A minimum.',ref:'NEC 430.22(A)'},
 
   // ── ADDITIONAL GFCI/AFCI ──

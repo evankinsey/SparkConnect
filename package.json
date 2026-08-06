@@ -8,6 +8,7 @@
     "web": "expo start --web",
     "test": "node --test tests/*.test.js && npm run validate:content",
     "validate:content": "node scripts/validate-content.mjs",
+    "audit:answers": "node scripts/audit-answers.mjs",
     "lessons:review": "node scripts/review-lessons.mjs",
     "lessons:approve": "node scripts/review-lessons.mjs --approve",
     "config:check": "node scripts/check-config.mjs"
