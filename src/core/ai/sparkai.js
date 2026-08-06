@@ -42,6 +42,38 @@ export const TOOL_DATASETS = Object.freeze({
   derating: ['table-310-16', 'table-310-15-c-1', 'table-240-4-d'],
 });
 
+// ─── Project scoping ─────────────────────────────────────────────────────────
+
+/**
+ * Does everything handed in belong to the same job?
+ *
+ * Returns a reason string when it does not, null when it is safe. Deliberately
+ * a refusal rather than a filter: silently dropping the mismatched half would
+ * answer from a partial context that still looks complete, which is how a count
+ * from the wrong building gets a confident evidence record attached to it.
+ */
+export const checkScope = ({ project = null, devices = null, conversation = [] } = {}) => {
+  const projectId = project?.id ?? null;
+
+  // Devices carry the project they were confirmed against, when they have one.
+  if (Array.isArray(devices) && projectId) {
+    const foreign = devices.find((d) => d?.meta?.projectId && d.meta.projectId !== projectId);
+    if (foreign) {
+      return 'The takeoff loaded belongs to a different project than the one open.';
+    }
+  }
+
+  // A conversation attached to another job must not seed this one.
+  const turns = Array.isArray(conversation) ? conversation : [];
+  const foreignTurn = turns.find((t) => t?.projectId !== undefined
+    && (t.projectId ?? null) !== projectId);
+  if (foreignTurn) {
+    return 'That conversation belongs to a different project.';
+  }
+
+  return null;
+};
+
 // ─── Grounding ───────────────────────────────────────────────────────────────
 
 /**
@@ -167,6 +199,22 @@ export const ask = async (question, {
   project = null, devices = null, conversation = [], edition = null,
   jurisdiction = null, knowledge = null, askModel = null,
 } = {}) => {
+  // PROJECT SCOPING. A takeoff from one job must never answer a question about
+  // another. This is checked before anything else because a cross-contaminated
+  // answer is the worst possible output of this pipeline: confident, evidenced,
+  // and about somebody else's building.
+  const scopeError = checkScope({ project, devices, conversation });
+  if (scopeError) {
+    return Object.freeze({
+      ...refuse(scopeError, {
+        suggestion: 'Open the project you are asking about, then ask again.',
+        question,
+      }),
+      route: Route.PROJECT,
+      routeReason: 'Refused: the context supplied belongs to a different project.',
+    });
+  }
+
   const context = ground({ project, devices, conversation, edition });
 
   // Classify BEFORE routing. Risk decides how hard the guardrails clamp on the

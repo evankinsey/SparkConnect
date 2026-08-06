@@ -306,14 +306,35 @@ pending* · *Reviewed by [name]* · *Jurisdiction verification required*.
 
 ## Not built
 
-- **Photo understanding** — the observation-first contract is specified but the
-  vision path is not wired through this pipeline.
-- **Voice mode** — transcription exists; it does not yet route through the
-  classifier and evidence contract. Voice is UI, and must use the same spine.
-- **Conversation persistence** — rename, delete, pin, attach-to-project,
-  save-as-artifact. The `Artifact` model in `projectArtifacts.js` is ready to
-  receive them.
-- **Project scoping** — `ground()` reads one project; there is no enforcement
-  yet that two projects' contexts cannot mix.
 - **Blueprint recognizer** — no CV model. Contract defined in
   `blueprint/recognition.js`; `pipelineStatus()` reports the gap.
+- **UI wiring** — the spine, vision, voice, conversations and scoping are built
+  and tested as pure modules. `NecAiScreen` still calls the backend directly and
+  has not been moved onto `ask()`. Wiring the screen was deliberately left last:
+  attaching UI to an architecture before it is settled is the expensive mistake.
+- **Backend prompt alignment** — `VISION_RULES` and `SYSTEM_RULES` are defined
+  here but the server-side prompt has not been updated to match them.
+
+## Built since the first draft of this document
+
+- **Photo understanding** (`ai/vision.js`) — observation-first. Every claim is
+  sorted OBSERVED / NOT_CONFIRMED / CONCERN / NEEDED, and seven categories a
+  photograph cannot establish are demoted automatically: conductor function,
+  voltage state, device rating as installed, termination tightness, code
+  compliance, internal condition, conductor size. A demoted claim is *moved*
+  with the reason and what would settle it, never dropped and never asserted.
+  A blurry image says so.
+- **Voice** (`ai/voice.js`) — no answering logic at all. It normalises a
+  transcript and calls the same `ask()`. Tests prove the CRITICAL and HIGH-risk
+  refusals apply identically to speech. Risky homophones (fifteen/fifty,
+  fourteen/forty) are flagged for confirmation, never silently corrected —
+  and checked against the RAW transcript, because normalisation replaces the
+  very words whose mishearing matters.
+- **Conversations** (`ai/conversations.js`) — rename, pin, delete,
+  attach-to-project, save-as-artifact, resume. Turns store the frozen evidence
+  contract, so a resumed answer reports `stale` when its data was unverified at
+  the time rather than silently reading as current.
+- **Project scoping** (`sparkai.checkScope`) — a takeoff or conversation from
+  another job is a **refusal, not a filter**. Filtering would answer from the
+  half that matched, which still looks complete. A confident, evidenced answer
+  about somebody else's building is the worst possible output of this pipeline.
