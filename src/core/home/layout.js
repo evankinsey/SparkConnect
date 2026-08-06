@@ -27,8 +27,14 @@ export const HOME_CARDS = Object.freeze([
   // Training
   { id: 'wiring_lab', kind: CardKind.SHORTCUT, tab: 'wiringlab', title: 'Wiring Simulator', sub: 'Wire it, then test it', icon: 'git-network', group: 'Training' },
   { id: 'troubleshoot', kind: CardKind.SHORTCUT, tab: 'troubleshoot', title: 'Troubleshooting', sub: 'Find the fault', icon: 'build', group: 'Training' },
+  // The job site game had NO card here at all. It was reachable from exactly one
+  // hardcoded banner on Home, which meant it could not be customized, could not
+  // be found by anyone who scrolled past the banner once, and did not exist as
+  // far as the catalog was concerned.
+  { id: 'jobsite', kind: CardKind.SHORTCUT, tab: 'jobsite', title: 'Job Site', sub: 'Walk the site, do the work', icon: 'business', group: 'Training' },
   { id: 'flashcards', kind: CardKind.SHORTCUT, tab: 'flashcards', title: 'Flashcards', sub: 'Spaced repetition', icon: 'albums', group: 'Training' },
   { id: 'examprep', kind: CardKind.SHORTCUT, tab: 'examprep', title: 'Code Quiz', sub: 'Exam practice', icon: 'ribbon', group: 'Training' },
+  { id: 'learn', kind: CardKind.SHORTCUT, tab: 'learn', title: 'Learn', sub: 'Lessons and study paths', icon: 'school', group: 'Training' },
 
   // Tools
   { id: 'spark_ai', kind: CardKind.SHORTCUT, tab: 'necai', title: 'SparkAI', sub: 'Electrical field assistant', icon: 'flash', group: 'Tools' },
@@ -113,6 +119,71 @@ export const moveCard = (layout, id, direction) => {
 /** Resolved cards for rendering. */
 export const resolveLayout = (ids) => sanitizeLayout(ids).map(cardById).filter(Boolean);
 
+// ─── ALL TOOLS ───────────────────────────────────────────────────────────────
+//
+// The fix for the bug that migrateLayout below only patched.
+//
+// Discovery must never depend on a saved list. `migrateLayout` gets new cards
+// in front of existing users once, which is worth having, but it is a patch on
+// a broken premise: that a tool is reachable only if its id happens to be in an
+// array written on the day the user first opened the app.
+//
+// So Home has two zones now.
+//
+//   YOUR HOME  — the saved layout. The user's arrangement, theirs to order.
+//   ALL TOOLS  — this. Every navigable card in the catalog, always, whatever is
+//                saved, whatever Customize says.
+//
+// Customize controls order and favourites. It no longer controls whether a tool
+// exists. Adding a row to HOME_CARDS is now the ONLY thing needed to make a
+// feature reachable — no migration entry, no version bump, no user action.
+
+/**
+ * Display order for the tools list. Ids not named here still appear, after
+ * these, in catalog order — so forgetting to add an id costs you placement,
+ * never visibility. That asymmetry is deliberate: the failure mode of this
+ * list must be "in the wrong place", never "gone".
+ */
+export const ALL_TOOLS_ORDER = Object.freeze([
+  'spark_ai',
+  'calculators',
+  'wiring_lab', 'troubleshoot', 'jobsite',
+  'projects', 'jobcam', 'estimator',
+  'permits', 'blueprint', 'panelschedule', 'materials',
+  'bend', 'volt', 'ampacity', 'boxfill', 'conduitfill', 'wire', 'formulas',
+  'learn', 'flashcards', 'examprep',
+  'community',
+]);
+
+/**
+ * Every card a user can actually navigate to.
+ *
+ * Widgets are excluded because they are not destinations — `streak` and
+ * `daily_question` render their own content on Home and tapping them goes
+ * nowhere. Listing them here would produce rows that look tappable and are not.
+ */
+export const allTools = () => {
+  const navigable = HOME_CARDS.filter((c) => c.kind === CardKind.SHORTCUT && c.tab);
+  const rank = (id) => {
+    const i = ALL_TOOLS_ORDER.indexOf(id);
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  return navigable
+    .map((card, i) => ({ card, i }))
+    .sort((a, b) => (rank(a.card.id) - rank(b.card.id)) || (a.i - b.i))
+    .map(({ card }) => card);
+};
+
+/** The same list, grouped for section headers, groups in first-appearance order. */
+export const allToolsGrouped = () => {
+  const groups = new Map();
+  for (const card of allTools()) {
+    if (!groups.has(card.group)) groups.set(card.group, []);
+    groups.get(card.group).push(card);
+  }
+  return [...groups.entries()].map(([group, cards]) => ({ group, cards }));
+};
+
 /** Catalog for the Customize screen, grouped, with an `on` flag. */
 export const catalogWithState = (layout) => {
   const current = sanitizeLayout(layout);
@@ -125,17 +196,21 @@ export const catalogWithState = (layout) => {
 };
 
 /**
- * Home layout schema version. BUMP THIS whenever a card is added that existing
- * users should see without hunting for it in Customize.
+ * Home layout schema version. Bump it to put a new card into existing users'
+ * OWN strip, at the top of Home, rather than only in All Tools.
  *
- * The bug this fixes: `useHomeLayout` restores the SAVED layout, and
- * `sanitizeLayout` keeps only ids that were already in it. So every card added
- * after a user's first launch was invisible to them forever — the feature
- * shipped, the code was in the bundle, and Home simply never rendered it.
- * Three features (Blueprint Takeoff, Permit Assistant, Panel Schedule) were
- * lost this way and looked like they had not shipped at all.
+ * This is now a promotion mechanism, not a safety net. Since `allTools()` above
+ * renders the whole catalog unconditionally, a card that is never listed here
+ * is still one scroll away — it just does not jump the queue into the user's
+ * curated strip. Reserve that for things worth interrupting someone over.
+ *
+ * The original bug, for the record: `useHomeLayout` restores the SAVED layout
+ * and `sanitizeLayout` keeps only ids already in it, so every card added after
+ * a user's first launch was invisible to them forever. Blueprint Takeoff,
+ * Permit Assistant and Panel Schedule were all lost that way and looked like
+ * they had never shipped.
  */
-export const LAYOUT_VERSION = 2;
+export const LAYOUT_VERSION = 3;
 
 /**
  * Cards introduced in each version. A user migrating from an older version gets
@@ -147,6 +222,9 @@ export const LAYOUT_VERSION = 2;
  */
 export const CARDS_INTRODUCED_IN = Object.freeze({
   2: ['blueprint', 'permits', 'panelschedule'],
+  // The job site game existed for several releases with no catalog entry at all.
+  // It is worth a place in the strip rather than only in All Tools.
+  3: ['jobsite'],
 });
 
 /**

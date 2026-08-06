@@ -11,6 +11,7 @@ import {
   layoutForRole, CardKind, MAX_CARDS,
   migrateLayout,
   LAYOUT_VERSION,
+  allToolsGrouped,
 } from '../core/home/layout';
 import { dailyChallenge, answerDailyChallenge } from '../core/challenges/daily';
 import { rankForXp } from '../circuit/scoring';
@@ -63,6 +64,67 @@ export const useHomeLayout = () => {
 
 // ─── The card strip on Home ──────────────────────────────────────────────────
 
+/** One tappable tool row. Shared by the saved strip and the All Tools list. */
+function ToolRow({ C, card, setTab, compact = false }) {
+  return (
+    <TouchableOpacity
+      onPress={() => setTab(card.tab)}
+      activeOpacity={0.85}
+      accessibilityRole="button"
+      accessibilityLabel={card.title}
+      style={{
+        flexDirection: 'row', alignItems: 'center', gap: 12,
+        backgroundColor: C.surface, borderRadius: 14,
+        padding: compact ? 12 : 14, marginBottom: compact ? 8 : 9,
+        borderWidth: 1, borderColor: C.border, minHeight: compact ? 56 : 64,
+      }}>
+      <View style={{
+        width: compact ? 34 : 38, height: compact ? 34 : 38, borderRadius: 11,
+        backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center',
+      }}>
+        <Ionicons name={card.icon} size={compact ? 17 : 19} color={C.blue} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: compact ? 14 : 14.5, fontWeight: '700', color: C.text }}>{card.title}</Text>
+        <Text style={{ fontSize: 11.5, color: C.textTert, marginTop: 1 }}>{card.sub}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={C.textTert} />
+    </TouchableOpacity>
+  );
+}
+
+/**
+ * Every tool in the catalog, always rendered.
+ *
+ * This is not filtered by the saved layout and Customize cannot touch it. It is
+ * the answer to "I didn't know the app could do that" — a tool that is in the
+ * bundle is on this list, on the first scroll, on every install.
+ */
+export function AllToolsSection({ C, setTab }) {
+  const groups = allToolsGrouped();
+  return (
+    <View style={{ paddingHorizontal: 16, marginTop: 8, marginBottom: 4 }}>
+      <Text style={{ fontSize: 13, fontWeight: '800', color: C.textSec, letterSpacing: 0.6 }}>
+        ALL TOOLS
+      </Text>
+      <Text style={{ fontSize: 11.5, color: C.textTert, marginTop: 3, marginBottom: 12 }}>
+        Everything in SparkConnect. Customize only changes what sits at the top.
+      </Text>
+
+      {groups.map((g) => (
+        <View key={g.group} style={{ marginBottom: 14 }}>
+          <Text style={{ fontSize: 11, fontWeight: '800', color: C.textTert, letterSpacing: 0.5, marginBottom: 8 }}>
+            {g.group.toUpperCase()}
+          </Text>
+          {g.cards.map((card) => (
+            <ToolRow key={card.id} C={C} card={card} setTab={setTab} compact />
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export function HomeCards({ C, setTab, layout, streak = 0, xp = 0, onCustomize }) {
   if (!layout) return null;
   const cards = resolveLayout(layout);
@@ -92,28 +154,7 @@ export function HomeCards({ C, setTab, layout, streak = 0, xp = 0, onCustomize }
           if (card.id === 'streak') return <StreakWidget key={card.id} C={C} streak={streak} xp={xp} />;
           return null; // daily_question is rendered by HomeScreen itself
         }
-        return (
-          <TouchableOpacity
-            key={card.id}
-            onPress={() => setTab(card.tab)}
-            activeOpacity={0.85}
-            accessibilityRole="button"
-            accessibilityLabel={card.title}
-            style={{
-              flexDirection: 'row', alignItems: 'center', gap: 12,
-              backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 9,
-              borderWidth: 1, borderColor: C.border, minHeight: 64,
-            }}>
-            <View style={{ width: 38, height: 38, borderRadius: 11, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name={card.icon} size={19} color={C.blue} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 14.5, fontWeight: '700', color: C.text }}>{card.title}</Text>
-              <Text style={{ fontSize: 11.5, color: C.textTert, marginTop: 1 }}>{card.sub}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={C.textTert} />
-          </TouchableOpacity>
-        );
+        return <ToolRow key={card.id} C={C} card={card} setTab={setTab} />;
       })}
     </View>
   );
@@ -252,6 +293,20 @@ export function HomeCustomizeScreen({ C, layout, onSave, onDone }) {
           <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>Customize Home</Text>
           <Text style={{ fontSize: 11.5, color: C.textTert }}>{draft.length} of {MAX_CARDS} cards</Text>
         </View>
+      </View>
+
+      {/* Removing a card here used to make a whole feature unreachable. It no
+          longer can — All Tools renders the full catalog regardless — and the
+          user should be told that, so removing something does not feel lossy. */}
+      <View style={{
+        backgroundColor: C.blueSub, borderRadius: 12, padding: 12, marginBottom: 16,
+        flexDirection: 'row', gap: 9, alignItems: 'flex-start',
+      }}>
+        <Ionicons name="information-circle" size={17} color={C.blue} style={{ marginTop: 1 }} />
+        <Text style={{ flex: 1, fontSize: 12, color: C.textSec, lineHeight: 17 }}>
+          This sets what sits at the top of Home. Every tool stays available in All Tools
+          further down Home, whether or not it is pinned here.
+        </Text>
       </View>
 
       <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5, marginBottom: 8 }}>

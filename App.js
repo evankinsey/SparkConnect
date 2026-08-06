@@ -11,7 +11,7 @@ import { analytics } from './src/analytics';
 // The six screens added in v1.1 are loaded on first use, not at startup — see
 // the lazyScreen() note further down. Home still imports statically because the
 // layout hook runs during the root render.
-import { HomeCards, HomeCustomizeScreen, useHomeLayout } from './src/screens/HomeCards';
+import { HomeCards, HomeCustomizeScreen, useHomeLayout, AllToolsSection } from './src/screens/HomeCards';
 import { CAST_IMAGES } from './src/screens/castImages';
 import { buildPulse, dayIndexFor } from './src/core/home/pulse';
 import { getDailyQuestion } from './src/core/content/dailyQuestions';
@@ -1129,6 +1129,14 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
         </View>
         <Ionicons name="chevron-forward" size={15} color={C.textTert} />
       </TouchableOpacity>
+
+      {/* ── Every tool, always. Not filtered by the saved layout, not touchable
+             by Customize. Before this existed, a feature added after a user's
+             first launch was unreachable for them forever: Home rendered the
+             saved id list and nothing else, so Blueprint Takeoff, the Permit
+             Assistant and the Panel Schedule all shipped into a void. ── */}
+      <AllToolsSection C={C} setTab={setTab} />
+
       {/* Streak + social proof */}
       {streak > 0 && (
         <View style={{ marginHorizontal: 16, marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.amberBg, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.amber }}>

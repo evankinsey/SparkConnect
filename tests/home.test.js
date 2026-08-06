@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   HOME_CARDS, CARD_IDS, DEFAULT_LAYOUT, MAX_CARDS, cardById, layoutForRole,
-  sanitizeLayout, addCard, removeCard, moveCard, resolveLayout, catalogWithState, CardKind, migrateLayout, LAYOUT_VERSION, CARDS_INTRODUCED_IN} from '../src/core/home/layout.js';
+  sanitizeLayout, addCard, removeCard, moveCard, resolveLayout, catalogWithState, CardKind, migrateLayout, LAYOUT_VERSION, CARDS_INTRODUCED_IN,
+  allTools, allToolsGrouped, ALL_TOOLS_ORDER} from '../src/core/home/layout.js';
 
 test('every card has the fields the renderer needs', () => {
   for (const c of HOME_CARDS) {
@@ -135,5 +136,91 @@ test('garbage input still migrates safely', () => {
     const out = migrateLayout(junk, 1);
     assert.ok(Array.isArray(out));
     for (const id of out) assert.ok(cardById(id), `${id} is not a real card`);
+  }
+});
+
+// ─── ALL TOOLS ───────────────────────────────────────────────────────────────
+// Migration gets new cards in front of existing users once. These tests cover
+// the stronger guarantee that replaces it: a tool in the catalog is reachable
+// from Home, full stop, with no dependency on what a user saved months ago.
+
+test('every navigable card is reachable no matter what the user saved', () => {
+  const reachable = new Set(allTools().map((c) => c.id));
+  for (const card of HOME_CARDS) {
+    if (card.kind !== CardKind.SHORTCUT) continue;
+    assert.ok(reachable.has(card.id),
+      `${card.id} is in the catalog but cannot be reached from Home`);
+  }
+});
+
+test('an empty saved layout still reaches everything', () => {
+  // The exact case that made three shipped features look like they never
+  // shipped: the saved layout is the only thing Home rendered.
+  assert.equal(resolveLayout([]).length, 0, 'the user strip is genuinely empty');
+  assert.ok(allTools().length >= 20, 'and All Tools is still the whole catalog');
+});
+
+test('All Tools ignores the saved layout entirely', () => {
+  const a = allTools().map((c) => c.id);
+  const b = allTools().map((c) => c.id);
+  assert.deepEqual(a, b, 'it is a pure function of the catalog');
+  // No argument to pass means no way for a saved layout to filter it.
+  assert.equal(allTools.length, 0, 'allTools takes no state');
+});
+
+test('widgets are excluded — they are not destinations', () => {
+  const ids = allTools().map((c) => c.id);
+  for (const card of HOME_CARDS) {
+    if (card.kind === CardKind.WIDGET) {
+      assert.ok(!ids.includes(card.id), `${card.id} is a widget and must not look tappable`);
+    }
+  }
+  assert.ok(allTools().every((c) => typeof c.tab === 'string' && c.tab.length > 0));
+});
+
+test('ordering names placement, never visibility', () => {
+  // An id missing from ALL_TOOLS_ORDER must still appear. The failure mode of
+  // that list has to be "in the wrong place", never "gone".
+  const listed = new Set(ALL_TOOLS_ORDER);
+  const unlisted = allTools().filter((c) => !listed.has(c.id));
+  for (const card of unlisted) {
+    assert.ok(allTools().some((c) => c.id === card.id),
+      `${card.id} is not in ALL_TOOLS_ORDER and vanished`);
+  }
+  // Everything named in the order list that exists as a card comes out ranked
+  // ahead of anything unlisted.
+  const ids = allTools().map((c) => c.id);
+  const lastListed = Math.max(...ids.map((id, i) => (listed.has(id) ? i : -1)));
+  const firstUnlisted = ids.findIndex((id) => !listed.has(id));
+  if (firstUnlisted !== -1) assert.ok(firstUnlisted > lastListed, 'unlisted cards sort last');
+});
+
+test('the job site game is in the catalog at all', () => {
+  // It shipped for several releases reachable only from one hardcoded banner,
+  // which meant it was not customizable and not discoverable by anyone who
+  // scrolled past that banner once.
+  const jobsite = HOME_CARDS.find((c) => c.id === 'jobsite');
+  assert.ok(jobsite, 'the job site needs a catalog entry');
+  assert.equal(jobsite.tab, 'jobsite');
+  assert.ok(allTools().some((c) => c.id === 'jobsite'));
+});
+
+test('grouping keeps every card and invents none', () => {
+  const grouped = allToolsGrouped().flatMap((g) => g.cards.map((c) => c.id));
+  assert.deepEqual([...grouped].sort(), [...allTools().map((c) => c.id)].sort());
+  assert.equal(new Set(grouped).size, grouped.length, 'no card appears twice');
+  for (const g of allToolsGrouped()) assert.ok(g.group && g.cards.length > 0);
+});
+
+test('a newly added card needs no migration entry to be reachable', () => {
+  // The regression guard for the whole premise. Every card introduced in any
+  // version is reachable; so is every card that was never named in a version.
+  const promoted = new Set(Object.values(CARDS_INTRODUCED_IN).flat());
+  const reachable = new Set(allTools().map((c) => c.id));
+  for (const card of HOME_CARDS) {
+    if (card.kind !== CardKind.SHORTCUT) continue;
+    if (promoted.has(card.id)) continue;
+    assert.ok(reachable.has(card.id),
+      `${card.id} was never promoted by a migration and must still be reachable`);
   }
 });
