@@ -6,8 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   HOME_CARDS, CARD_IDS, DEFAULT_LAYOUT, MAX_CARDS, cardById, layoutForRole,
-  sanitizeLayout, addCard, removeCard, moveCard, resolveLayout, catalogWithState, CardKind,
-} from '../src/core/home/layout.js';
+  sanitizeLayout, addCard, removeCard, moveCard, resolveLayout, catalogWithState, CardKind, migrateLayout, LAYOUT_VERSION, CARDS_INTRODUCED_IN} from '../src/core/home/layout.js';
 
 test('every card has the fields the renderer needs', () => {
   for (const c of HOME_CARDS) {
@@ -80,5 +79,61 @@ test('every shortcut tab is one App.js knows about', () => {
 
   for (const c of HOME_CARDS) {
     if (c.kind === CardKind.SHORTCUT) assert.ok(VALID.includes(c.tab), `${c.id} -> unknown tab ${c.tab}`);
+  }
+});
+
+// ─── LAYOUT MIGRATION ────────────────────────────────────────────────────────
+// The bug: a saved layout is a snapshot of the cards that existed when it was
+// saved, and sanitizeLayout keeps only those ids. Every card added afterwards
+// was invisible to that user forever — the feature shipped, Home never
+// rendered it. Three features were lost this way before it was caught.
+
+test('a returning user gains cards added after their layout was saved', () => {
+  const saved = ['calculators', 'jobcam', 'estimator'];
+  const migrated = migrateLayout(saved, 1);
+  for (const id of CARDS_INTRODUCED_IN[2]) {
+    assert.ok(migrated.includes(id), `${id} must reach an existing user`);
+  }
+});
+
+test('the user keeps their own arrangement; new cards append', () => {
+  const saved = ['jobcam', 'calculators'];
+  const migrated = migrateLayout(saved, 1);
+  assert.deepEqual(migrated.slice(0, 2), ['jobcam', 'calculators'], 'their order is untouched');
+});
+
+test('migration is idempotent and never duplicates', () => {
+  const once = migrateLayout(['calculators'], 1);
+  const twice = migrateLayout(once, LAYOUT_VERSION);
+  assert.deepEqual(twice, sanitizeLayout(once));
+  assert.equal(new Set(once).size, once.length, 'no duplicates');
+});
+
+test('a user already holding a new card does not get it twice', () => {
+  const saved = ['calculators', 'blueprint'];
+  const migrated = migrateLayout(saved, 1);
+  assert.equal(migrated.filter((id) => id === 'blueprint').length, 1);
+});
+
+test('migration respects the card cap', () => {
+  const full = CARD_IDS.slice(0, MAX_CARDS);
+  assert.ok(migrateLayout(full, 1).length <= MAX_CARDS);
+});
+
+test('every migrated card id is a real card with a real tab', () => {
+  for (const [version, ids] of Object.entries(CARDS_INTRODUCED_IN)) {
+    for (const id of ids) {
+      const card = cardById(id);
+      assert.ok(card, `v${version} introduces unknown card ${id}`);
+      if (card.kind === CardKind.SHORTCUT) assert.ok(card.tab, `${id} has no destination`);
+    }
+  }
+});
+
+test('garbage input still migrates safely', () => {
+  for (const junk of [null, undefined, 'nope', [1, 2, 3], ['made-up-card']]) {
+    const out = migrateLayout(junk, 1);
+    assert.ok(Array.isArray(out));
+    for (const id of out) assert.ok(cardById(id), `${id} is not a real card`);
   }
 });

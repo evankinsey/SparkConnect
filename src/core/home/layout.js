@@ -123,3 +123,51 @@ export const catalogWithState = (layout) => {
   }
   return [...groups.entries()].map(([group, cards]) => ({ group, cards }));
 };
+
+/**
+ * Home layout schema version. BUMP THIS whenever a card is added that existing
+ * users should see without hunting for it in Customize.
+ *
+ * The bug this fixes: `useHomeLayout` restores the SAVED layout, and
+ * `sanitizeLayout` keeps only ids that were already in it. So every card added
+ * after a user's first launch was invisible to them forever — the feature
+ * shipped, the code was in the bundle, and Home simply never rendered it.
+ * Three features (Blueprint Takeoff, Permit Assistant, Panel Schedule) were
+ * lost this way and looked like they had not shipped at all.
+ */
+export const LAYOUT_VERSION = 2;
+
+/**
+ * Cards introduced in each version. A user migrating from an older version gets
+ * everything introduced after it appended to their layout, once.
+ *
+ * Appended, never prepended: a returning user's own arrangement is theirs, and
+ * new things belong at the end where they are discoverable without shoving the
+ * user's choices down the screen.
+ */
+export const CARDS_INTRODUCED_IN = Object.freeze({
+  2: ['blueprint', 'permits', 'panelschedule'],
+});
+
+/**
+ * Bring a saved layout up to date. Returns the same array when there is nothing
+ * to add, so callers can skip a write.
+ */
+export const migrateLayout = (saved, fromVersion = 1) => {
+  const base = sanitizeLayout(saved);
+  const from = Number.isFinite(fromVersion) ? fromVersion : 1;
+  if (from >= LAYOUT_VERSION) return base;
+
+  const additions = [];
+  for (let v = from + 1; v <= LAYOUT_VERSION; v++) {
+    for (const id of CARDS_INTRODUCED_IN[v] ?? []) {
+      if (cardById(id) && !base.includes(id) && !additions.includes(id)) additions.push(id);
+    }
+  }
+  if (additions.length === 0) return base;
+  // sanitizeLayout does NOT enforce MAX_CARDS, so the cap is applied here.
+  // A user sitting at the cap has curated their Home deliberately; silently
+  // pushing three more cards past the limit they were given is worse than
+  // leaving them to add what they want from Customize.
+  return sanitizeLayout([...base, ...additions]).slice(0, MAX_CARDS);
+};

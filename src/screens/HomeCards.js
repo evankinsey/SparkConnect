@@ -9,12 +9,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   resolveLayout, catalogWithState, sanitizeLayout, addCard, removeCard, moveCard,
   layoutForRole, CardKind, MAX_CARDS,
+  migrateLayout,
+  LAYOUT_VERSION,
 } from '../core/home/layout';
 import { dailyChallenge, answerDailyChallenge } from '../core/challenges/daily';
 import { rankForXp } from '../circuit/scoring';
 
 const KEY_LAYOUT = '@sc_home_layout_v1';
 const KEY_ROLE = '@sc_role';
+const KEY_LAYOUT_VERSION = '@sc_home_layout_version';
 
 export const useHomeLayout = () => {
   const [layout, setLayout] = useState(null);
@@ -23,9 +26,25 @@ export const useHomeLayout = () => {
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(KEY_LAYOUT);
-        if (raw) { setLayout(sanitizeLayout(JSON.parse(raw))); return; }
+        if (raw) {
+          // A saved layout is a snapshot of the cards that existed when it was
+          // saved. Without this migration every feature added afterwards is
+          // invisible to that user forever — the code ships, Home just never
+          // renders it. Three features were lost that way.
+          const savedVersion = parseInt(await AsyncStorage.getItem(KEY_LAYOUT_VERSION), 10) || 1;
+          const migrated = migrateLayout(JSON.parse(raw), savedVersion);
+          setLayout(migrated);
+          if (savedVersion < LAYOUT_VERSION) {
+            await AsyncStorage.setItem(KEY_LAYOUT, JSON.stringify(migrated));
+            await AsyncStorage.setItem(KEY_LAYOUT_VERSION, String(LAYOUT_VERSION));
+          }
+          return;
+        }
         const role = await AsyncStorage.getItem(KEY_ROLE);
         setLayout(layoutForRole(role));
+        // A brand-new user starts at the current version, so they never get a
+        // migration that would duplicate what they already have.
+        await AsyncStorage.setItem(KEY_LAYOUT_VERSION, String(LAYOUT_VERSION));
       } catch (e) {
         setLayout(layoutForRole(null));
       }
