@@ -1034,14 +1034,14 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
 
       {/* ── Job Site — its own banner, directly under the simulator. It is a
              different kind of thing (a place you walk around, with the crew in
-             it), so it gets its own card instead of riding along as a strip
-             inside the training block. ── */}
+             it), so it gets its own card. The copy has to carry that: "Job
+             Site" alone reads like another calculator. ── */}
       <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
         <TouchableOpacity onPress={() => setTab('jobsite')} activeOpacity={0.88}
-          accessibilityRole="button" accessibilityLabel="Enter the Job Site"
+          accessibilityRole="button"
+          accessibilityLabel="Job Site: walk a virtual job site and do tasks the crew gives you"
           style={{ backgroundColor: '#1A1408', borderRadius: 16, padding: 15, borderWidth: 1, borderColor: 'rgba(244,161,29,0.45)', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 6 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            {/* The crew, overlapped — the cast is the reason to tap this */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 }}>
             <View style={{ flexDirection: 'row' }}>
               {['miguel', 'jerry', 'dante', 'renee'].map((id, i) => (
                 <Image key={id} source={CAST_IMAGES[id]}
@@ -1052,15 +1052,33 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff', letterSpacing: -0.3 }}>Job Site</Text>
                 <View style={{ backgroundColor: C.amber, paddingHorizontal: 6, paddingVertical: 1.5, borderRadius: 5 }}>
-                  <Text style={{ fontSize: 8.5, fontWeight: '800', color: '#1A1408', letterSpacing: 0.4 }}>NEW</Text>
+                  <Text style={{ fontSize: 8.5, fontWeight: '800', color: '#1A1408', letterSpacing: 0.4 }}>GAME</Text>
                 </View>
               </View>
               <Text style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.72)', marginTop: 2 }}>
-                Walk the site. The crew has work for you.
+                Walk the site. Take work from the crew.
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={C.amber} />
           </View>
+
+          {/* What you actually do there — the old card never said. */}
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            {[
+              { icon: 'git-network', label: 'Wire it' },
+              { icon: 'build', label: 'Fix it' },
+              { icon: 'calculator', label: 'Work the numbers' },
+              { icon: 'camera', label: 'Document it' },
+            ].map((t) => (
+              <View key={t.label} style={{ flex: 1, alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 9, paddingVertical: 7, paddingHorizontal: 3 }}>
+                <Ionicons name={t.icon} size={13} color={C.amber} />
+                <Text numberOfLines={1} style={{ fontSize: 8.5, color: 'rgba(255,255,255,0.7)', marginTop: 3, fontWeight: '600' }}>{t.label}</Text>
+              </View>
+            ))}
+          </View>
+          <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 8, textAlign: 'center' }}>
+            8 stations · they check your work before signing off
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -4489,10 +4507,22 @@ export default function App() {
     await safeStorageSet('@sc_streak_data', JSON.stringify({ count, lastDate: today }));
   };
   const systemScheme = useColorScheme();
-  const [themePreference, setThemePreference] = useState('system');
+  // Dark by default. This app gets used in attics, crawlspaces and unlit
+  // rough-ins, and the whole design was drawn dark first — a white screen at
+  // arm's length in the dark is genuinely unpleasant.
+  const [themePreference, setThemePreference] = useState('dark');
   const [appLanguage, setAppLanguage] = useState('english');
   React.useEffect(() => {
     safeStorageGet('@sc_app_language').then(v => { if (v) setAppLanguage(v); });
+    // The Settings toggle was never persisted, so a chosen theme silently
+    // reverted to the default on the next launch.
+    safeStorageGet('@sc_theme').then(v => {
+      if (v === 'light' || v === 'dark' || v === 'system') setThemePreference(v);
+    });
+  }, []);
+  const chooseTheme = React.useCallback((v) => {
+    setThemePreference(v);
+    safeStorageSet('@sc_theme', v);
   }, []);
   const isDark = themePreference === 'dark' || (themePreference === 'system' && systemScheme === 'dark');
   const C = isDark ? DARK : LIGHT;
@@ -4635,7 +4665,7 @@ export default function App() {
         />
       );
       case 'customizehome': return <HomeCustomizeScreen C={C} layout={homeLayout} onSave={saveHomeLayout} onDone={() => { setHomeKey(k => k + 1); navigateTo('home'); }} />;
-      case 'settings':    return <SettingsScreen C={C} themePreference={themePreference} setThemePreference={setThemePreference} showDailyQ={showDailyQ} onDailyQToggle={handleDailyQToggle} appLanguage={appLanguage} setAppLanguage={setAppLanguage} isPro={isPro} onUpgrade={() => setPaywall('pro')} onBuyPacks={() => setPaywall('packs')} onRestore={handleRestorePurchases} />;
+      case 'settings':    return <SettingsScreen C={C} themePreference={themePreference} setThemePreference={chooseTheme} showDailyQ={showDailyQ} onDailyQToggle={handleDailyQToggle} appLanguage={appLanguage} setAppLanguage={setAppLanguage} isPro={isPro} onUpgrade={() => setPaywall('pro')} onBuyPacks={() => setPaywall('packs')} onRestore={handleRestorePurchases} />;
       case 'jobcam':      return <JobCamScreen C={C} setTab={navigateTo} />;
       default:            return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} />;
     }

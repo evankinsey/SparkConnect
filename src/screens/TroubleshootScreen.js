@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SCENARIOS, buildScenario, answerScenario } from '../core/training/troubleshooting';
 import { TRAINING_DISCLAIMER } from '../circuit/review';
 import CircuitCanvas from './CircuitCanvas';
+import { inspectTerminal, inspectWire } from '../circuit/inspect';
 
 export default function TroubleshootScreen({ C, setTab, onStreakUpdate, onSolved, onClose }) {
   const [openId, setOpenId] = useState(null);
@@ -82,6 +83,7 @@ function ScenarioPlayer({ C, scenarioId, onExit, onStreakUpdate, onSolved }) {
   // pattern-match the answer instead of learning the trade. Step 1 read the
   // call; step 2 observe; step 3 look at the circuit; only then, answer.
   const [step, setStep] = useState(1);
+  const [panel, setPanel] = useState(null);
   const atStep = (n) => step >= n;
   // lesson.components() builds fresh objects; memoise so the canvas is not
   // re-laid-out on every unrelated state change.
@@ -157,12 +159,59 @@ function ScenarioPlayer({ C, scenarioId, onExit, onStreakUpdate, onSolved }) {
           <Ionicons name={showDiagram ? 'chevron-up' : 'chevron-down'} size={13} color={C.textSec} />
         </TouchableOpacity>
         {showDiagram && (
-          <CircuitCanvas
-            C={C}
-            components={diagramParts}
-            wires={healthyCircuit.conductors}
-            lit={false}
-          />
+          <>
+            <CircuitCanvas
+              C={C}
+              components={diagramParts}
+              wires={healthyCircuit.conductors}
+              lit={false}
+              onTapTerminal={(tid) => {
+                const comp = diagramParts.find((c) => c.terminals.some((t) => t.id === tid));
+                const term = comp?.terminals.find((t) => t.id === tid);
+                const n = healthyCircuit.conductors.filter((w) => w.fromTerminal === tid || w.toTerminal === tid).length;
+                setPanel(inspectTerminal(comp, term, n));
+              }}
+              onTapWire={(id) => {
+                const w = healthyCircuit.conductors.find((x) => x.id === id);
+                const label = (tid) => {
+                  const c = diagramParts.find((x) => x.terminals.some((t) => t.id === tid));
+                  const t = c?.terminals.find((x) => x.id === tid);
+                  return t ? `${c.label} · ${t.label}` : tid;
+                };
+                if (w) setPanel(inspectWire(w, label(w.fromTerminal), label(w.toTerminal)));
+              }}
+            />
+            {/* Inspecting the as-designed circuit teaches what each conductor
+                is for. It cannot leak the fault, because this diagram is the
+                DESIGN — the fault is not drawn. */}
+            {panel && (
+              <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1.5, borderColor: C.blue }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 10.5, fontWeight: '800', color: C.blue, letterSpacing: 0.6 }}>
+                      {panel.kind === 'WIRE' ? 'SELECTED CONDUCTOR' : 'SELECTED TERMINAL'}
+                    </Text>
+                    <Text style={{ fontSize: 15, fontWeight: '800', color: C.text, marginTop: 2 }}>{panel.heading}</Text>
+                    {!!panel.subheading && <Text style={{ fontSize: 11.5, color: C.textSec }}>{panel.subheading}</Text>}
+                  </View>
+                  <TouchableOpacity onPress={() => setPanel(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityRole="button" accessibilityLabel="Close">
+                    <Ionicons name="close" size={17} color={C.textTert} />
+                  </TouchableOpacity>
+                </View>
+                <Text style={{ fontSize: 12.5, color: C.text, lineHeight: 19, marginBottom: panel.points.length ? 8 : 0 }}>{panel.summary}</Text>
+                {panel.points.map((p, i) => (
+                  <View key={i} style={{ flexDirection: 'row', gap: 7, marginBottom: 4 }}>
+                    <Text style={{ fontSize: 12, color: C.blue }}>•</Text>
+                    <Text style={{ flex: 1, fontSize: 12, color: C.textSec, lineHeight: 18 }}>{p}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            <Text style={{ fontSize: 11, color: C.textTert, textAlign: 'center', marginBottom: 6 }}>
+              Tap any wire or screw to see what it does.
+            </Text>
+          </>
         )}
       </View>
       )}

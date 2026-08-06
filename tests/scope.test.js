@@ -55,6 +55,7 @@ const FILES = [
   'src/screens/CircuitCanvas.js',
   'src/screens/JobsiteScreen.js',
   'src/circuit/guided.js',
+  'src/circuit/inspect.js',
   'src/core/training/generated.js',
   'src/core/game/packs.js',
   'src/core/game/fieldTasks.js',

@@ -20,6 +20,7 @@ import { conductor, ConductorRole } from '../circuit/model';
 import { attributionFor, TRAINING_DISCLAIMER } from '../circuit/review';
 import { scoreAttempt, nextHint, rankForXp, TimerMode } from '../circuit/scoring';
 import { buildGuide, remainingRoles, promptForRole, matchGuidedTap, roleName } from '../circuit/guided';
+import { inspectTerminal, inspectWire } from '../circuit/inspect';
 import CircuitCanvas, { ROLE_COLORS } from './CircuitCanvas';
 
 const ROLE_CHIPS = [
@@ -142,6 +143,11 @@ function LessonPlayer({ C, lesson, onExit, onStreakUpdate, onSolved }) {
   // empty board wondering what to do first. Expert mode is one tap away and
   // behaves exactly as it always has.
   const [guided, setGuided] = useState(true);
+  // Inspect mode: a tap explains instead of connecting. Always available, in
+  // either mode and after a wrong test, because knowing what a traveler DOES is
+  // not a hint about where this particular traveler goes.
+  const [inspecting, setInspecting] = useState(false);
+  const [panel, setPanel] = useState(null);
   const [remaining, setRemaining] = useState(() => buildGuide(lesson).remaining);
   const [coach, setCoach] = useState(null);
   const totalSteps = useMemo(() => buildGuide(lesson).total, [lesson]);
@@ -159,7 +165,21 @@ function LessonPlayer({ C, lesson, onExit, onStreakUpdate, onSolved }) {
     try { if (Platform.OS !== 'web') Vibration.vibrate(ms); } catch (e) { /* ignore */ }
   }, []);
 
+  const labelOf = (tid) => {
+    const c = components.find((x) => x.terminals.some((t) => t.id === tid));
+    const t = c?.terminals.find((x) => x.id === tid);
+    return t ? `${c.label} · ${t.label}` : tid;
+  };
+
   const tapTerminal = (terminalId) => {
+    if (inspecting) {
+      const comp = components.find((c) => c.terminals.some((t) => t.id === terminalId));
+      const term = comp?.terminals.find((t) => t.id === terminalId);
+      const n = wires.filter((w) => w.fromTerminal === terminalId || w.toTerminal === terminalId).length;
+      setPanel(inspectTerminal(comp, term, n));
+      setPending(null);
+      return;
+    }
     if (solved) return;
     setResult(null);
     if (!pending) { setPending(terminalId); return; }
@@ -195,6 +215,11 @@ function LessonPlayer({ C, lesson, onExit, onStreakUpdate, onSolved }) {
   };
 
   const removeWire = (id) => {
+    if (inspecting) {
+      const w = wires.find((x) => x.id === id);
+      if (w) setPanel(inspectWire(w, labelOf(w.fromTerminal), labelOf(w.toTerminal)));
+      return;
+    }
     if (solved) return;
     const gone = wires.find((w) => w.id === id);
     setWires((prev) => prev.filter((w) => w.id !== id));
@@ -273,7 +298,60 @@ function LessonPlayer({ C, lesson, onExit, onStreakUpdate, onSolved }) {
           <Ionicons name={guided ? 'school' : 'construct'} size={13} color={guided ? C.blue : C.textSec} />
           <Text style={{ fontSize: 11, fontWeight: '700', color: guided ? C.blue : C.textSec }}>{guided ? 'Guided' : 'Expert'}</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => { setInspecting((v) => !v); setPanel(null); setPending(null); }}
+          accessibilityRole="button"
+          accessibilityLabel={inspecting ? 'Leave inspect mode' : 'Inspect mode: tap a wire or terminal to learn what it is'}
+          accessibilityState={{ selected: inspecting }}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 99, backgroundColor: inspecting ? C.amberBg : C.surface, borderWidth: 1, borderColor: inspecting ? C.amber : C.border }}>
+          <Ionicons name="eye" size={13} color={inspecting ? C.amber : C.textSec} />
+          <Text style={{ fontSize: 11, fontWeight: '700', color: inspecting ? C.amber : C.textSec }}>Inspect</Text>
+        </TouchableOpacity>
       </View>
+
+      {/* Inspect banner — says what tapping does right now */}
+      {inspecting && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.amberBg, borderRadius: 12, padding: 11, marginBottom: 12 }}>
+          <Ionicons name="hand-left" size={15} color={C.amber} />
+          <Text style={{ flex: 1, fontSize: 12, color: C.text }}>
+            Tap any wire, screw or device to find out what it is. Nothing gets connected in this mode.
+          </Text>
+        </View>
+      )}
+
+      {/* The panel itself */}
+      {panel && (
+        <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1.5, borderColor: C.amber }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 10.5, fontWeight: '800', color: C.amber, letterSpacing: 0.6 }}>
+                {panel.kind === 'WIRE' ? 'SELECTED CONDUCTOR' : 'SELECTED TERMINAL'}
+              </Text>
+              <Text style={{ fontSize: 15, fontWeight: '800', color: C.text, marginTop: 2 }}>{panel.heading}</Text>
+              {!!panel.subheading && (
+                <Text style={{ fontSize: 11.5, color: C.textSec, marginTop: 1 }}>{panel.subheading}</Text>
+              )}
+            </View>
+            <TouchableOpacity onPress={() => setPanel(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityRole="button" accessibilityLabel="Close">
+              <Ionicons name="close" size={17} color={C.textTert} />
+            </TouchableOpacity>
+          </View>
+          {!!panel.colorNote && (
+            <Text style={{ fontSize: 11, color: C.textTert, marginBottom: 6 }}>Usual colour: {panel.colorNote}</Text>
+          )}
+          <Text style={{ fontSize: 12.5, color: C.text, lineHeight: 19, marginBottom: panel.points.length ? 8 : 0 }}>{panel.summary}</Text>
+          {panel.points.map((p, i) => (
+            <View key={i} style={{ flexDirection: 'row', gap: 7, marginBottom: 4 }}>
+              <Text style={{ fontSize: 12, color: C.amber }}>•</Text>
+              <Text style={{ flex: 1, fontSize: 12, color: C.textSec, lineHeight: 18 }}>{p}</Text>
+            </View>
+          ))}
+          {!!panel.status && (
+            <Text style={{ fontSize: 11, fontWeight: '700', color: C.textTert, marginTop: 8 }}>{panel.status}</Text>
+          )}
+        </View>
+      )}
 
       {/* Guided: one step at a time, with a progress bar. Objectives are a wall
           of text for a beginner — in guided mode the step IS the instruction. */}
