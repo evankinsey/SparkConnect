@@ -78,6 +78,7 @@ export const TaskKind = {
   BEND: 'BEND',
   JOBCAM: 'JOBCAM',
   QUIZ: 'QUIZ',
+  FIELD_CALC: 'FIELD_CALC',   // a specific number the crew wants back, graded
 };
 
 const roomCenter = (id) => {
@@ -139,8 +140,24 @@ export const STATIONS = Object.freeze([
     icon: 'git-branch',
     label: 'Bending bench',
     brief: 'The run needs an offset around the beam. Work out the marks.',
-    task: TaskKind.BEND, payload: {},
+    task: TaskKind.FIELD_CALC, payload: { fieldTaskId: 'ft-offset' },
     xp: 40,
+  },
+  {
+    id: 'st-shed', x: 9.5, y: 6.5, room: 'Yard',
+    icon: 'trending-down',
+    label: 'Run to the shed',
+    brief: 'Miguel wants the volt drop on that run before you pull it.',
+    task: TaskKind.FIELD_CALC, payload: { fieldTaskId: 'ft-voltage-drop' },
+    xp: 45,
+  },
+  {
+    id: 'st-mockup', x: 16.5, y: 6.5, room: 'Yard',
+    icon: 'cube',
+    label: 'Box on the mockup wall',
+    brief: 'Jerry is not signing off a box that is too small. Work the fill.',
+    task: TaskKind.FIELD_CALC, payload: { fieldTaskId: 'ft-box-fill' },
+    xp: 55,
   },
   {
     id: 'st-truck', x: 23.5, y: 6.5, room: 'Yard',

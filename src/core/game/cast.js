@@ -99,6 +99,16 @@ export const STATION_DIALOGUE = Object.freeze({
     brief: 'Run has a beam in the way. Work your offset marks out before you cut anything.',
     done: 'Measure twice. You only get one cut.',
   },
+  'st-shed': {
+    character: 'renee',
+    brief: 'Before you pull that run to the shed — give me the volt drop. I am not walking it twice.',
+    done: 'That is why we check first. Nice.',
+  },
+  'st-mockup': {
+    character: 'jerry',
+    brief: 'I am not signing off a box that is too small. Work the fill and tell me the number.',
+    done: 'Right. Box fill is not a guess.',
+  },
   'st-truck': {
     character: 'owner',
     brief: 'Client is paying for documentation. Get the rough-in photographed before it gets closed up.',

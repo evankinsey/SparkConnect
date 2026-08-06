@@ -1003,24 +1003,39 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
               <Text style={{ fontSize: 13, fontWeight: '800', color: '#fff' }}>🔧 Find the Fault</Text>
             </TouchableOpacity>
           </View>
-          <TouchableOpacity onPress={() => setTab('jobsite')} activeOpacity={0.85}
-            style={{ marginTop: 10, backgroundColor: 'rgba(244,161,29,0.14)', borderRadius: 11, paddingVertical: 11, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: 'rgba(244,161,29,0.5)' }}>
+        </View>
+      </View>
+
+      {/* ── Job Site — its own banner, directly under the simulator. It is a
+             different kind of thing (a place you walk around, with the crew in
+             it), so it gets its own card instead of riding along as a strip
+             inside the training block. ── */}
+      <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
+        <TouchableOpacity onPress={() => setTab('jobsite')} activeOpacity={0.88}
+          accessibilityRole="button" accessibilityLabel="Enter the Job Site"
+          style={{ backgroundColor: '#1A1408', borderRadius: 16, padding: 15, borderWidth: 1, borderColor: 'rgba(244,161,29,0.45)', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 6 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             {/* The crew, overlapped — the cast is the reason to tap this */}
             <View style={{ flexDirection: 'row' }}>
               {['miguel', 'jerry', 'dante', 'renee'].map((id, i) => (
                 <Image key={id} source={CAST_IMAGES[id]}
-                  style={{ width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, borderColor: '#0D1B3E', marginLeft: i === 0 ? 0 : -9 }} />
+                  style={{ width: 34, height: 34, borderRadius: 17, borderWidth: 2, borderColor: '#1A1408', marginLeft: i === 0 ? 0 : -12 }} />
               ))}
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 13, fontWeight: '800', color: C.amber }}>Enter the Job Site</Text>
-              <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>Work the crew's punch list</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: '#fff', letterSpacing: -0.3 }}>Job Site</Text>
+                <View style={{ backgroundColor: C.amber, paddingHorizontal: 6, paddingVertical: 1.5, borderRadius: 5 }}>
+                  <Text style={{ fontSize: 8.5, fontWeight: '800', color: '#1A1408', letterSpacing: 0.4 }}>NEW</Text>
+                </View>
+              </View>
+              <Text style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.72)', marginTop: 2 }}>
+                Walk the site. The crew has work for you.
+              </Text>
             </View>
-            <View style={{ backgroundColor: C.amber, paddingHorizontal: 6, paddingVertical: 1.5, borderRadius: 5 }}>
-              <Text style={{ fontSize: 8.5, fontWeight: '800', color: '#0D1B3E', letterSpacing: 0.4 }}>NEW</Text>
-            </View>
-          </TouchableOpacity>
-        </View>
+            <Ionicons name="chevron-forward" size={18} color={C.amber} />
+          </View>
+        </TouchableOpacity>
       </View>
 
       {/* ── SparkAI search bar — type here, land in the chat with an answer ── */}
@@ -4575,7 +4590,7 @@ export default function App() {
       case 'learn':       return <LearnScreen setTab={navigateTo} C={C} onStreakUpdate={updateStreak} />;
       case 'wiringlab':   return <WiringLabScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
       case 'troubleshoot':return <TroubleshootScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
-      case 'jobsite':     return <JobsiteScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
+      case 'jobsite':     return <JobsiteScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} pickImage={pickPlanImage} />;
       case 'flashcards':  return <FlashcardsScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
       case 'projects':    return <ProjectsScreen C={C} setTab={navigateTo} />;
       case 'materials':   return <MaterialsScreen C={C} setTab={navigateTo} />;

@@ -105,8 +105,8 @@ test('one bad station does not cost the rest of the pack', () => {
   const { stations, rejected } = loadStationPack([
     good(),
     good({ id: 'in-a-wall', x: 3, y: 2 }),
-    // y=6.5 is the open yard corridor between the two rows of rooms.
-    good({ id: 'far-yard', x: 9.5, y: 6.5 }),
+    // y=12 is the open yard strip below the lower row of rooms.
+    good({ id: 'far-yard', x: 5.5, y: 12.4 }),
   ]);
   assert.equal(stations.length, 2);
   assert.equal(rejected.length, 1);

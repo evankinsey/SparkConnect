@@ -18,9 +18,11 @@ import {
   isComplete, jobsitePercent, sanitizeProgress, STATIONS, ROOMS, SPAWN, Tile, TaskKind,
 } from '../core/game/jobsite';
 import { dialogueFor, characterForStation } from '../core/game/cast';
+import { fieldTaskForStation } from '../core/game/fieldTasks';
 import { portraitFor } from './castImages';
 import WiringLabScreen from './WiringLabScreen';
 import TroubleshootScreen from './TroubleshootScreen';
+import FieldTaskScreen from './FieldTaskScreen';
 
 const KEY = '@sc_jobsite_progress_v1';
 const KEY_PAD = '@sc_jobsite_pad_v1';
@@ -36,7 +38,7 @@ const SITE = {
   wall: '#4B5563', wallTop: '#6B7280',
 };
 
-export default function JobsiteScreen({ C, setTab, onStreakUpdate }) {
+export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, onPhotoTaken }) {
   const grid = useMemo(() => buildMap(), []);
   const [pos, setPos] = useState({ ...SPAWN });
   const [progress, setProgress] = useState(emptyJobsiteProgress());
@@ -101,20 +103,9 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate }) {
    * actually be solved.
    */
   const startStation = useCallback((st) => {
-    if (st.task === TaskKind.BEND || st.task === TaskKind.JOBCAM) {
-      const already = isComplete(progress, st.id);
-      persist(completeStation(progress, st.id));
-      if (!already) {
-        const line = dialogueFor(st.id);
-        setToast({ who: characterForStation(st.id), text: line?.done, xp: st.xp });
-        setTimeout(() => setToast(null), 3400);
-      }
-      setTab(st.task === TaskKind.BEND ? 'bend' : 'jobcam');
-      return;
-    }
     solvedRef.current = false;
     setActive(st);
-  }, [progress, persist, setTab]);
+  }, []);
 
   // ── A task is open: hand the whole screen to the real tool ──
   if (active) {
@@ -135,6 +126,21 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate }) {
           C={C}
           onStreakUpdate={onStreakUpdate}
           onSolved={() => { solvedRef.current = true; }}
+          onClose={() => finish(active, solvedRef.current)}
+        />
+      );
+    }
+    // A graded number, or the Owner's photo. Both are checked before sign-off.
+    const ft = active.payload?.fieldTaskId ?? fieldTaskForStation(active.id)?.id;
+    if (ft) {
+      return (
+        <FieldTaskScreen
+          C={C}
+          taskId={ft}
+          pickImage={pickImage}
+          onPhotoTaken={onPhotoTaken}
+          onOpenTool={(tab) => setTab(tab)}
+          onSolved={() => { solvedRef.current = true; onStreakUpdate && onStreakUpdate(); }}
           onClose={() => finish(active, solvedRef.current)}
         />
       );
