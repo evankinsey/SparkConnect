@@ -14,6 +14,9 @@ import {
   WORK_TYPES, Likelihood, permitGuidance, buildAhjScript,
   sanitizeJurisdiction, emptyJurisdiction, hasJurisdiction,
 } from '../core/field/permits';
+import {
+  buildRecord, pendingVerification, confirmField, rejectField, exportable,
+} from '../core/field/ahj';
 
 const KEY_AHJ = '@sc_ahj_v1';
 
@@ -57,6 +60,14 @@ export default function PermitScreen({ C, setTab, onAskAi }) {
           <Text style={{ fontSize: 12, color: C.textTert }}>What to expect, and what to ask.</Text>
         </View>
       </View>
+
+      {/* Look it up instead of interrogating the user. Everything that comes
+          back is a draft they confirm field by field — see AhjLookup. */}
+      <AhjLookup
+        C={C}
+        onAskAi={onAskAi}
+        onAdopt={(verified) => saveJurisdiction({ ...jurisdiction, ...verified })}
+      />
 
       {/* The AHJ record — the only jurisdiction-specific data in the app, and it
           comes from the user. */}
@@ -253,6 +264,156 @@ function Section({ C, title, children }) {
     <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: C.border }}>
       <Text style={{ fontSize: 10.5, fontWeight: '800', color: C.textSec, letterSpacing: 0.6, marginBottom: 9 }}>{title}</Text>
       {children}
+    </View>
+  );
+}
+
+// ─── AHJ LOOKUP ──────────────────────────────────────────────────────────────
+// Type a place, get a draft record, confirm it field by field.
+//
+// The whole design is in what this does NOT do. It does not fill the user's
+// saved jurisdiction. It does not export. It does not let a suggestion pass for
+// a fact. Every proposed value is visibly a draft until the user taps confirm
+// on that specific field, and the two that fail silently — adopted code edition
+// and local amendments — say so in their own prompt.
+
+function AhjLookup({ C, onAskAi, onAdopt }) {
+  const [query, setQuery] = useState('');
+  const [record, setRecord] = useState(null);
+  const [open, setOpen] = useState(false);
+
+  const start = () => {
+    const q = query.trim();
+    if (!q) return;
+    // Curated data lands immediately. Anything a model proposes arrives through
+    // applyProposal with FieldSource.AI, so it can never outrank this.
+    setRecord(buildRecord(q));
+    setOpen(true);
+  };
+
+  const pending = record ? pendingVerification(record) : [];
+  const ready = record ? exportable(record) : {};
+  const readyCount = Object.keys(ready).length;
+
+  if (!open) {
+    return (
+      <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.border, marginBottom: 12 }}>
+        <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, marginBottom: 3 }}>
+          Look up your AHJ
+        </Text>
+        <Text style={{ fontSize: 11.5, color: C.textSec, lineHeight: 16, marginBottom: 10 }}>
+          Type a city or county. SparkConnect fills in what it can as a draft for you to check —
+          it never fills in your saved record on its own.
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Tampa, or Hillsborough County"
+            placeholderTextColor={C.placeholder}
+            onSubmitEditing={start}
+            returnKeyType="search"
+            style={{
+              flex: 1, backgroundColor: C.inputBg, borderRadius: 10, padding: 11,
+              color: C.inputText, fontSize: 14, borderWidth: 1, borderColor: C.border, minHeight: 44,
+            }}
+          />
+          <TouchableOpacity
+            onPress={start}
+            style={{ backgroundColor: C.blue, borderRadius: 10, paddingHorizontal: 16, justifyContent: 'center', minHeight: 44 }}>
+            <Text style={{ fontSize: 13.5, fontWeight: '800', color: '#fff' }}>Look up</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.border, marginBottom: 12 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+        <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: C.text }}>{record.query}</Text>
+        <TouchableOpacity onPress={() => { setOpen(false); setRecord(null); }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Ionicons name="close" size={17} color={C.textTert} />
+        </TouchableOpacity>
+      </View>
+
+      {pending.length === 0 && readyCount === 0 && (
+        <View>
+          <Text style={{ fontSize: 12, color: C.textSec, lineHeight: 17, marginBottom: 10 }}>
+            SparkConnect has no verified record for this jurisdiction. That is the honest answer —
+            a plausible-looking phone number and code edition would be worse than a blank.
+          </Text>
+          <TouchableOpacity
+            onPress={() => onAskAi && onAskAi(`permit office, adopted NEC edition, and inspection process for ${record.query}`)}
+            style={{ backgroundColor: C.amber, borderRadius: 10, paddingVertical: 12, alignItems: 'center', minHeight: 44, justifyContent: 'center' }}>
+            <Text style={{ fontSize: 13, fontWeight: '800', color: '#fff' }}>Ask SparkAI to look</Text>
+          </TouchableOpacity>
+          <Text style={{ fontSize: 10.5, color: C.textTert, lineHeight: 15, marginTop: 8 }}>
+            Anything it finds comes back as a draft you confirm, one field at a time.
+          </Text>
+        </View>
+      )}
+
+      {pending.map((f) => (
+        <View
+          key={f.key}
+          style={{
+            borderRadius: 11, padding: 11, marginBottom: 8,
+            backgroundColor: C.inputBg,
+            // A draft has to LOOK like a draft. High-risk fields get the amber
+            // edge, because being wrong about them is not self-announcing.
+            borderWidth: 1.5, borderStyle: 'dashed',
+            borderColor: f.risk === 'HIGH' ? C.amber : C.border,
+          }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+            <Text style={{ flex: 1, fontSize: 10.5, fontWeight: '800', color: C.textSec, letterSpacing: 0.4 }}>
+              {f.label.toUpperCase()}
+            </Text>
+            <View style={{ backgroundColor: f.risk === 'HIGH' ? C.amberBg : C.border, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 }}>
+              <Text style={{ fontSize: 9, fontWeight: '800', color: f.risk === 'HIGH' ? C.amber : C.textTert }}>
+                UNVERIFIED
+              </Text>
+            </View>
+          </View>
+
+          <Text style={{ fontSize: 14, color: C.text, marginBottom: 4 }}>{f.value}</Text>
+          {!!f.why && (
+            <Text style={{ fontSize: 10.5, color: C.textTert, lineHeight: 15, marginBottom: 6 }}>{f.why}</Text>
+          )}
+          <Text style={{ fontSize: 11, color: f.risk === 'HIGH' ? C.amber : C.textSec, marginBottom: 8 }}>
+            {f.prompt}
+          </Text>
+
+          <View style={{ flexDirection: 'row', gap: 7 }}>
+            <TouchableOpacity
+              onPress={() => setRecord(confirmField(record, f.key, { at: Date.now() }))}
+              style={{ flex: 1, backgroundColor: C.blue, borderRadius: 9, paddingVertical: 9, alignItems: 'center', minHeight: 40, justifyContent: 'center' }}>
+              <Text style={{ fontSize: 12.5, fontWeight: '800', color: '#fff' }}>Confirm</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setRecord(rejectField(record, f.key))}
+              style={{ paddingHorizontal: 14, borderRadius: 9, borderWidth: 1, borderColor: C.border, justifyContent: 'center', minHeight: 40 }}>
+              <Text style={{ fontSize: 12.5, fontWeight: '700', color: C.textSec }}>Discard</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ))}
+
+      {readyCount > 0 && (
+        <TouchableOpacity
+          onPress={() => { onAdopt(exportable(record)); setOpen(false); setRecord(null); }}
+          style={{ backgroundColor: C.green ?? C.blue, borderRadius: 10, paddingVertical: 13, alignItems: 'center', marginTop: 4, minHeight: 46, justifyContent: 'center' }}>
+          <Text style={{ fontSize: 13.5, fontWeight: '800', color: '#fff' }}>
+            Save {readyCount} confirmed field{readyCount === 1 ? '' : 's'}
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {pending.length > 0 && (
+        <Text style={{ fontSize: 10.5, color: C.textTert, lineHeight: 15, marginTop: 8 }}>
+          Unconfirmed fields are not saved, not exported, and not used to answer anything.
+        </Text>
+      )}
     </View>
   );
 }
