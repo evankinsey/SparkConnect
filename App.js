@@ -499,8 +499,14 @@ const askNecBackend = async (payload) => {
   if (!NEC_BACKEND_URL) return null;
   try {
     const controller = new AbortController();
-    // Longer timeout when image is attached (vision takes more time)
-    const timeout = payload.image ? 30000 : 15000;
+    // Longer timeout when an image is attached — vision is slower, and a dense
+    // plan sheet for Blueprint Takeoff is the slowest request the app makes.
+    //
+    // 50s sits deliberately UNDER the backend's 60s maxDuration. If the client
+    // gave up first, the function would keep running to completion and bill for
+    // an answer nobody receives; letting the server be the shorter fuse means a
+    // timeout produces a real error instead of a silent charge.
+    const timeout = payload.image ? 50000 : 15000;
     const to = setTimeout(() => controller.abort(), timeout);
     const res = await fetch(NEC_BACKEND_URL, {
       method: 'POST',
