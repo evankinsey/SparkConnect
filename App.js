@@ -1967,6 +1967,7 @@ const getExamQuestions = (level, category, count) => {
 const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade, onBuyPacks, isPro = IS_PRO }) => {
   const [inputText, setInputText] = React.useState(initialSearch || '');
   const [messages, setMessages] = React.useState([]);
+  const [convos, setConvos] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
   const [selectedImage, setSelectedImage] = React.useState(null);
   const [isRecording, setIsRecording] = React.useState(false);
@@ -2029,7 +2030,49 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
         } catch {}
       }
     });
+    safeStorageGet('@sc_sparky_convos').then(val => {
+      if (val) {
+        try {
+          const saved = JSON.parse(val);
+          if (Array.isArray(saved)) setConvos(saved.slice(0, 10));
+        } catch {}
+      }
+    });
   }, []);
+
+  // Archive the live chat into Recent Conversations, then start fresh.
+  // Only a real exchange (a question AND an answer) is worth keeping.
+  const startNewConversation = () => {
+    if (messages.some((m) => m.role === 'user') && messages.length >= 2) {
+      const firstQ = messages.find((m) => m.role === 'user');
+      const convo = {
+        id: `c${Date.now()}`,
+        ts: Date.now(),
+        title: String(firstQ?.text || 'Photo question').slice(0, 64),
+        count: messages.length,
+        messages: messages.slice(-20),
+      };
+      const next = [convo, ...convos].slice(0, 10);
+      setConvos(next);
+      safeStorageSet('@sc_sparky_convos', JSON.stringify(next));
+    }
+    setMessages([]);
+    safeStorageSet('@sc_sparky_history', '[]');
+  };
+
+  // Reopen an archived conversation as the live one (it re-archives on next new chat).
+  const openConversation = (convo) => {
+    const next = convos.filter((c) => c.id !== convo.id);
+    setConvos(next);
+    safeStorageSet('@sc_sparky_convos', JSON.stringify(next));
+    setMessages(Array.isArray(convo.messages) ? convo.messages.slice(-20) : []);
+  };
+
+  const deleteConversation = (id) => {
+    const next = convos.filter((c) => c.id !== id);
+    setConvos(next);
+    safeStorageSet('@sc_sparky_convos', JSON.stringify(next));
+  };
 
   // Auto-fire initial search from Estimator — then clear so it doesn't re-fire
   React.useEffect(() => {
@@ -2375,9 +2418,10 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
             <Ionicons name="book-outline" size={16} color={showBrowse ? C.blue : C.textSec} />
           </TouchableOpacity>
           {messages.length > 0 && (
-            <TouchableOpacity onPress={() => { setMessages([]); safeStorageSet('@sc_sparky_history', '[]'); }}
+            <TouchableOpacity onPress={startNewConversation}
+              accessibilityRole="button" accessibilityLabel="Start a new conversation"
               style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: C.inputBg, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="refresh-outline" size={16} color={C.textSec} />
+              <Ionicons name="add" size={18} color={C.textSec} />
             </TouchableOpacity>
           )}
         </View>
@@ -2438,6 +2482,27 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
                 </View>
               </View>
             </View>
+
+            {/* Recent conversations — people love chat history */}
+            {convos.length > 0 && (
+              <View style={{ marginBottom: 18 }}>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Recent conversations</Text>
+                {convos.map((c) => (
+                  <TouchableOpacity key={c.id} onPress={() => openConversation(c)} activeOpacity={0.85}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 12, marginBottom: 8 }}>
+                    <Ionicons name="chatbubble-ellipses-outline" size={16} color={C.amber} />
+                    <View style={{ flex: 1 }}>
+                      <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '600', color: C.text }}>{c.title}</Text>
+                      <Text style={{ fontSize: 11, color: C.textTert, marginTop: 1 }}>{new Date(c.ts).toLocaleDateString()} · {c.count} messages</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => deleteConversation(c.id)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      accessibilityRole="button" accessibilityLabel="Delete conversation">
+                      <Ionicons name="trash-outline" size={15} color={C.textTert} />
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
 
             <Text style={{ fontSize: 10, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Try asking:</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
