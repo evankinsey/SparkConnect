@@ -8,7 +8,7 @@
 // and are tested there. This file renders and reads the d-pad.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, Dimensions, Vibration, Platform, Image } from 'react-native';
+import { View, Text, TouchableOpacity, Dimensions, Vibration, Platform, Image, PanResponder, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Rect, Circle, G, Path, Image as SvgImage, ClipPath, Defs } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -23,10 +23,12 @@ import WiringLabScreen from './WiringLabScreen';
 import TroubleshootScreen from './TroubleshootScreen';
 
 const KEY = '@sc_jobsite_progress_v1';
+const KEY_PAD = '@sc_jobsite_pad_v1';
 
 const SPEED = 0.13;      // tiles per tick
 const TICK = 45;         // ms
 const VIEW_TILES_X = 11; // how much of the site is on screen
+const PAD_SIZE = 190;    // footprint of the d-pad cluster, for drag clamping
 
 const SITE = {
   dirt: '#8B7355', dirtAlt: '#96805F',
@@ -141,25 +143,29 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate }) {
 
   const done = progress.completed.length;
 
+  // The site fills the screen and the HUD floats on top of it. A game in a
+  // box with a status bar above and a control pad below is a widget; a game
+  // you are standing inside is the thing that was asked for.
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg }}>
-      {/* Status strip */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 10 }}>
-        <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 15, fontWeight: '800', color: C.text }}>Job Site</Text>
-          <Text style={{ fontSize: 11, color: C.textTert }}>
-            {done} of {STATIONS.length} tasks signed off · {jobsitePercent(progress)}%
+    <View style={{ flex: 1, backgroundColor: SITE.dirt }}>
+      <WorldView C={C} grid={grid} pos={pos} progress={progress} near={near} />
+
+      {/* HUD — floats over the world, never steals a tap from it */}
+      <View pointerEvents="none" style={{ position: 'absolute', top: 10, left: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ backgroundColor: 'rgba(17,24,39,0.72)', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 7 }}>
+          <Text style={{ fontSize: 13, fontWeight: '800', color: '#fff' }}>Job Site</Text>
+          <Text style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.75)' }}>
+            {done} of {STATIONS.length} signed off · {jobsitePercent(progress)}%
           </Text>
         </View>
-        <View style={{ backgroundColor: C.amberBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
-          <Text style={{ fontSize: 12, fontWeight: '800', color: C.amber }}>{progress.xp} XP</Text>
+        <View style={{ flex: 1 }} />
+        <View style={{ backgroundColor: 'rgba(244,161,29,0.92)', borderRadius: 12, paddingHorizontal: 11, paddingVertical: 8 }}>
+          <Text style={{ fontSize: 12.5, fontWeight: '800', color: '#fff' }}>{progress.xp} XP</Text>
         </View>
       </View>
 
-      <WorldView C={C} grid={grid} pos={pos} progress={progress} near={near} />
-
-      {/* Prompt / hint line */}
-      <View style={{ paddingHorizontal: 16, minHeight: 92, justifyContent: 'center' }}>
+      {/* Brief / sign-off, docked above the controls */}
+      <View style={{ position: 'absolute', left: 12, right: 12, bottom: PAD_SIZE + 18 }}>
         {toast ? (
           <View style={{ backgroundColor: C.greenBg, borderRadius: 16, padding: 13, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: C.green }}>
             {toast.who && portraitFor(toast.who.id) && (
@@ -180,13 +186,15 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate }) {
             onStart={() => startStation(near)}
           />
         ) : (
-          <Text style={{ fontSize: 12, color: C.textTert, textAlign: 'center', lineHeight: 18 }}>
-            Walk up to a room or the truck to pick up the job.
-          </Text>
+          <View style={{ alignSelf: 'center', backgroundColor: 'rgba(17,24,39,0.66)', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8 }}>
+            <Text style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.9)', textAlign: 'center' }}>
+              Walk up to a room or the truck to pick up the job.
+            </Text>
+          </View>
         )}
       </View>
 
-      {/* D-pad */}
+      {/* D-pad — drag it wherever your thumb actually is */}
       <DPad C={C} dir={dir} />
     </View>
   );
@@ -242,16 +250,19 @@ function StationCard({ C, station, done, onStart }) {
 // ─── The world ───────────────────────────────────────────────────────────────
 
 function WorldView({ C, grid, pos, progress, near }) {
-  const W = Dimensions.get('window').width - 32;
-  const TS = W / VIEW_TILES_X;                 // tile size in px
-  const viewH = Math.round(TS * 7.6);
+  const { width: W, height: viewH } = Dimensions.get('window');
+  // Tile size is driven by the narrow axis so the site reads the same on a
+  // small phone and a tablet, then the camera shows as much as fits.
+  const TS = W / VIEW_TILES_X;
 
   // Camera centres on the player, clamped so the site never floats in space.
-  const camX = Math.max(0, Math.min(pos.x * TS - W / 2, grid[0].length * TS - W));
-  const camY = Math.max(0, Math.min(pos.y * TS - viewH / 2, grid.length * TS - viewH));
+  // When the map is smaller than the viewport on an axis, centre it instead.
+  const mapW = grid[0].length * TS, mapH = grid.length * TS;
+  const camX = mapW <= W ? (mapW - W) / 2 : Math.max(0, Math.min(pos.x * TS - W / 2, mapW - W));
+  const camY = mapH <= viewH ? (mapH - viewH) / 2 : Math.max(0, Math.min(pos.y * TS - viewH / 2, mapH - viewH));
 
   return (
-    <View style={{ marginHorizontal: 16, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: C.border, backgroundColor: SITE.dirt }}>
+    <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: SITE.dirt }}>
       <Svg width={W} height={viewH}>
         <G transform={`translate(${-camX}, ${-camY})`}>
           {/* Ground */}
@@ -337,30 +348,81 @@ function WorldView({ C, grid, pos, progress, near }) {
 // Big targets — this gets used with gloves on.
 
 function DPad({ C, dir }) {
+  const { width: SW, height: SH } = Dimensions.get('window');
+  const clamp = useCallback((p) => ({
+    x: Math.max(8, Math.min(p.x, SW - PAD_SIZE - 8)),
+    y: Math.max(8, Math.min(p.y, SH - PAD_SIZE - 8)),
+  }), [SW, SH]);
+
+  const [origin, setOrigin] = useState(() => clamp({ x: 16, y: SH - PAD_SIZE - 24 }));
+  const [dragging, setDragging] = useState(false);
+  // Where the pad was when this drag started. A ref because the responder
+  // callbacks close over it and must not re-subscribe on every move.
+  const start = useRef(origin);
+
+  useEffect(() => {
+    AsyncStorage.getItem(KEY_PAD)
+      .then((raw) => {
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        if (typeof saved?.x === 'number' && typeof saved?.y === 'number') setOrigin(clamp(saved));
+      })
+      .catch(() => { /* an unreadable preference is just the default corner */ });
+  }, [clamp]);
+
+  // Drag by the handle only. If the whole cluster were draggable, every walk
+  // input would fight the gesture recogniser.
+  const pan = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 3 || Math.abs(g.dy) > 3,
+    onPanResponderGrant: () => { start.current = origin; setDragging(true); },
+    onPanResponderMove: (_e, g) => {
+      setOrigin(clamp({ x: start.current.x + g.dx, y: start.current.y + g.dy }));
+    },
+    onPanResponderRelease: () => {
+      setDragging(false);
+      // Read through the setter so the persisted value is the settled one.
+      setOrigin((p) => { AsyncStorage.setItem(KEY_PAD, JSON.stringify(p)).catch(() => {}); return p; });
+    },
+    onPanResponderTerminate: () => setDragging(false),
+  }), [origin, clamp]);
+
   const set = (x, y) => () => { dir.current = { x, y }; };
   const stop = () => { dir.current = { x: 0, y: 0 }; };
 
-  const Btn = ({ icon, x, y, style }) => (
+  const Btn = ({ icon, x, y, label }) => (
     <TouchableOpacity
       onPressIn={set(x, y)}
       onPressOut={stop}
       activeOpacity={0.7}
-      style={[{
-        width: 62, height: 62, borderRadius: 16, backgroundColor: C.surface,
-        borderWidth: 1.5, borderColor: C.border, alignItems: 'center', justifyContent: 'center',
-      }, style]}>
-      <Ionicons name={icon} size={26} color={C.textSec} />
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={{
+        width: 62, height: 62, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.92)',
+        borderWidth: 1.5, borderColor: 'rgba(17,24,39,0.18)', alignItems: 'center', justifyContent: 'center',
+      }}>
+      <Ionicons name={icon} size={26} color="#374151" />
     </TouchableOpacity>
   );
 
   return (
-    <View style={{ alignItems: 'center', paddingBottom: 14 }}>
-      <Btn icon="chevron-up" x={0} y={-1} />
-      <View style={{ flexDirection: 'row', gap: 62, marginVertical: 6 }}>
-        <Btn icon="chevron-back" x={-1} y={0} />
-        <Btn icon="chevron-forward" x={1} y={0} />
+    <View style={{ position: 'absolute', left: origin.x, top: origin.y, width: PAD_SIZE, height: PAD_SIZE, alignItems: 'center', opacity: dragging ? 0.75 : 1 }}>
+      <Btn icon="chevron-up" x={0} y={-1} label="Walk up" />
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 2 }}>
+        <Btn icon="chevron-back" x={-1} y={0} label="Walk left" />
+        {/* Drag handle, dead centre — the one spot a d-pad has no button */}
+        <View
+          {...pan.panHandlers}
+          accessibilityRole="adjustable"
+          accessibilityLabel="Drag to move the walk controls"
+          style={{ width: 62, height: 62, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: dragging ? 'rgba(37,99,235,0.9)' : 'rgba(17,24,39,0.35)', alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="move" size={15} color="#fff" />
+          </View>
+        </View>
+        <Btn icon="chevron-forward" x={1} y={0} label="Walk right" />
       </View>
-      <Btn icon="chevron-down" x={0} y={1} />
+      <Btn icon="chevron-down" x={0} y={1} label="Walk down" />
     </View>
   );
 }
