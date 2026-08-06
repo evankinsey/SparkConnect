@@ -42,6 +42,30 @@ const _loadImagePicker = (() => {
     try { _mod = await import('expo-image-picker'); return _mod; } catch { return null; }
   };
 })();
+/**
+ * Shared plan-sheet picker. Blueprint Takeoff needs the same permission dance
+ * SparkAI already does, so it borrows this rather than growing a second copy
+ * that can drift out of sync on permissions or quality settings.
+ *
+ * Quality is higher than the chat picker's 0.6 because a takeoff is counting
+ * small symbols on a drawing; a soft image is the difference between a count
+ * and a guess.
+ */
+const pickPlanImage = async (source = 'camera') => {
+  const IP = await _loadImagePicker();
+  if (!IP) throw new Error('picker unavailable');
+  const perm = source === 'camera'
+    ? await IP.requestCameraPermissionsAsync()
+    : await IP.requestMediaLibraryPermissionsAsync();
+  if (perm.status !== 'granted') throw new Error('permission denied');
+  const result = source === 'camera'
+    ? await IP.launchCameraAsync({ quality: 0.85, base64: true, allowsEditing: false })
+    : await IP.launchImageLibraryAsync({ quality: 0.85, base64: true, allowsEditing: false });
+  if (result.canceled || !result.assets?.length) return null;
+  const a = result.assets[0];
+  return { uri: a.uri, base64: a.base64 };
+};
+
 const _loadSharing = (() => {
   let _mod = null;
   return async () => {
@@ -2161,14 +2185,47 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
       const form = new FormData();
       form.append('audio', { uri, type: 'audio/m4a', name: 'voice.m4a' });
       const res = await fetch(transcribeURL, { method: 'POST', body: form });
+      // A 404 here means the transcribe endpoint is not deployed. Saying that
+      // out loud beats "could not transcribe", which sends the user off
+      // re-recording in a quieter room to fix a problem on the server.
+      if (!res.ok) {
+        setInputText('');
+        Alert.alert(
+          res.status === 404 ? 'Voice not set up yet' : 'Transcription failed',
+          res.status === 404
+            ? 'The /api/transcribe endpoint is not deployed on the backend yet. Type your question, or use the keyboard mic key to dictate.'
+            : `The server returned ${res.status}. Type your question, or use the keyboard mic key.`,
+        );
+        return;
+      }
       const data = await res.json();
       if (data.text) { setInputText(data.text); inputRef.current?.focus?.(); }
       else { setInputText(''); Alert.alert('Could not transcribe', 'Try again or type your question.'); }
     } catch(e) {
       safeLog('stopRecording', e);
       setInputText('');
+      Alert.alert('Voice unavailable', 'Could not reach the transcription service. Type your question, or use the keyboard mic key to dictate.');
     }
   };
+
+  // ── Hands-free: read answers aloud ───────────────────────────────────────
+  // Electricians have dirty hands and are often up a ladder. Speaking the
+  // answer is the half of voice mode that needs no backend at all, so it works
+  // even when transcription does not.
+  const speak = useCallback(async (text) => {
+    if (!text) return;
+    try {
+      const Speech = await import('expo-speech');
+      Speech.stop();
+      // Strip markdown and code refs so it does not read asterisks aloud.
+      const spoken = String(text).replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 3500);
+      Speech.speak(spoken, { rate: 0.98, pitch: 1.0 });
+    } catch (e) { safeLog('speak', e); }
+  }, []);
+
+  const stopSpeaking = useCallback(async () => {
+    try { const Speech = await import('expo-speech'); Speech.stop(); } catch (e) { /* nothing playing */ }
+  }, []);
 
   // ── Send message ─────────────────────────────────────────────────────────
   const handleSend = async (overrideText) => {
@@ -2367,20 +2424,31 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
               </View>
             )}
 
-            {/* Share */}
+            {/* Listen + share */}
             {!msg.isError && !msg.isRateLimit && (
-              <TouchableOpacity onPress={async () => {
-                const txt = `⚡ SparkAI\n\n${msg.text}${msg.refs?.length ? '\n\nSources: ' + msg.refs.join(', ') : ''}\n\n— SparkConnect Tools`;
-                try { await Share.share({ message: txt }); } catch(e) { safeLog('share', e); }
-              }} style={{ alignSelf: 'flex-end', marginTop: 6, padding: 4 }}>
-                <Ionicons name="share-outline" size={15} color={C.textTert} />
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignSelf: 'flex-end', gap: 4, marginTop: 6 }}>
+                <TouchableOpacity
+                  onPress={() => speak(msg.text)}
+                  onLongPress={stopSpeaking}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Read this answer aloud. Long press to stop."
+                  style={{ padding: 4 }}>
+                  <Ionicons name="volume-medium-outline" size={15} color={C.textTert} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={async () => {
+                  const txt = `⚡ SparkAI\n\n${msg.text}${msg.refs?.length ? '\n\nSources: ' + msg.refs.join(', ') : ''}\n\n— SparkConnect Tools`;
+                  try { await Share.share({ message: txt }); } catch(e) { safeLog('share', e); }
+                }} accessibilityRole="button" accessibilityLabel="Share this answer" style={{ padding: 4 }}>
+                  <Ionicons name="share-outline" size={15} color={C.textTert} />
+                </TouchableOpacity>
+              </View>
             )}
           </View>
         </View>
       </View>
     );
-  }, [C, setTab]);
+  }, [C, setTab, speak, stopSpeaking]);
 
   const EXAMPLES = [
     'Do bathroom outlets need GFCI?',
@@ -3170,13 +3238,13 @@ const PrivacyScreen = ({ C, onBack }) => {
       </View>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
         <Text style={{ fontSize: 11, color: C.textTert, marginBottom: 20 }}>Last updated: June 2025</Text>
-        <Sec title="Information We Collect" body="SparkConnect Tools collects minimal information. Calculator inputs, quiz progress, saved settings, and Job Cam photos are stored locally on your device. We do not require account creation. The one exception is described below: a photo you choose to attach to a SparkAI question is uploaded so it can be analyzed." />
-        <Sec title="SparkAI Questions and Photos" body="When you use SparkAI, your question text is sent over an encrypted connection to our backend and on to an AI service provider to generate a response. If you attach a photo to a question, that image is uploaded the same way so it can be analyzed. Images are sent only when you attach one, are used only to answer that question, and are not stored by us or used to identify you. Do not submit private, sensitive, or confidential information — or photographs of people or documents — through SparkAI. Searches made without a network connection are processed locally on your device." />
+        <Sec title="Information We Collect" body="SparkConnect Tools collects minimal information. Calculator inputs, quiz progress, saved settings, and Job Cam photos are stored locally on your device. We do not require account creation. The one exception is described below: a photo you choose to attach to a SparkAI question, and voice audio you choose to record, are uploaded so they can be analyzed or transcribed." />
+        <Sec title="SparkAI Questions, Photos and Voice" body="When you use SparkAI, your question text is sent over an encrypted connection to our backend and on to an AI service provider to generate a response. If you attach a photo to a question, that image is uploaded the same way so it can be analyzed — this includes plan sheets you photograph for Blueprint Takeoff. If you hold the microphone button to ask a question by voice, that audio recording is uploaded so it can be transcribed into text. Images and audio are sent only when you choose to attach or record them, are used only to answer that question, and are not stored by us or used to identify you. Reading answers aloud happens entirely on your device and sends nothing. Do not submit private, sensitive, or confidential information — or photographs of people or documents — through SparkAI. Searches made without a network connection are processed locally on your device." />
         <Sec title="Analytics" body="SparkConnect Tools does not currently collect analytics or crash reporting data. If basic anonymous analytics are enabled in a future version, they will not include personally identifiable information and will be disclosed here." />
         <Sec title="Purchases and Subscriptions" body="Purchases are processed entirely by Apple (App Store) or Google (Play Store). SparkConnect never sees, stores or processes payment card information. Subscription status is checked through RevenueCat using an anonymous install identifier, not your name or email." />
         <Sec title="Account and Login Data" body="The current version does not require an account or login. If account features are added in a future version, we will update this policy." />
         <Sec title="Data Sharing" body="We do not sell, rent, or trade your personal data to advertisers or third parties. Anonymous aggregate data may be used to improve the app." />
-        <Sec title="Data Security" body="Your calculator results, saved projects and Job Cam photos remain on your device — we do not operate servers that store them. SparkAI questions, and any photo you attach to one, travel over an encrypted (HTTPS) connection and are used only to generate that answer." />
+        <Sec title="Data Security" body="Your calculator results, saved projects and Job Cam photos remain on your device — we do not operate servers that store them. SparkAI questions, any photo you attach to one, and any voice recording you make travel over an encrypted (HTTPS) connection and are used only to generate that answer." />
         <Sec title="Children's Privacy" body="SparkConnect Tools is intended for adult professionals and is not directed at children under 13." />
         <Sec title="Changes to This Policy" body="We may update this Privacy Policy from time to time. Continued use after changes constitutes acceptance." />
         <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>Questions? support@sparkconnect.pro</Text>
@@ -4045,6 +4113,7 @@ const SCREEN_LABELS = {
   wiringlab: 'Wiring Simulator', troubleshoot: 'Troubleshoot', jobsite: 'Job Site',
   flashcards: 'Flashcards', projects: 'Projects', materials: 'Material List',
   community: 'Community', customizehome: 'Customize Home',
+  permits: 'Permit Assistant', blueprint: 'Blueprint Takeoff',
 };
 
 // ─── SPLASH SCREEN ───────────────────────────────────────────────────────────
@@ -4280,6 +4349,8 @@ const FlashcardsScreen  = lazyScreen('Flashcards',      () => require('./src/scr
 const ProjectsScreen    = lazyScreen('Projects',        () => require('./src/screens/ProjectsScreen'));
 const MaterialsScreen   = lazyScreen('Material List',   () => require('./src/screens/MaterialsScreen'));
 const CommunityScreen   = lazyScreen('Community',       () => require('./src/screens/CommunityScreen'));
+const PermitScreen      = lazyScreen('Permit Assistant', () => require('./src/screens/PermitScreen'));
+const BlueprintScreen   = lazyScreen('Blueprint Takeoff', () => require('./src/screens/BlueprintScreen'));
 
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
@@ -4392,7 +4463,7 @@ export default function App() {
   // src/core/home/layout.js so adding a Home feature is a data change.
   const { layout: homeLayout, save: saveHomeLayout } = useHomeLayout();
 
-  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','wiringlab','troubleshoot','jobsite','flashcards','customizehome','projects','materials','community'];
+  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','wiringlab','troubleshoot','jobsite','flashcards','customizehome','projects','materials','community','permits','blueprint'];
 
   // Stable handlers — avoids stale closure in Settings toggle rows
   const handleDailyQToggle = React.useCallback((v) => {
@@ -4509,6 +4580,17 @@ export default function App() {
       case 'projects':    return <ProjectsScreen C={C} setTab={navigateTo} />;
       case 'materials':   return <MaterialsScreen C={C} setTab={navigateTo} />;
       case 'community':   return <CommunityScreen C={C} setTab={navigateTo} />;
+      case 'permits':     return <PermitScreen C={C} setTab={navigateTo} onAskAi={(q) => { setNecaiInitSearch(q); navigateTo('necai'); }} />;
+      case 'blueprint':   return (
+        <BlueprintScreen
+          C={C}
+          setTab={navigateTo}
+          isPro={isPro}
+          onUpgrade={() => setPaywall('pro')}
+          pickImage={pickPlanImage}
+          askBackend={askNecBackend}
+        />
+      );
       case 'customizehome': return <HomeCustomizeScreen C={C} layout={homeLayout} onSave={saveHomeLayout} onDone={() => { setHomeKey(k => k + 1); navigateTo('home'); }} />;
       case 'settings':    return <SettingsScreen C={C} themePreference={themePreference} setThemePreference={setThemePreference} showDailyQ={showDailyQ} onDailyQToggle={handleDailyQToggle} appLanguage={appLanguage} setAppLanguage={setAppLanguage} isPro={isPro} onUpgrade={() => setPaywall('pro')} onBuyPacks={() => setPaywall('packs')} onRestore={handleRestorePurchases} />;
       case 'jobcam':      return <JobCamScreen C={C} setTab={navigateTo} />;

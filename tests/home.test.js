@@ -1,6 +1,9 @@
 // ─── HOME LAYOUT TESTS ───────────────────────────────────────────────────────
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import {
   HOME_CARDS, CARD_IDS, DEFAULT_LAYOUT, MAX_CARDS, cardById, layoutForRole,
   sanitizeLayout, addCard, removeCard, moveCard, resolveLayout, catalogWithState, CardKind,
@@ -66,9 +69,15 @@ test('the catalog marks what is already on Home', () => {
 });
 
 test('every shortcut tab is one App.js knows about', () => {
-  const VALID = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity',
-    'estimator','necai','examprep','jobcam','settings','calculators','learn','wiringlab',
-    'troubleshoot','flashcards','customizehome','projects','materials','community'];
+  // Read the real VALID_TABS out of App.js rather than keeping a copy here.
+  // A hardcoded duplicate silently drifts — this list was already missing
+  // 'jobsite' — and then the guard passes while the app cannot navigate.
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'App.js'), 'utf8');
+  const m = src.match(/const VALID_TABS\s*=\s*\[([^\]]*)\]/);
+  assert.ok(m, 'App.js must declare VALID_TABS for this guard to work');
+  const VALID = m[1].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+  assert.ok(VALID.length > 10, 'parsed VALID_TABS looks wrong');
+
   for (const c of HOME_CARDS) {
     if (c.kind === CardKind.SHORTCUT) assert.ok(VALID.includes(c.tab), `${c.id} -> unknown tab ${c.tab}`);
   }

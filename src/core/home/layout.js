@@ -40,6 +40,8 @@ export const HOME_CARDS = Object.freeze([
   { id: 'wire', kind: CardKind.SHORTCUT, tab: 'wire', title: 'Wire Colors', sub: 'Colour codes + panel view', icon: 'color-palette', group: 'Tools' },
   { id: 'formulas', kind: CardKind.SHORTCUT, tab: 'formulas', title: 'Formulas', sub: "Ohm's Law · 3Φ · motors", icon: 'book', group: 'Tools' },
   { id: 'calculators', kind: CardKind.SHORTCUT, tab: 'calculators', title: 'All Calculators', sub: 'Everything in one list', icon: 'calculator', group: 'Tools' },
+  { id: 'permits', kind: CardKind.SHORTCUT, tab: 'permits', title: 'Permit Assistant', sub: 'What to expect, what to ask', icon: 'document-text', group: 'Work' },
+  { id: 'blueprint', kind: CardKind.SHORTCUT, tab: 'blueprint', title: 'Blueprint Takeoff', sub: 'Shoot the sheet, count devices', icon: 'documents', group: 'Work' },
 
   // Work
   { id: 'projects', kind: CardKind.SHORTCUT, tab: 'projects', title: 'Projects', sub: 'Job records and photos', icon: 'folder-open', group: 'Work' },

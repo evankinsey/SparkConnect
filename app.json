@@ -21,6 +21,8 @@
         "NSCameraUsageDescription": "SparkConnect Job Cam uses your camera to photograph job site conditions, panel layouts, and rough-in work.",
         "NSPhotoLibraryUsageDescription": "SparkConnect Job Cam needs access to your photo library to import job site photos.",
         "NSPhotoLibraryAddUsageDescription": "SparkConnect saves job site photos to your library when you choose to share them.",
+        "NSMicrophoneUsageDescription": "SparkConnect uses your microphone only when you hold the mic button to ask SparkAI a question hands-free. Audio is sent for transcription and is not stored.",
+        "NSSpeechRecognitionUsageDescription": "SparkConnect converts your spoken question into text so SparkAI can answer it.",
         "ITSAppUsesNonExemptEncryption": false,
         "NSPrivacyTracking": false
       }
@@ -34,6 +36,7 @@
       "versionCode": 22,
       "permissions": [
         "CAMERA",
+        "RECORD_AUDIO",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
         "POST_NOTIFICATIONS",
