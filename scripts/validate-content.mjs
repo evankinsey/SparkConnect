@@ -208,6 +208,13 @@ for (const s of DAY_ONE) {
   if (s.ref) citationSources.push({ where: `dayone:${s.id}`, ref: s.ref, verified: true });
 }
 
+const { KNOWLEDGE } = await import('../src/core/ai/knowledge.js');
+for (const e of KNOWLEDGE) {
+  for (const ref of e.refs ?? []) {
+    citationSources.push({ where: `knowledge:${e.id}`, ref, verified: true });
+  }
+}
+
 const { NEC_QUESTIONS } = await import('../src/core/content/dailyQuestions.js');
 for (const q of NEC_QUESTIONS) {
   if (q.ref) citationSources.push({ where: `daily:${q.id}`, ref: q.ref, verified: true });
