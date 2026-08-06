@@ -112,29 +112,39 @@ troubleshooting scenario through the full battery and **exits non-zero** on any
 failure. Wire it into the test run. A level that has not passed it is not in
 the catalog — enforce that in code, not by convention.
 
-### 0.5 — Human review gate stays, and the badge tells the truth
+### 0.5 — Human review gate stays, and the status wording tells the truth
 
 `src/circuit/review.js` already distinguishes `APPROVED_INTERNAL` (team
 reviewed) from `APPROVED` (a named qualified person accepted attribution).
 Keep that distinction and never blur it.
 
-The user asked for a **Safety Verified** badge. Build it — but drive it from
-the real review status, never paint it on:
+Show a status, driven by the real review record, never painted on. The wording
+originally specified here was "Safety Verified", and that was wrong: passing
+automated tests is not professional approval, and that phrase reads as though it
+were. Permitted vocabulary only:
 
-- `APPROVED` (named licensed reviewer) → "Reviewed by {name}, {credential}"
-- `APPROVED_INTERNAL` → "Validated by SparkConnect's rule engine and team review"
-- anything else → **no badge, and the content is not reachable in production**
+- `APPROVED` (named licensed reviewer) → "Reviewed by {name}, {credential}, {date}"
+- `APPROVED_INTERNAL` → "Internally tested — technical review pending"
+- source tables checked against print → "Source data verified"
+- jurisdiction-dependent → "Jurisdiction verification required"
+- anything else → **no status shown, and the content is not reachable in production**
 
-Badge body text:
+Body text:
 
-> Validated against SparkConnect's electrical rule engine. Always comply with
-> your local AHJ, your adopted NEC edition, and your employer's requirements.
-> This is training material, not a substitute for the NEC or hands-on
-> instruction under a qualified person.
+> Checked against SparkConnect's electrical rule engine. Always comply with your
+> local AHJ, your adopted NEC edition, and your employer's requirements. This is
+> training material, not a substitute for the NEC or hands-on instruction under a
+> qualified person.
 
-A badge that can appear on unreviewed content is worse than no badge — it
-launders a guess into an assurance. Test that the badge component cannot render
-for any status below `APPROVED_INTERNAL`.
+A status that can appear on unreviewed content launders a guess into an
+assurance. `src/core/verification.js` holds the banned vocabulary and a test
+scans the whole repo for it.
+
+**Automated tests prove internal consistency. They do not prove that a number
+transcribed from a printed table was transcribed correctly.** Any feature
+reading a manually transcribed table stays behind a disabled production flag
+until a qualified reviewer has checked the rows against a legally obtained
+printed source — see `productionBlockers()`.
 
 ### 0.6 — Acceptance criteria for Part 0
 
@@ -148,7 +158,10 @@ for any status below `APPROVED_INTERNAL`.
       open ground, dead short — one test each) is caught by the validator
 - [ ] `resolveCitation` returns null for unknown refs; no UI renders an
       unresolved citation
-- [ ] the Safety Verified badge cannot render below `APPROVED_INTERNAL`
+- [ ] no status is shown below `APPROVED_INTERNAL`, and none of the banned
+      wording appears anywhere in the repo
+- [ ] every feature reading a transcribed table reports production blockers
+      until that table is source-verified
 - [ ] the low-confidence path renders the exact "I can't verify this" copy
 
 ---

@@ -24,9 +24,23 @@ import { runTool, toolManifest, toolById } from './tools.js';
 import { answer as answerFromTakeoff, groundingContext, breakdown } from '../blueprint/query.js';
 import { assertNarrativeOnly, CANNOT_VERIFY } from '../content/authority.js';
 import { resolveCitation } from '../../nec/citations.js';
+import { classify, Intent, Risk, criticalRefusal, requiredDisclosures } from './risk.js';
+import { productionBlockers, gateNotice, isProductionReady } from '../verification.js';
 
 /** How many turns of history the model is given. Enough for "and for #10?". */
 export const MEMORY_TURNS = 6;
+
+/**
+ * Which transcribed tables each tool reads. Drives the verificationStatus on
+ * the evidence contract — an answer computed from a table nobody has checked
+ * against print says so, however green the test suite is.
+ */
+export const TOOL_DATASETS = Object.freeze({
+  voltage_drop: ['conductor-resistance'],
+  box_fill: ['table-314-16-b'],
+  conduit_fill: ['ch9-table-4', 'ch9-table-5'],
+  derating: ['table-310-16', 'table-310-15-c-1', 'table-240-4-d'],
+});
 
 // ─── Grounding ───────────────────────────────────────────────────────────────
 
@@ -115,11 +129,66 @@ export const modelContext = (context) => Object.freeze({
  * refuses the rest. That is a deliberate property: the app degrades to
  * "deterministic only" with no network rather than to "nothing".
  */
+/**
+ * The evidence contract. Every answer carries this whether or not the UI shows
+ * it, because "what did it base that on" has to be answerable months later when
+ * somebody is arguing about a bid.
+ */
+export const evidenceFor = (a, { classification, decision, params, context, datasetIds = [] }) => Object.freeze({
+  answerType: a.provenance,
+  calculatedBy: a.tool ?? (a.provenance === Provenance.ENGINE ? 'engine' : null),
+  inputsUsed: Object.freeze(
+    Object.fromEntries(Object.entries(params ?? {}).filter(([, v]) => v !== null && v !== undefined)),
+  ),
+  assumptions: Object.freeze(requiredDisclosures(classification)),
+  intent: classification.intent,
+  risk: classification.risk,
+  riskSubjects: classification.subjects,
+  codeEdition: context?.edition ?? null,
+  jurisdiction: classification.hasJurisdiction ? 'on file' : null,
+  sources: Object.freeze((a.sources ?? []).map((s) => s.display)),
+  // The part that keeps a green test suite from being mistaken for verified
+  // data: if the answer came from a transcribed table nobody has checked, it
+  // says so here and in the warnings.
+  verificationStatus: datasetIds.length === 0
+    ? 'NOT_APPLICABLE'
+    : datasetIds.every((id) => !productionBlockers('sparkAiCalculationTools').includes(id))
+      ? 'SOURCE_VERIFIED' : 'UNVERIFIED',
+  unverifiedData: Object.freeze(datasetIds.filter((id) => productionBlockers('sparkAiCalculationTools').includes(id))),
+  confidence: a.confidence,
+  warnings: Object.freeze([
+    ...requiredDisclosures(classification),
+    ...(isProductionReady('sparkAiCalculationTools') ? [] : [gateNotice('sparkAiCalculationTools')?.body].filter(Boolean)),
+  ]),
+  routeReason: decision?.reason ?? null,
+});
+
 export const ask = async (question, {
   project = null, devices = null, conversation = [], edition = null,
-  knowledge = null, askModel = null,
+  jurisdiction = null, knowledge = null, askModel = null,
 } = {}) => {
   const context = ground({ project, devices, conversation, edition });
+
+  // Classify BEFORE routing. Risk decides how hard the guardrails clamp on the
+  // way out, and CRITICAL never reaches a model or a tool at all.
+  const classification = classify(question, {
+    hasJurisdiction: !!jurisdiction,
+    hasCodeEdition: !!edition,
+  });
+
+  if (classification.constraints.mustRefuse) {
+    const r = criticalRefusal(question);
+    return Object.freeze({
+      ...refuse(r.reason, { suggestion: r.suggestion, question }),
+      route: Route.MODEL,
+      routeReason: 'Classified CRITICAL — energized work.',
+      classification,
+      evidence: evidenceFor(refuse(r.reason, { question }), {
+        classification, decision: null, params: {}, context,
+      }),
+    });
+  }
+
   const knowledgeHit = knowledge ? knowledge.find(question) : null;
 
   const decision = route(question, {
@@ -131,13 +200,19 @@ export const ask = async (question, {
   if (decision.route === Route.TOOL) {
     const params = inheritParams(decision.params, context, decision.tool);
     const result = runTool(decision.tool, params);
+    const sealedTool = sealAnswer(result);
     return Object.freeze({
-      ...sealAnswer(result),
+      ...sealedTool,
       route: decision.route,
       routeReason: decision.reason,
       params,
       needs: result.needs ?? null,
       needsPrompts: result.needsPrompts ?? null,
+      classification,
+      evidence: evidenceFor(sealedTool, {
+        classification, decision, params, context,
+        datasetIds: TOOL_DATASETS[decision.tool] ?? [],
+      }),
     });
   }
 
@@ -198,6 +273,23 @@ export const ask = async (question, {
     });
   }
 
+  // At HIGH risk and above a narrative answer needs something deterministic or
+  // cited behind it, and by definition nothing did — we are on the last branch.
+  if (classification.constraints.requireDeterministicOrCited) {
+    return Object.freeze({
+      ...refuse(
+        `That involves ${classification.subjects.join(', ')}, and SparkConnect has no calculator or reviewed reference covering it — so there is nothing solid enough to answer from.`,
+        {
+          suggestion: 'Check the NEC edition adopted by your AHJ, or put it to a qualified person on the job.',
+          question,
+        },
+      ),
+      route: Route.MODEL,
+      routeReason: decision.reason,
+      classification,
+    });
+  }
+
   let raw;
   try {
     raw = await askModel({ question, context: modelContext(context) });
@@ -226,10 +318,13 @@ export const ask = async (question, {
 
   const sealed = answer({
     provenance: Provenance.MODEL,
-    text: raw?.text ?? '',
+    text: typeof raw?.text === 'string' ? raw.text : '',
     // Any citation the model wrote is run through the resolver and dropped if
     // it does not exist. It cannot mint a reference.
-    sources: (raw?.sources ?? []).filter((r) => resolveCitation(r)),
+    // Model output is untrusted in its SHAPE too, not only its content. A
+    // string where an array belongs crashed the pipeline until a test sent one.
+    sources: (Array.isArray(raw?.sources) ? raw.sources : [])
+      .filter((r) => typeof r === 'string' && resolveCitation(r)),
     confidence: Number.isFinite(Number(raw?.confidence)) ? Number(raw.confidence) : 0.5,
     question,
   });
@@ -237,4 +332,4 @@ export const ask = async (question, {
   return Object.freeze({ ...sealAnswer(sealed), route: Route.MODEL, routeReason: decision.reason });
 };
 
-export { Provenance, Route, answerFooter, extractParams, toolById, CANNOT_VERIFY };
+export { Provenance, Route, answerFooter, extractParams, toolById, CANNOT_VERIFY, Intent, Risk, classify };

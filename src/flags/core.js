@@ -46,6 +46,36 @@ export const DEFAULTS = Object.freeze({
 
 export const FLAG_NAMES = Object.keys(DEFAULTS);
 
+// ─── SOURCE-DATA GATE ────────────────────────────────────────────────────────
+//
+// A flag can be ON and a feature still not ship, because a second gate sits
+// behind it: the tables that feature reads have to have been checked against a
+// printed source by a qualified person.
+//
+// This is separate from the flags on purpose. A flag is a product decision
+// ("is this finished?"). This is an evidence decision ("do we know the numbers
+// are right?"), and the two must not be able to satisfy each other. Passing
+// tests answers the first question and says nothing about the second.
+export const isGatedBySourceData = (featureId, { productionBlockers }) =>
+  typeof productionBlockers === 'function' && productionBlockers(featureId).length > 0;
+
+/**
+ * The real answer to "may this render in production?".
+ * Both gates must agree. Either one can hold a feature back on its own.
+ */
+export const canRenderInProduction = (flagName, featureId, context = {}, verification = null) => {
+  const flagOn = resolve(flagName, context);
+  if (!flagOn) return { allowed: false, reason: `Feature flag ${flagName} is off.` };
+  if (verification && isGatedBySourceData(featureId, verification)) {
+    return {
+      allowed: false,
+      reason: `${featureId} reads source data that has not been checked against a printed source.`,
+      blockers: verification.productionBlockers(featureId),
+    };
+  }
+  return { allowed: true, reason: null };
+};
+
 /**
  * Flags that must never be forced on by a remote payload or a local override.
  * Payments have no backend (D-01); turning them on cannot make them work, it can
