@@ -77,6 +77,12 @@ function ScenarioPlayer({ C, scenarioId, onExit, onStreakUpdate, onSolved }) {
   const [outcome, setOutcome] = useState(null);
   const [showTable, setShowTable] = useState(false);
   const [showDiagram, setShowDiagram] = useState(true);
+  // Diagnosis is revealed a step at a time. Dumping the call, the diagram, the
+  // truth table and four answers on one screen is how a beginner learns to
+  // pattern-match the answer instead of learning the trade. Step 1 read the
+  // call; step 2 observe; step 3 look at the circuit; only then, answer.
+  const [step, setStep] = useState(1);
+  const atStep = (n) => step >= n;
   // lesson.components() builds fresh objects; memoise so the canvas is not
   // re-laid-out on every unrelated state change.
   const diagramParts = useMemo(() => built?.lesson?.components() ?? [], [built]);
@@ -105,7 +111,24 @@ function ScenarioPlayer({ C, scenarioId, onExit, onStreakUpdate, onSolved }) {
           <Ionicons name="chevron-back" size={24} color={C.text} />
         </TouchableOpacity>
         <Text style={{ flex: 1, fontSize: 16, fontWeight: '800', color: C.text }}>{scenario.title}</Text>
+        {!outcome?.correct && (
+          <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}>
+            {[1, 2, 3, 4].map((n) => (
+              <View key={n} style={{ width: n === step ? 16 : 6, height: 6, borderRadius: 3, backgroundColor: n <= step ? C.blue : C.border }} />
+            ))}
+          </View>
+        )}
       </View>
+
+      {/* What this step is asking of you */}
+      {!outcome?.correct && (
+        <Text style={{ fontSize: 11.5, fontWeight: '700', color: C.textSec, marginBottom: 10 }}>
+          {step === 1 ? 'STEP 1 · Read the call'
+            : step === 2 ? 'STEP 2 · Observe what it actually does'
+            : step === 3 ? 'STEP 3 · Look at how it was wired'
+            : 'STEP 4 · Name the fault'}
+        </Text>
+      )}
 
       {/* The call */}
       <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: C.border }}>
@@ -113,9 +136,19 @@ function ScenarioPlayer({ C, scenarioId, onExit, onStreakUpdate, onSolved }) {
         <Text style={{ fontSize: 14, color: C.text, lineHeight: 21, fontStyle: 'italic' }}>“{scenario.customerReport}”</Text>
       </View>
 
+      {/* Step 1 → 2 */}
+      {step === 1 && (
+        <TouchableOpacity
+          onPress={() => setStep(2)}
+          style={{ backgroundColor: C.blue, borderRadius: 12, paddingVertical: 15, alignItems: 'center', minHeight: 50, justifyContent: 'center', marginBottom: 12 }}>
+          <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff' }}>Go look at it</Text>
+        </TouchableOpacity>
+      )}
+
       {/* The as-designed circuit. Drawing the DESIGN, not the faulted copy, is
           deliberate: in the field the wiring looks right until you test it —
           drawing the fault would print the answer on the screen. */}
+      {atStep(3) && (
       <View style={{ marginBottom: 12 }}>
         <TouchableOpacity onPress={() => setShowDiagram((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8 }}>
           <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5 }}>
@@ -132,8 +165,10 @@ function ScenarioPlayer({ C, scenarioId, onExit, onStreakUpdate, onSolved }) {
           />
         )}
       </View>
+      )}
 
       {/* Engine-derived symptom */}
+      {atStep(2) && (
       <View style={{ backgroundColor: C.blueSub, borderRadius: 14, padding: 14, marginBottom: 12 }}>
         <Text style={{ fontSize: 10.5, fontWeight: '800', color: C.blue, letterSpacing: 0.6, marginBottom: 6 }}>WHAT YOU OBSERVE</Text>
         <Text style={{ fontSize: 13, color: C.text, lineHeight: 20 }}>{symptom.summary}</Text>
@@ -160,8 +195,28 @@ function ScenarioPlayer({ C, scenarioId, onExit, onStreakUpdate, onSolved }) {
           </View>
         )}
       </View>
+      )}
+
+      {/* Step 2 → 3 */}
+      {step === 2 && (
+        <TouchableOpacity
+          onPress={() => setStep(3)}
+          style={{ backgroundColor: C.blue, borderRadius: 12, paddingVertical: 15, alignItems: 'center', minHeight: 50, justifyContent: 'center', marginBottom: 12 }}>
+          <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff' }}>Check how it was wired</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Step 3 → 4 */}
+      {step === 3 && (
+        <TouchableOpacity
+          onPress={() => setStep(4)}
+          style={{ backgroundColor: C.amber, borderRadius: 12, paddingVertical: 15, alignItems: 'center', minHeight: 50, justifyContent: 'center', marginBottom: 12 }}>
+          <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff' }}>I know what is wrong</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Choices */}
+      {atStep(4) && (<>
       <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5, marginBottom: 8 }}>
         WHAT IS THE FAULT?
       </Text>
@@ -193,6 +248,7 @@ function ScenarioPlayer({ C, scenarioId, onExit, onStreakUpdate, onSolved }) {
           </TouchableOpacity>
         );
       })}
+      </>)}
 
       {/* Feedback */}
       {outcome && !outcome.correct && (
