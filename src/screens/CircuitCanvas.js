@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Rect, Circle, Line, G, Text as SvgText } from 'react-native-svg';
 
 import { ComponentType, TerminalRole } from '../circuit/model';
+import { routedPath, assignLanes } from '../circuit/routing';
 
 // One source of truth for conductor colors, shared with the role picker chips.
 export const ROLE_COLORS = {
@@ -168,19 +169,26 @@ export default function CircuitCanvas({
 }) {
   const W = width ?? Dimensions.get('window').width - 56;
   const { boxes, anchors, height } = useMemo(() => layoutComponents(components, W), [components, W]);
+  // Conductors sharing a corridor are pushed into separate lanes. Two wires
+  // drawn on top of each other is the same ambiguity as one drawn through a box.
+  const lanes = useMemo(() => assignLanes(wires, anchors, boxes), [wires, anchors, boxes]);
 
   const connCount = (tid) => wires.filter((w) => w.fromTerminal === tid || w.toTerminal === tid).length;
 
   return (
     <View style={{ backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 12, marginBottom: 12 }}>
       <Svg width={W} height={height}>
-        {/* Wires first, under the devices' terminal strip */}
-        {wires.map((wire, i) => {
-          const a = anchors[wire.fromTerminal];
-          const b = anchors[wire.toTerminal];
-          if (!a || !b) return null;
-          const dip = 30 + (i % 5) * 10;
-          const d = `M ${a.x} ${a.y} C ${a.x} ${Math.max(a.y, b.y) + dip}, ${b.x} ${Math.max(a.y, b.y) + dip}, ${b.x} ${b.y}`;
+        {/* Wires first, under the devices' terminal strip.
+            Routed through the corridors between rows rather than drawn as a
+            single curve from terminal to terminal. The old bezier passed over
+            whatever sat between its endpoints, so a correctly wired circuit was
+            reported as having three faults it did not have — the switched leg
+            crossed the neutral splice on its way to the luminaire and looked
+            like it landed there. See src/circuit/routing.js. */}
+        {wires.map((wire) => {
+          const routed = routedPath(wire, anchors, boxes, lanes.get(wire.id) ?? 0, W);
+          if (!routed) return null;
+          const d = routed.d;
           const color = ROLE_COLORS[wire.role] ?? ROLE_COLORS.UNSPECIFIED;
           return (
             <G key={wire.id}>
