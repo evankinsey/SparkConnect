@@ -15,7 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 import { ALL_LESSONS, buildCircuit, productionLessons } from '../circuit/lessons/index';
-import { validate, primaryFailure } from '../circuit/validator';
+import { validate, primaryFailure, checklistFor } from '../circuit/validator';
 import { conductor, ConductorRole } from '../circuit/model';
 import { attributionFor, TRAINING_DISCLAIMER } from '../circuit/review';
 import { scoreAttempt, nextHint, rankForXp, TimerMode } from '../circuit/scoring';
@@ -474,7 +474,10 @@ function LessonPlayer({ C, lesson, onExit, onStreakUpdate, onSolved }) {
         </View>
       )}
 
-      {/* Result */}
+      {/* Result — every check the engine ran, not just the headline.
+          A single "Circuit check failed" told the learner one thing was wrong
+          and nothing about the six things that were right. Showing the whole
+          list is what makes this a bench test rather than a pass/fail buzzer. */}
       {result && !result.valid && failure && (
         <View style={{ backgroundColor: C.dangerBg, borderRadius: 12, padding: 13, marginBottom: 12, borderLeftWidth: 4, borderLeftColor: C.danger }}>
           <Text style={{ fontSize: 13, fontWeight: '800', color: C.danger, marginBottom: 4 }}>{failure.message}</Text>
@@ -483,6 +486,36 @@ function LessonPlayer({ C, lesson, onExit, onStreakUpdate, onSolved }) {
           </Text>
           <Text style={{ fontSize: 10, color: C.textTert, marginTop: 6 }}>
             {failure.category} · attempt {wrongTests + 1}
+          </Text>
+        </View>
+      )}
+
+      {result && (
+        <View style={{ backgroundColor: C.surface, borderRadius: 12, padding: 13, marginBottom: 12, borderWidth: 1, borderColor: C.border }}>
+          <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5, marginBottom: 9 }}>
+            BENCH TEST
+          </Text>
+          {checklistFor(result).map((row) => (
+            <View key={row.key} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 7 }}>
+              <Ionicons
+                name={row.pass ? 'checkmark-circle' : 'alert-circle'}
+                size={16}
+                color={row.pass ? C.success : C.danger}
+                style={{ marginTop: 1 }}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 12.5, fontWeight: row.pass ? '600' : '700', color: row.pass ? C.textSec : C.danger }}>
+                  {row.label}
+                </Text>
+                {!row.pass && !!row.detail && (
+                  <Text style={{ fontSize: 11, color: C.textTert, lineHeight: 16, marginTop: 2 }}>{row.detail}</Text>
+                )}
+              </View>
+            </View>
+          ))}
+          <Text style={{ fontSize: 10, color: C.textTert, marginTop: 4, lineHeight: 15 }}>
+            Checked in all {result.truthTable.rows.length} switch position
+            {result.truthTable.rows.length === 1 ? '' : 's'} by the circuit engine.
           </Text>
         </View>
       )}

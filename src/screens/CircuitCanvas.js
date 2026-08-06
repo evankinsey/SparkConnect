@@ -10,6 +10,7 @@
 
 import React, { useMemo } from 'react';
 import { View, Text, Dimensions } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Rect, Circle, Line, G, Text as SvgText } from 'react-native-svg';
 
 import { ComponentType, TerminalRole } from '../circuit/model';
@@ -241,6 +242,23 @@ export default function CircuitCanvas({
           </G>
         ))}
       </Svg>
+      {/* Notes a device carries about its own terminals. The single-pole switch
+          uses this to say its two brass screws are interchangeable — which is
+          the thing "Screw 1 / Screw 2" implied was false, and which matters
+          because the opposite is true of a GFCI. */}
+      {components.filter((c) => c.metadata?.terminalNote).map((c) => (
+        <View key={`note-${c.id}`} style={{
+          flexDirection: 'row', gap: 7, alignItems: 'flex-start', marginTop: 8,
+          backgroundColor: C.blueSub, borderRadius: 9, padding: 9,
+        }}>
+          <Ionicons name="bulb-outline" size={13} color={C.blue} style={{ marginTop: 1 }} />
+          <Text style={{ flex: 1, fontSize: 10.5, color: C.textSec, lineHeight: 15 }}>
+            <Text style={{ fontWeight: '700', color: C.text }}>{c.label}: </Text>
+            {c.metadata.terminalNote}
+          </Text>
+        </View>
+      ))}
+
       {!!onTapTerminal && (
         <Text style={{ fontSize: 9.5, color: C.textTert, marginTop: 6, textAlign: 'center' }}>
           Tap a terminal, then a second terminal, to run a conductor. Tap a wire to remove it.

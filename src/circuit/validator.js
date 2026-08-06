@@ -313,3 +313,50 @@ export const primaryFailure = (result) => {
   }
   return result.errors[0];
 };
+
+/**
+ * The bench-test readout: every check the engine ran, pass or fail, in a fixed
+ * order. Meant to be rendered as a list.
+ *
+ * The headline alone was a buzzer — it named one problem and said nothing about
+ * the six things the learner got right, which is the opposite of how anyone
+ * learns to wire. This is closer to putting a meter on it: each line is a thing
+ * you can go and check, and the ones that pass stay visible so progress is
+ * legible on the way to a working circuit.
+ *
+ * A failed row carries the finding's `detail`, which names the KIND of mistake.
+ * It never names the wire to move — that is still what hints are for (SUX-05).
+ *
+ * The rows are keyed on validator `rule`s rather than on message text, so
+ * rewording a FailureMessage cannot silently detach a row from its check.
+ */
+const CHECKS = Object.freeze([
+  { key: 'short', label: 'No short across the supply', rules: ['NO_SHORT_IN_ANY_STATE'] },
+  { key: 'neutral_switched', label: 'The grounded conductor is never switched', rules: ['NEVER_SWITCH_THE_GROUNDED_CONDUCTOR'] },
+  { key: 'neutral', label: 'Neutral runs through to the load', rules: ['NEUTRAL_UNSWITCHED_AT_LOAD'] },
+  { key: 'ground', label: 'Equipment grounding is continuous', rules: ['EGC_CONTINUITY'] },
+  { key: 'switching', label: 'The load switches from every location', rules: ['LOAD_MUST_SWITCH', 'TOGGLEABLE_FROM_EVERY_LOCATION'] },
+  { key: 'travelers', label: 'Traveler pairs are complete', rules: ['TRAVELER_PAIR_COMPLETE'] },
+  { key: 'terminations', label: 'Every required terminal is landed', rules: ['REQUIRED_TERMINAL_CONNECTED'] },
+  { key: 'roles', label: 'Every conductor is on a terminal that accepts it', rules: ['ACCEPTED_CONDUCTOR_ROLES'] },
+  { key: 'terminal_limits', label: 'No terminal is over-filled', rules: ['MAX_CONNECTIONS'] },
+  { key: 'wiring', label: 'No duplicate or self-connected conductors', rules: ['NO_SELF_LOOP', 'NO_DUPLICATE_CONDUCTOR'] },
+]);
+
+export const checklistFor = (result) => {
+  const findings = result?.findings ?? [];
+  return CHECKS
+    // A traveler row on a single-pole lesson is noise; only show a check that
+    // this circuit could actually fail.
+    .filter((c) => c.key !== 'travelers' || findings.some((f) => c.rules.includes(f.rule)))
+    .map((c) => {
+      const hit = findings.find((f) => c.rules.includes(f.rule) && f.severity === Severity.ERROR)
+        ?? findings.find((f) => c.rules.includes(f.rule));
+      return {
+        key: c.key,
+        label: c.label,
+        pass: !hit || hit.severity !== Severity.ERROR,
+        detail: hit ? (hit.detail || hit.message) : null,
+      };
+    });
+};

@@ -16,10 +16,12 @@ import {
 import {
   CITATIONS, normalizeCitation, resolveCitation, isKnownCitation, usableReferenceNotes,
 } from '../src/nec/citations.js';
-import { validate, primaryFailure, FailureMessage, Category } from '../src/circuit/validator.js';
-import { ALL_LESSONS, solutionCircuit, lessonById } from '../src/circuit/lessons/index.js';
+import { validate, primaryFailure, FailureMessage, Category, checklistFor } from '../src/circuit/validator.js';
+import { ALL_LESSONS, solutionCircuit, lessonById, productionLessons } from '../src/circuit/lessons/index.js';
+import { APPROVALS } from '../src/circuit/lessons/approvals.js';
+import { lessonFingerprint, approvalMatchesContent } from '../src/circuit/review.js';
 import { truthTable } from '../src/circuit/solver.js';
-import { conductor, terminalId as T, ConductorRole } from '../src/circuit/model.js';
+import { conductor, terminalId as T, ConductorRole, ComponentType } from '../src/circuit/model.js';
 import { NEC_QUESTIONS } from '../src/core/content/dailyQuestions.js';
 
 // ─── The authority boundary ──────────────────────────────────────────────────
@@ -298,4 +300,129 @@ test('single-pole source-at-switch, wired the way the screenshot showed it', () 
   assert.equal(rows[0].anyLoadEnergized, false, 'switch open: lamp off');
   assert.equal(rows[1].anyLoadEnergized, true, 'switch closed: lamp on');
   assert.ok(!rows.some((r) => r.shortCircuit));
+});
+
+// ─── The review gate cannot be outrun by an edit ─────────────────────────────
+
+test('an approval stops matching when the content changes', () => {
+  const original = lessonById('single-pole-source-at-switch');
+  const fp = lessonFingerprint(original);
+  assert.equal(typeof fp, 'string');
+  assert.ok(fp.length > 0);
+
+  // Same lesson, one hint reworded. That is a change to what a learner reads
+  // and acts on, so the sign-off no longer covers it.
+  const edited = {
+    ...original,
+    hintSteps: original.hintSteps.map((h, i) => (i === 0 ? { ...h, text: 'something else entirely' } : h)),
+  };
+  assert.notEqual(lessonFingerprint(edited), fp, 'rewording a hint must invalidate the approval');
+
+  // Same for a terminal label, an objective, and a citation.
+  assert.notEqual(lessonFingerprint({
+    ...original, learningObjectives: ['different'],
+  }), fp, 'changing an objective must invalidate the approval');
+  assert.notEqual(lessonFingerprint({
+    ...original, referenceNotes: [{ label: 'x', ref: 'NEC 110.14(C)', verified: true }],
+  }), fp, 'changing a citation must invalidate the approval');
+  assert.notEqual(lessonFingerprint({
+    ...original,
+    components: () => original.components().map((c) => ({
+      ...c,
+      terminals: c.terminals.map((t, i) => (i === 0 ? { ...t, label: 'Screw 1' } : t)),
+    })),
+  }), fp, 'relabelling a terminal must invalidate the approval');
+});
+
+test('the fingerprint does not change for reasons that are not content', () => {
+  const lesson = lessonById('single-pole-source-at-switch');
+  const fp = lessonFingerprint(lesson);
+  // Recomputing must be stable, and unrelated metadata must not disturb it.
+  assert.equal(lessonFingerprint(lesson), fp, 'recomputing gives the same answer');
+  assert.equal(lessonFingerprint({ ...lesson, reviewDate: '1999-01-01', technicalReviewer: 'someone' }), fp,
+    'who reviewed it is not part of what was reviewed');
+});
+
+test('an approval with no fingerprint does not count', () => {
+  const lesson = lessonById('single-pole-source-at-switch');
+  assert.equal(approvalMatchesContent(lesson, { lessonVersion: 1 }), false,
+    'a record that cannot prove what it covered must fail closed');
+  assert.equal(approvalMatchesContent(lesson, null), false);
+  assert.equal(approvalMatchesContent(lesson, { contentFingerprint: 'deadbeef' }), false);
+  assert.equal(approvalMatchesContent(lesson, { contentFingerprint: lessonFingerprint(lesson) }), true);
+});
+
+test('every lesson that ships has an approval matching its current content', () => {
+  for (const lesson of productionLessons()) {
+    const record = APPROVALS[lesson.id];
+    assert.ok(record, `${lesson.id} ships with no approval record`);
+    assert.ok(approvalMatchesContent(lesson, record),
+      `${lesson.id} ships under an approval that does not describe its current content`);
+  }
+});
+
+test('the terminal labels teach, and never imply DC polarity', () => {
+  const sw = lessonById('single-pole-source-at-switch').components()
+    .find((c) => c.type === ComponentType.SWITCH_SINGLE_POLE);
+  const labels = sw.terminals.map((t) => t.label);
+
+  // "+" and "-" would be teaching a DC mental model on a 120 V AC branch
+  // circuit, and would set up the exact wrong instinct for a GFCI, where line
+  // and load are genuinely not interchangeable.
+  for (const label of labels) {
+    assert.ok(!/[+\-−]|positive|negative|polarity/i.test(label),
+      `"${label}" implies polarity that does not exist on an AC switch`);
+    assert.ok(!/screw\s*\d/i.test(label), `"${label}" implies an order that does not exist`);
+  }
+  assert.ok(labels.filter((l) => /brass/i.test(l)).length === 2, 'both switched terminals are brass');
+  assert.match(sw.metadata.terminalNote, /either/i, 'the note must say the screws are interchangeable');
+  assert.match(sw.metadata.terminalNote, /GFCI/, 'and must contrast with the device where it does matter');
+});
+
+// ─── The bench-test readout ──────────────────────────────────────────────────
+
+test('a correct circuit reports every check as passing', () => {
+  const result = validate(solutionCircuit(lessonById('single-pole-source-at-switch')),
+    lessonById('single-pole-source-at-switch').expectations);
+  const rows = checklistFor(result);
+  assert.ok(rows.length >= 8, 'the learner sees the whole battery, not just a verdict');
+  assert.ok(rows.every((r) => r.pass), rows.filter((r) => !r.pass).map((r) => r.label).join('; '));
+});
+
+test('a switched neutral shows as one failed row among passing ones', () => {
+  const result = check([
+    conductor(T('src', 'neutral'), T('sw1', 'a'), ConductorRole.NEUTRAL),
+    conductor(T('sw1', 'b'), T('lamp', 'neu'), ConductorRole.NEUTRAL),
+    conductor(T('src', 'hot'), T('lamp', 'hot'), ConductorRole.LINE),
+    ...grounds(),
+  ]);
+  const rows = checklistFor(result);
+  const failed = rows.filter((r) => !r.pass);
+  const passed = rows.filter((r) => r.pass);
+
+  assert.ok(failed.some((r) => r.key === 'neutral_switched'), 'the dangerous row must fail');
+  assert.ok(passed.length > 0, 'what the learner got right stays visible');
+  assert.ok(passed.some((r) => r.key === 'ground'), 'grounding was correct here and should say so');
+  // A failed row explains the kind of mistake without handing over the fix.
+  const row = failed.find((r) => r.key === 'neutral_switched');
+  assert.ok(row.detail && row.detail.length > 0);
+  assert.ok(!/brass a|brass b|sw1\./i.test(row.detail));
+});
+
+test('the readout never invents a row that the engine did not check', () => {
+  const result = validate(solutionCircuit(lessonById('single-pole-source-at-switch')),
+    lessonById('single-pole-source-at-switch').expectations);
+  // A single-pole lesson has no travelers, so no traveler row should appear.
+  assert.ok(!checklistFor(result).some((r) => r.key === 'travelers'));
+
+  // Every row must be keyed and labelled — a blank row is worse than no row.
+  for (const row of checklistFor(result)) {
+    assert.ok(row.key && row.label, JSON.stringify(row));
+    assert.equal(typeof row.pass, 'boolean');
+  }
+});
+
+test('checklistFor survives a result it was not given', () => {
+  assert.deepEqual(checklistFor(null).filter((r) => !r.pass), []);
+  assert.deepEqual(checklistFor({}).filter((r) => !r.pass), []);
 });

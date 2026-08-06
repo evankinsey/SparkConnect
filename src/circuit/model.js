@@ -94,10 +94,22 @@ export const singlePoleSwitch = (id, label = 'Single-Pole Switch') => ({
   id,
   type: ComponentType.SWITCH_SINGLE_POLE,
   label,
-  metadata: { positions: 2, positionLabels: ['OFF', 'ON'] },
+  metadata: {
+    positions: 2,
+    positionLabels: ['OFF', 'ON'],
+    // Shown under the component. "Screw 1 / Screw 2" was accurate and taught
+    // nothing — it implied an order that does not exist. Naming the metal is
+    // what an electrician actually looks for in a box, and stating the
+    // interchangeability outright heads off the mental model that would do real
+    // damage later: on a GFCI, line and load are NOT interchangeable, and
+    // reversing them leaves everything downstream unprotected while the device
+    // still appears to work. Nothing here should imply polarity on an AC
+    // switch — there is no plus or minus to find.
+    terminalNote: 'Both screws are brass and either one can take the line — a single-pole switch has no line/load orientation. (A GFCI does. That one matters.)',
+  },
   terminals: [
-    mkTerminal(id, 'a', TerminalRole.SWITCH_LINE_SIDE, { required: true, label: 'Screw 1' }),
-    mkTerminal(id, 'b', TerminalRole.SWITCH_LOAD_SIDE, { required: true, label: 'Screw 2' }),
+    mkTerminal(id, 'a', TerminalRole.SWITCH_LINE_SIDE, { required: true, label: 'Brass A' }),
+    mkTerminal(id, 'b', TerminalRole.SWITCH_LOAD_SIDE, { required: true, label: 'Brass B' }),
     mkTerminal(id, 'gnd', TerminalRole.EQUIPMENT_GROUND, {
       accepts: [ConductorRole.EQUIPMENT_GROUND], required: true, label: 'Green (EGC)',
     }),

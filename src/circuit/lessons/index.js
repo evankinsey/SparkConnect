@@ -9,7 +9,7 @@ import {
   source, singlePoleSwitch, threeWaySwitch, fourWaySwitch, luminaire, splice,
   conductor, terminalId, ConductorRole,
 } from '../model.js';
-import { seedReview, visibleLessons, TRAINING_DISCLAIMER } from '../review.js';
+import { seedReview, visibleLessons, TRAINING_DISCLAIMER, approvalMatchesContent } from '../review.js';
 import { APPROVALS } from './approvals.js';
 
 const T = terminalId;
@@ -38,13 +38,20 @@ const lesson = (def) => {
 
   // Merge a recorded review, written by `npm run lessons:approve`.
   //
-  // The version check is the important part: an approval is for the lesson as it
-  // was reviewed. Editing the topology, the solution or the hints bumps
-  // `lessonVersion`, the recorded approval no longer matches, and the lesson
-  // silently drops back to needing review rather than shipping unreviewed
-  // changes under an old sign-off.
+  // An approval is for the lesson as it was reviewed. Two independent checks
+  // have to agree before one is honoured:
+  //
+  //   lessonVersion  — the deliberate signal, bumped by a person.
+  //   fingerprint    — the automatic one, computed from the content itself.
+  //
+  // The version check alone was not enough, because bumping it was a manual
+  // step that an edit could simply skip. Rewording a hint or relabelling a
+  // terminal left the old sign-off in place, still claiming to cover text
+  // nobody had read. The fingerprint closes that: change what a learner sees
+  // and the approval stops matching on its own.
   const record = APPROVALS[def.id];
   if (!record || record.lessonVersion !== version) return base;
+  if (!approvalMatchesContent(base, record)) return base;
 
   return {
     ...base,
@@ -93,8 +100,8 @@ const singlePoleSourceAtSwitch = lesson({
     { level: 1, text: 'A single-pole switch interrupts one conductor only. Which conductor is it allowed to interrupt?' },
     { level: 2, text: 'Look at the switch box. The supply arrives there, and something has to leave it toward the luminaire.' },
     { level: 3, text: 'The grounded conductor is not switched — it needs a continuous path from the supply to the luminaire.' },
-    { level: 4, text: 'Land the ungrounded conductor on one switch screw and run the switched leg from the other screw to the luminaire.' },
-    { level: 5, text: 'Supply hot → switch screw 1. Switch screw 2 → luminaire hot. Supply neutral → splice → luminaire neutral. All grounds bonded together.' },
+    { level: 4, text: 'Land the ungrounded conductor on either brass screw and run the switched leg from the other one to the luminaire.' },
+    { level: 5, text: 'Supply hot → either brass screw. The other brass screw → luminaire hot. Supply neutral → splice → luminaire neutral, never through the switch. All grounds bonded together.' },
   ],
   referenceNotes: [
     { label: 'Switching the ungrounded conductor', ref: 'NEC 404.2(B)', verified: true },
@@ -131,8 +138,8 @@ const singlePoleSourceAtLight = lesson({
     { level: 1, text: 'The supply is at the luminaire this time. Only two circuit conductors run down to the switch.' },
     { level: 2, text: 'One conductor carries power down to the switch. What does the other one carry back?' },
     { level: 3, text: 'The grounded conductor stays at the luminaire — it does not need to reach the switch to make the lamp work.' },
-    { level: 4, text: 'Send the ungrounded conductor to one switch screw; bring the switched leg back from the other to the luminaire hot.' },
-    { level: 5, text: 'Supply hot → switch screw 1. Switch screw 2 → luminaire hot. Supply neutral → luminaire neutral directly. Grounds bonded.' },
+    { level: 4, text: 'Send the ungrounded conductor to either brass screw; bring the switched leg back from the other one to the luminaire hot.' },
+    { level: 5, text: 'Supply hot → either brass screw. The other brass screw carries the switched leg back to the luminaire hot. Supply neutral → luminaire neutral directly. Grounds bonded.' },
   ],
   referenceNotes: [
     { label: 'Grounded conductor required at most switch locations', ref: 'NEC 404.2(C)', verified: true },

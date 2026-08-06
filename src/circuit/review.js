@@ -96,6 +96,76 @@ export const seedReview = (overrides = {}) => ({
   ...overrides,
 });
 
+// ─── CONTENT FINGERPRINT ─────────────────────────────────────────────────────
+//
+// An approval is a statement about a specific lesson as it was on the day
+// someone read it. `lessonVersion` was supposed to enforce that, but it was
+// bumped by hand — so editing a hint, a learning objective or a terminal label
+// left the recorded sign-off in place, still claiming to cover text nobody had
+// looked at. Every safety control in this file depends on that not happening.
+//
+// The fingerprint removes the human step. It covers everything an approval is a
+// statement ABOUT: the topology, the reference solution, the expectations, the
+// hints, the objectives and the citations. Change any of them and the approval
+// stops matching, and the lesson goes back to the review queue on its own.
+//
+// FNV-1a, not a crypto hash: this detects honest edits, and node:crypto is not
+// in the React Native bundle. Nothing here is defending against an attacker
+// forging a fingerprint — they would just edit the approval record instead.
+
+const fnv1a = (str) => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+};
+
+/** Stable stringify — key order must not change the fingerprint. */
+const stable = (value) => {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+  return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${stable(value[k])}`).join(',')}}`;
+};
+
+/**
+ * What an approval actually covers. If it is on this list, editing it sends the
+ * lesson back for review — which is the point.
+ */
+export const lessonFingerprint = (lesson) => {
+  if (!lesson) return null;
+  const components = typeof lesson.components === 'function' ? lesson.components() : [];
+  const solution = typeof lesson.solution === 'function' ? lesson.solution() : [];
+  return fnv1a(stable({
+    id: lesson.id,
+    title: lesson.title,
+    // Topology and the wiring being taught.
+    components: components.map((c) => ({
+      id: c.id, type: c.type, label: c.label,
+      terminals: (c.terminals ?? []).map((t) => ({ id: t.id, label: t.label, role: t.semanticRole })),
+    })),
+    solution: solution.map((w) => [w.fromTerminal, w.toTerminal, w.role].sort()),
+    expectations: lesson.expectations ?? {},
+    // The words a learner reads and acts on.
+    learningObjectives: lesson.learningObjectives ?? [],
+    hintSteps: (lesson.hintSteps ?? []).map((h) => [h.level, h.text]),
+    safetyNotes: lesson.safetyNotes ?? [],
+    referenceNotes: (lesson.referenceNotes ?? []).map((n) => [n.label, n.ref, n.verified]),
+  }));
+};
+
+/**
+ * Does the recorded approval still describe this lesson?
+ *
+ * A record with no fingerprint fails. That is not a migration oversight — an
+ * approval written before fingerprints existed cannot prove what it covered,
+ * and "we cannot tell" has to resolve to "not approved" in this file.
+ */
+export const approvalMatchesContent = (lesson, record) =>
+  !!record && typeof record.contentFingerprint === 'string' &&
+  record.contentFingerprint === lessonFingerprint(lesson);
+
 /**
  * REV-08 — the gate. A lesson ships only when it has been reviewed AND
  * explicitly marked for production. Two independent flags, so neither a stray

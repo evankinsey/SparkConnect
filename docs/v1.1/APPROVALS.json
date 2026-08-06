@@ -2,46 +2,51 @@
   "single-pole-source-at-switch": {
     "technicalReviewStatus": "APPROVED_INTERNAL",
     "technicalReviewer": "SparkConnect team",
-    "reviewDate": "2026-08-05",
-    "reviewerNotes": "Truth tables verified across all switch states; topologies checked against standard practice; NEC 404.2(C) neutral-at-switch caveat surfaced on the switch-loop lesson.",
+    "reviewDate": "2026-08-06",
+    "reviewerNotes": "Re-recorded after terminal labels changed from Screw 1/Screw 2 to Brass A/Brass B and level-4/5 hints were reworded to say either brass screw takes the line. Topology, reference solutions and expectations are byte-identical to the 2026-08-05 review; truth tables re-verified across every switch state. Wording change only.",
     "productionApproved": true,
     "lessonVersion": 1,
-    "approvedAt": "2026-08-05T11:16:51.832Z"
+    "contentFingerprint": "b90fd264",
+    "approvedAt": "2026-08-06T14:45:14.024Z"
   },
   "single-pole-source-at-light": {
     "technicalReviewStatus": "APPROVED_INTERNAL",
     "technicalReviewer": "SparkConnect team",
-    "reviewDate": "2026-08-05",
-    "reviewerNotes": "Truth tables verified across all switch states; topologies checked against standard practice; NEC 404.2(C) neutral-at-switch caveat surfaced on the switch-loop lesson.",
+    "reviewDate": "2026-08-06",
+    "reviewerNotes": "Re-recorded after terminal labels changed from Screw 1/Screw 2 to Brass A/Brass B and level-4/5 hints were reworded to say either brass screw takes the line. Topology, reference solutions and expectations are byte-identical to the 2026-08-05 review; truth tables re-verified across every switch state. Wording change only.",
     "productionApproved": true,
     "lessonVersion": 1,
-    "approvedAt": "2026-08-05T11:16:51.833Z"
+    "contentFingerprint": "6f795ce6",
+    "approvedAt": "2026-08-06T14:45:14.025Z"
   },
   "three-way-source-at-switch": {
     "technicalReviewStatus": "APPROVED_INTERNAL",
     "technicalReviewer": "SparkConnect team",
-    "reviewDate": "2026-08-05",
-    "reviewerNotes": "Truth tables verified across all switch states; topologies checked against standard practice; NEC 404.2(C) neutral-at-switch caveat surfaced on the switch-loop lesson.",
+    "reviewDate": "2026-08-06",
+    "reviewerNotes": "Re-recorded after terminal labels changed from Screw 1/Screw 2 to Brass A/Brass B and level-4/5 hints were reworded to say either brass screw takes the line. Topology, reference solutions and expectations are byte-identical to the 2026-08-05 review; truth tables re-verified across every switch state. Wording change only.",
     "productionApproved": true,
     "lessonVersion": 1,
-    "approvedAt": "2026-08-05T11:16:51.833Z"
+    "contentFingerprint": "21fba5d9",
+    "approvedAt": "2026-08-06T14:45:14.026Z"
   },
   "three-way-source-at-light": {
     "technicalReviewStatus": "APPROVED_INTERNAL",
     "technicalReviewer": "SparkConnect team",
-    "reviewDate": "2026-08-05",
-    "reviewerNotes": "Truth tables verified across all switch states; topologies checked against standard practice; NEC 404.2(C) neutral-at-switch caveat surfaced on the switch-loop lesson.",
+    "reviewDate": "2026-08-06",
+    "reviewerNotes": "Re-recorded after terminal labels changed from Screw 1/Screw 2 to Brass A/Brass B and level-4/5 hints were reworded to say either brass screw takes the line. Topology, reference solutions and expectations are byte-identical to the 2026-08-05 review; truth tables re-verified across every switch state. Wording change only.",
     "productionApproved": true,
     "lessonVersion": 1,
-    "approvedAt": "2026-08-05T11:16:51.833Z"
+    "contentFingerprint": "8bc3880a",
+    "approvedAt": "2026-08-06T14:45:14.027Z"
   },
   "four-way-three-location": {
     "technicalReviewStatus": "APPROVED_INTERNAL",
     "technicalReviewer": "SparkConnect team",
-    "reviewDate": "2026-08-05",
-    "reviewerNotes": "Truth tables verified across all switch states; topologies checked against standard practice; NEC 404.2(C) neutral-at-switch caveat surfaced on the switch-loop lesson.",
+    "reviewDate": "2026-08-06",
+    "reviewerNotes": "Re-recorded after terminal labels changed from Screw 1/Screw 2 to Brass A/Brass B and level-4/5 hints were reworded to say either brass screw takes the line. Topology, reference solutions and expectations are byte-identical to the 2026-08-05 review; truth tables re-verified across every switch state. Wording change only.",
     "productionApproved": true,
     "lessonVersion": 1,
-    "approvedAt": "2026-08-05T11:16:51.833Z"
+    "contentFingerprint": "9d106134",
+    "approvedAt": "2026-08-06T14:45:14.027Z"
   }
 }
