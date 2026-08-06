@@ -7,7 +7,7 @@
 // conductor.
 //
 // This module decides what is electrically true. Nothing else in the app —
-// including Spark AI — is permitted to overrule it (SIM-19).
+// including SparkAI — is permitted to overrule it (SIM-19).
 
 import {
   ComponentType, TerminalRole,

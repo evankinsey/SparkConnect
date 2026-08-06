@@ -104,7 +104,7 @@ const KNOWN_SAFE_DOMAINS = [
 // SECURITY: expo-sharing handles image URIs — they are local file paths only,
 // and the share sheet is OS-controlled, so sharing never uploads anything.
 // Job Cam photos never leave the device. The ONE path that uploads an image is
-// Sparky AI, and only when the user explicitly attaches one to a question; the
+// SparkAI, and only when the user explicitly attaches one to a question; the
 // privacy screen says so in those words.
 // SECURITY: All user inputs are capped, sanitized, and never eval'd.
 
@@ -823,7 +823,7 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
     { icon: 'git-branch',   title: 'Pipe Bending',      sub: '90° · 45° · Offsets · Saddles · Rolling', tab: 'bend',      color: C.blue,   bg: C.blueSub },
     { icon: 'color-palette',title: 'Wire Colors',        sub: 'Color codes + 160-slot panel view',        tab: 'wire',      color: C.teal,   bg: C.tealBg },
     { icon: 'book-outline', title: 'Formula Reference',  sub: "Ohm's Law · 3Φ · Motors · Bending",       tab: 'formulas',  color: C.amber,  bg: C.amberBg },
-    { icon: 'hammer-outline',title:'Material Estimator', sub: 'Rough estimate + Sparky AI pricing',       tab: 'estimator', color: C.green,  bg: C.greenBg },
+    { icon: 'hammer-outline',title:'Material Estimator', sub: 'Rough estimate + SparkAI pricing',       tab: 'estimator', color: C.green,  bg: C.greenBg },
   ];
 
   return (
@@ -867,9 +867,32 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
             ? <TouchableOpacity disabled={selected === null} onPress={() => { setRevealed(true); if (onStreakUpdate) onStreakUpdate(); }} style={{ backgroundColor: selected === null ? C.border : C.blue, borderRadius: 8, padding: 10, alignItems: 'center', marginTop: 4 }}>
                 <Text style={{ fontSize: 12, fontWeight: '700', color: selected === null ? C.textTert : '#fff' }}>Reveal Answer</Text>
               </TouchableOpacity>
-            : <View style={{ backgroundColor: C.successBg, borderRadius: 8, padding: 10, marginTop: 4, borderLeftWidth: 3, borderLeftColor: C.success }}>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: C.success, marginBottom: 3 }}>{q.ref}</Text>
-                <Text style={{ fontSize: 12, color: C.text, lineHeight: 18 }}>{q.explanation}</Text>
+            : <View>
+                <View style={{ backgroundColor: C.successBg, borderRadius: 8, padding: 10, marginTop: 4, borderLeftWidth: 3, borderLeftColor: C.success }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.success, marginBottom: 3 }}>{q.ref}</Text>
+                  <Text style={{ fontSize: 12, color: C.text, lineHeight: 18 }}>{q.explanation}</Text>
+                </View>
+                {/* Post-answer payoff: XP earned + share. The share text names the
+                    topic but never the answer — a shared result should recruit,
+                    not leak the day's question. */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                  <View style={{ backgroundColor: selected === q.correct ? C.successBg : C.amberBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: selected === q.correct ? C.success : C.amber }}>
+                      {selected === q.correct ? '+15 XP · Correct' : '+5 XP · Studied'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={async () => {
+                      const msg = selected === q.correct
+                        ? `⚡ Nailed today's NEC code question (${q.category}) on SparkConnect. Think you'd get it?`
+                        : `⚡ Today's NEC code question (${q.category}) on SparkConnect got me — learned something though. Your turn.`;
+                      try { await Share.share({ message: msg }); } catch (e) { safeLog('shareDailyQ', e); }
+                    }}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 }}>
+                    <Ionicons name="share-outline" size={14} color={C.blue} />
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: C.blue }}>Share result</Text>
+                  </TouchableOpacity>
+                </View>
               </View>}
 
         </Card>
@@ -976,14 +999,14 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
         </View>
       </View>
 
-      {/* ── Sparky AI search bar — type here, land in the chat with an answer ── */}
+      {/* ── SparkAI search bar — type here, land in the chat with an answer ── */}
       <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
         <View style={{ backgroundColor: '#0D1B3E', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: 'rgba(244,161,29,0.25)' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center' }}>
               <Ionicons name="flash" size={14} color="#fff" />
             </View>
-            <Text style={{ fontSize: 14, fontWeight: '800', color: '#fff' }}>Sparky AI</Text>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: '#fff' }}>SparkAI</Text>
             <View style={{ backgroundColor: C.amber, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 }}>
               <Text style={{ fontSize: 8.5, fontWeight: '800', color: '#0D1B3E', letterSpacing: 0.5 }}>AI</Text>
             </View>
@@ -1042,7 +1065,7 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
       <TouchableOpacity onPress={() => setTab('settings')} style={{ marginHorizontal: 16, backgroundColor: C.blue, borderRadius: 16, padding: 20, flexDirection: 'row', alignItems: 'center', shadowColor: C.blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 6 }} activeOpacity={0.9}>
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff', marginBottom: 3 }}>Go Pro — Unlock Everything</Text>
-          <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 17 }}>100 Sparky AI answers/mo · Box Fill · Conduit Fill · PDF Export</Text>
+          <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 17 }}>100 SparkAI answers/mo · Box Fill · Conduit Fill · PDF Export</Text>
         </View>
         <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center', marginLeft: 12 }}>
           <Ionicons name="arrow-forward" size={18} color="#fff" />
@@ -1158,7 +1181,7 @@ const BendScreen = ({ C, setTab }) => {
           {result.type === 'saddle4' && <><RRow l="Mark 1" v={`${result.mark1}"`} hi C={C} /><RRow l="Mark 2" v={`${result.mark2}"`} hi C={C} /><RRow l="Mark 3" v={`${result.mark3}"`} hi C={C} /><RRow l="All bends" v={`${offsetA}° each`} C={C} /></>}
         </ResultCard>
         <TipBox C={C} text={tipText()} />
-        {/* Explain with Sparky */}
+        {/* Explain with SparkAI */}
         <TouchableOpacity onPress={() => {
           const sparkyQ = `Explain this pipe bending result: ${tipText().replace('💡 ','')}. Conduit: ${condSize} ${condType}.`;
           if (setTab) setTab('necai', sparkyQ);
@@ -1167,7 +1190,7 @@ const BendScreen = ({ C, setTab }) => {
           <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center' }}>
             <Ionicons name="flash" size={13} color="#fff" />
           </View>
-          <Text style={{ fontSize: 13, color: '#fff', fontWeight: '600', flex: 1 }}>Explain this with Sparky AI</Text>
+          <Text style={{ fontSize: 13, color: '#fff', fontWeight: '600', flex: 1 }}>Explain this with SparkAI</Text>
           <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.5)" />
         </TouchableOpacity>
       </>}
@@ -1707,14 +1730,14 @@ const EstimatorScreen = ({ C, setTab }) => {
           </View>
         ))}</Card>
       </>}
-      {/* Sparky AI price check CTA — smart location-based prompt */}
+      {/* SparkAI price check CTA — smart location-based prompt */}
       <View style={{ backgroundColor: C.amberBg, borderRadius: 14, padding: 16, marginTop: 8, borderWidth: 1, borderColor: C.amber }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
           <Ionicons name="chatbubble-ellipses" size={20} color={C.amber} />
-          <Text style={{ fontSize: 14, fontWeight: '700', color: C.amber }}>Get a Sparky AI Price Estimate</Text>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: C.amber }}>Get a SparkAI Price Estimate</Text>
         </View>
         <Text style={{ fontSize: 12, color: C.textSec, lineHeight: 18, marginBottom: 4 }}>
-          {'Enter your zip code and Sparky AI will estimate local material costs based on your quantities above.'}
+          {'Enter your zip code and SparkAI will estimate local material costs based on your quantities above.'}
         </Text>
         <TextInput
           placeholder="Zip code (e.g. 33701)"
@@ -2030,7 +2053,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
 
   // ── Image picker ────────────────────────────────────────────────────────
   const handleImagePress = () => {
-    Alert.alert('Add Photo to Sparky', 'Photo a panel, wire, nameplate, diagram, or job site.', [
+    Alert.alert('Add Photo to SparkAI', 'Photo a panel, wire, nameplate, diagram, or job site.', [
       { text: '📷 Take Photo',        onPress: () => pickImg(true) },
       { text: '🖼  Choose from Library', onPress: () => pickImg(false) },
       { text: 'Cancel', style: 'cancel' },
@@ -2110,7 +2133,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
     if (!q && !selectedImage) return;
     if (loading) return;
     // ── Pro gating ────────────────────────────────────────────────────────
-    // Two bugs lived here and between them Spark AI never sent a message:
+    // Two bugs lived here and between them SparkAI never sent a message:
     //
     //   1. `getGate` was called but never imported. It is exported from
     //      ProGatingContext.js, so this threw a ReferenceError inside an async
@@ -2152,7 +2175,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
     const modePrefix = modeConfig?.prefix || '';
     const finalQuestion = modePrefix && q ? (modePrefix + q) : (q || 'What can you see in this image? Describe what you see and give electrician field advice.');
 
-    // Build conversation history (last 6 messages for context = Sparky's "memory")
+    // Build conversation history (last 6 messages for context = SparkAI's "memory")
     const conversationHistory = messages.slice(-6).map(m => ({
       role: m.role === 'user' ? 'user' : 'assistant',
       content: m.text || '',
@@ -2244,7 +2267,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
 
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: 9, fontWeight: '700', color: accentColor, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>
-              {msg.isLocal ? 'Sparky AI · Offline' : 'Sparky AI'}
+              {msg.isLocal ? 'SparkAI · Offline' : 'SparkAI'}
             </Text>
 
             {/* Main bubble */}
@@ -2304,7 +2327,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
             {/* Share */}
             {!msg.isError && !msg.isRateLimit && (
               <TouchableOpacity onPress={async () => {
-                const txt = `⚡ Sparky AI\n\n${msg.text}${msg.refs?.length ? '\n\nSources: ' + msg.refs.join(', ') : ''}\n\n— SparkConnect Tools`;
+                const txt = `⚡ SparkAI\n\n${msg.text}${msg.refs?.length ? '\n\nSources: ' + msg.refs.join(', ') : ''}\n\n— SparkConnect Tools`;
                 try { await Share.share({ message: txt }); } catch(e) { safeLog('share', e); }
               }} style={{ alignSelf: 'flex-end', marginTop: 6, padding: 4 }}>
                 <Ionicons name="share-outline" size={15} color={C.textTert} />
@@ -2337,7 +2360,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
             <Ionicons name="flash" size={14} color="#fff" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>Sparky AI</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>SparkAI</Text>
             <Text style={{ fontSize: 10, color: C.textTert }}>NEC · Estimates · Pricing · Photo analysis</Text>
           </View>
           {remainingQuestions !== null && !isPro && (
@@ -2410,7 +2433,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
                 </View>
                 <View style={{ flex: 1, backgroundColor: C.surface, borderRadius: 18, borderTopLeftRadius: 5, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: C.amber, paddingHorizontal: 14, paddingVertical: 12 }}>
                   <Text style={{ fontSize: 14, color: C.text, lineHeight: 22 }}>
-                    {"Hey! I'm Sparky ⚡ — your electrical field expert.\n\nAsk me about NEC code, material costs, installation how-tos, load calculations, permit questions, estimates, or snap a photo of a panel or wiring problem and I'll take a look."}
+                    {"Hey! I'm SparkAI ⚡ — your electrical field expert.\n\nAsk me about NEC code, material costs, installation how-tos, load calculations, permit questions, estimates, or snap a photo of a panel or wiring problem and I'll take a look."}
                   </Text>
                 </View>
               </View>
@@ -2452,7 +2475,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
           <View style={{ width: 44, height: 44, borderRadius: 10, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
             <Ionicons name="image" size={22} color={C.blue} />
           </View>
-          <Text style={{ flex: 1, fontSize: 12, color: C.textSec, fontWeight: '500' }}>Photo ready — ask Sparky about it ↓</Text>
+          <Text style={{ flex: 1, fontSize: 12, color: C.textSec, fontWeight: '500' }}>Photo ready — ask SparkAI about it ↓</Text>
           <TouchableOpacity onPress={() => setSelectedImage(null)}>
             <Ionicons name="close-circle" size={22} color={C.danger} />
           </TouchableOpacity>
@@ -3056,7 +3079,7 @@ const TermsScreen = ({ C, onBack }) => {
         <Sec title="Permits and Inspections" body="Permits and inspections may be required for electrical work in your jurisdiction. This app does not determine permit requirements and does not replace inspection by a qualified authority." />
         <Sec title="No Engineering or Professional Advice" body="This app does not provide engineering, legal, or professional advice. For engineering review, consult a licensed professional engineer. For legal questions, consult a licensed attorney." />
         <Sec title="Limitation of Liability" body="To the maximum extent permitted by law, SparkConnect and its developers shall not be liable for any damages, injuries, losses, or code violations arising from use of this application." />
-        <Sec title="Subscription Terms" body="SparkConnect Pro is billed monthly or annually at the rates displayed in the app at the time of purchase. Payment is charged to your App Store or Google Play account at confirmation. Subscriptions auto-renew unless cancelled at least 24 hours before the end of the current period, and your account is charged for renewal within 24 hours of the period ending. Manage or cancel your subscription in your App Store or Google Play account settings. Sparky AI answer packs are one-time purchases, not subscriptions, and do not renew. Prices may vary by region." />
+        <Sec title="Subscription Terms" body="SparkConnect Pro is billed monthly or annually at the rates displayed in the app at the time of purchase. Payment is charged to your App Store or Google Play account at confirmation. Subscriptions auto-renew unless cancelled at least 24 hours before the end of the current period, and your account is charged for renewal within 24 hours of the period ending. Manage or cancel your subscription in your App Store or Google Play account settings. SparkAI answer packs are one-time purchases, not subscriptions, and do not renew. Prices may vary by region." />
         <Sec title="Changes to Terms" body="We may update these Terms from time to time. Continued use after changes constitutes acceptance." />
         <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>Questions? support@sparkconnect.pro</Text>
       </ScrollView>
@@ -3082,13 +3105,13 @@ const PrivacyScreen = ({ C, onBack }) => {
       </View>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
         <Text style={{ fontSize: 11, color: C.textTert, marginBottom: 20 }}>Last updated: June 2025</Text>
-        <Sec title="Information We Collect" body="SparkConnect Tools collects minimal information. Calculator inputs, quiz progress, saved settings, and Job Cam photos are stored locally on your device. We do not require account creation. The one exception is described below: a photo you choose to attach to a Sparky AI question is uploaded so it can be analyzed." />
-        <Sec title="Sparky AI Questions and Photos" body="When you use Sparky AI, your question text is sent over an encrypted connection to our backend and on to an AI service provider to generate a response. If you attach a photo to a question, that image is uploaded the same way so it can be analyzed. Images are sent only when you attach one, are used only to answer that question, and are not stored by us or used to identify you. Do not submit private, sensitive, or confidential information — or photographs of people or documents — through Sparky AI. Searches made without a network connection are processed locally on your device." />
+        <Sec title="Information We Collect" body="SparkConnect Tools collects minimal information. Calculator inputs, quiz progress, saved settings, and Job Cam photos are stored locally on your device. We do not require account creation. The one exception is described below: a photo you choose to attach to a SparkAI question is uploaded so it can be analyzed." />
+        <Sec title="SparkAI Questions and Photos" body="When you use SparkAI, your question text is sent over an encrypted connection to our backend and on to an AI service provider to generate a response. If you attach a photo to a question, that image is uploaded the same way so it can be analyzed. Images are sent only when you attach one, are used only to answer that question, and are not stored by us or used to identify you. Do not submit private, sensitive, or confidential information — or photographs of people or documents — through SparkAI. Searches made without a network connection are processed locally on your device." />
         <Sec title="Analytics" body="SparkConnect Tools does not currently collect analytics or crash reporting data. If basic anonymous analytics are enabled in a future version, they will not include personally identifiable information and will be disclosed here." />
         <Sec title="Purchases and Subscriptions" body="Purchases are processed entirely by Apple (App Store) or Google (Play Store). SparkConnect never sees, stores or processes payment card information. Subscription status is checked through RevenueCat using an anonymous install identifier, not your name or email." />
         <Sec title="Account and Login Data" body="The current version does not require an account or login. If account features are added in a future version, we will update this policy." />
         <Sec title="Data Sharing" body="We do not sell, rent, or trade your personal data to advertisers or third parties. Anonymous aggregate data may be used to improve the app." />
-        <Sec title="Data Security" body="Your calculator results, saved projects and Job Cam photos remain on your device — we do not operate servers that store them. Sparky AI questions, and any photo you attach to one, travel over an encrypted (HTTPS) connection and are used only to generate that answer." />
+        <Sec title="Data Security" body="Your calculator results, saved projects and Job Cam photos remain on your device — we do not operate servers that store them. SparkAI questions, and any photo you attach to one, travel over an encrypted (HTTPS) connection and are used only to generate that answer." />
         <Sec title="Children's Privacy" body="SparkConnect Tools is intended for adult professionals and is not directed at children under 13." />
         <Sec title="Changes to This Policy" body="We may update this Privacy Policy from time to time. Continued use after changes constitutes acceptance." />
         <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>Questions? support@sparkconnect.pro</Text>
@@ -3165,8 +3188,8 @@ const SafetyScreen = ({ C, onBack }) => {
 
         <View style={{ height: 1, backgroundColor: C.border, marginVertical: 20 }} />
 
-        <Sec title="Sparky AI & NEC References"
-          body="Sparky AI provides general electrical code guidance for reference and educational purposes. All NEC article numbers are cited for reference only. SparkConnect Tools does not reproduce NEC code text verbatim. Always verify code requirements with your currently adopted NEC edition (NFPA 70), your local AHJ, and qualified supervision. NEC is a registered trademark of the National Fire Protection Association (NFPA)." />
+        <Sec title="SparkAI & NEC References"
+          body="SparkAI provides general electrical code guidance for reference and educational purposes. All NEC article numbers are cited for reference only. SparkConnect Tools does not reproduce NEC code text verbatim. Always verify code requirements with your currently adopted NEC edition (NFPA 70), your local AHJ, and qualified supervision. NEC is a registered trademark of the National Fire Protection Association (NFPA)." />
 
         <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, marginBottom: 10 }}>Always independently verify:</Text>
         <Bullet text="Voltage drop — accounts for resistive losses only; inductive reactance may apply at larger sizes" />
@@ -3193,6 +3216,9 @@ const SafetyScreen = ({ C, onBack }) => {
 
 
 // ─── CALCULATORS HUB SCREEN ─────────────────────────────────────────────────
+const KEY_CALC_FAVS = '@sc_calc_favs';
+const KEY_CALC_RECENTS = '@sc_calc_recents';
+
 const CalculatorsScreen = ({ setTab, C }) => {
   const tools = [
     { icon: 'git-branch',        title: 'Pipe Bending',      sub: '90° · 45° · Offsets · Saddles',        tab: 'bend',        color: C.blue,   bg: C.blueSub },
@@ -3202,13 +3228,84 @@ const CalculatorsScreen = ({ setTab, C }) => {
     { icon: 'speedometer-outline',title:'Ampacity Lookup',   sub: 'NEC 310.15 copper & aluminum tables',  tab: 'ampacity',    color: C.blue,   bg: C.blueSub },
     { icon: 'color-palette',     title: 'Wire Colors',        sub: 'Detail + 160-slot panel view',         tab: 'wire',        color: C.teal,   bg: C.tealBg },
     { icon: 'book-outline',      title: 'Formula Reference',  sub: "Ohm's Law · 3Φ · Motors · Transformers", tab:'formulas',  color: C.amber,  bg: C.amberBg },
-    { icon: 'hammer-outline',    title: 'Material Estimator', sub: 'Rough quantity + Sparky AI pricing',   tab: 'estimator',   color: C.green,  bg: C.greenBg },
+    { icon: 'hammer-outline',    title: 'Material Estimator', sub: 'Rough quantity + SparkAI pricing',   tab: 'estimator',   color: C.green,  bg: C.greenBg },
   ];
+  const [query, setQuery] = useState('');
+  const [favs, setFavs] = useState([]);
+  const [recents, setRecents] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const f = JSON.parse((await safeStorageGet(KEY_CALC_FAVS)) || '[]');
+        const r = JSON.parse((await safeStorageGet(KEY_CALC_RECENTS)) || '[]');
+        setFavs(Array.isArray(f) ? f.filter((id) => tools.some((t) => t.tab === id)) : []);
+        setRecents(Array.isArray(r) ? r.filter((id) => tools.some((t) => t.tab === id)) : []);
+      } catch (e) { safeLog('calcPrefs', e); }
+    })();
+  }, []);
+
+  const toggleFav = async (tab) => {
+    const next = favs.includes(tab) ? favs.filter((f) => f !== tab) : [...favs, tab];
+    setFavs(next);
+    await safeStorageSet(KEY_CALC_FAVS, JSON.stringify(next));
+  };
+  const open = async (tab) => {
+    const next = [tab, ...recents.filter((r) => r !== tab)].slice(0, 4);
+    setRecents(next);
+    safeStorageSet(KEY_CALC_RECENTS, JSON.stringify(next)); // fire-and-forget; navigation should not wait on disk
+    setTab(tab);
+  };
+
+  const q = query.trim().toLowerCase();
+  const matches = q ? tools.filter((t) => (t.title + ' ' + t.sub).toLowerCase().includes(q)) : tools;
+  // Favorites float to the top of the list; recents get their own strip.
+  const ordered = [...matches].sort((a, b) => (favs.includes(b.tab) ? 1 : 0) - (favs.includes(a.tab) ? 1 : 0));
+  const recentTools = recents.map((id) => tools.find((t) => t.tab === id)).filter(Boolean);
+
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
+    <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      {/* Search */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.inputBg, borderRadius: 12, borderWidth: 1, borderColor: C.border, paddingHorizontal: 12, marginBottom: 14 }}>
+        <Ionicons name="search" size={16} color={C.textTert} />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search calculators…"
+          placeholderTextColor={C.textTert}
+          style={{ flex: 1, paddingVertical: 10, fontSize: 14, color: C.text }}
+          autoCorrect={false}
+          returnKeyType="search"
+          accessibilityLabel="Search calculators"
+        />
+        {query.length > 0 && (
+          <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close-circle" size={16} color={C.textTert} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Recents — only when not searching, only when they exist */}
+      {!q && recentTools.length > 0 && (
+        <View style={{ marginBottom: 14 }}>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>Recent</Text>
+          <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+            {recentTools.map((t) => (
+              <TouchableOpacity key={t.tab} onPress={() => open(t.tab)} activeOpacity={0.85}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.surface, borderRadius: 10, borderWidth: 1, borderColor: C.border, paddingHorizontal: 10, paddingVertical: 8 }}>
+                <Ionicons name={t.icon} size={14} color={t.color} />
+                <Text style={{ fontSize: 12, fontWeight: '600', color: C.text }}>{t.title}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
+
       <Text style={{ fontSize: 11, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 14 }}>All Calculators & Reference Tools</Text>
-      {tools.map(t => (
-        <TouchableOpacity key={t.tab} onPress={() => setTab(t.tab)} activeOpacity={0.85}
+      {ordered.length === 0 && (
+        <Text style={{ fontSize: 13, color: C.textSec, marginBottom: 10 }}>Nothing matches “{query.trim()}”. Try “bend”, “volt”, “fill”…</Text>
+      )}
+      {ordered.map(t => (
+        <TouchableOpacity key={t.tab} onPress={() => open(t.tab)} activeOpacity={0.85}
           style={{ flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: C.surface, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: C.border, marginBottom: 10, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 }}>
           <View style={{ width: 50, height: 50, borderRadius: 14, backgroundColor: t.bg, alignItems: 'center', justifyContent: 'center' }}>
             <Ionicons name={t.icon} size={24} color={t.color} />
@@ -3217,6 +3314,11 @@ const CalculatorsScreen = ({ setTab, C }) => {
             <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 3 }}>{t.title}</Text>
             <Text style={{ fontSize: 12, color: C.textSec, lineHeight: 16 }}>{t.sub}</Text>
           </View>
+          <TouchableOpacity onPress={() => toggleFav(t.tab)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel={favs.includes(t.tab) ? `Remove ${t.title} from favorites` : `Add ${t.title} to favorites`}>
+            <Ionicons name={favs.includes(t.tab) ? 'star' : 'star-outline'} size={18} color={favs.includes(t.tab) ? C.amber : C.textTert} />
+          </TouchableOpacity>
           <Ionicons name="chevron-forward" size={16} color={C.textTert} />
         </TouchableOpacity>
       ))}
@@ -3226,8 +3328,8 @@ const CalculatorsScreen = ({ setTab, C }) => {
           <Ionicons name="flash" size={22} color="#fff" />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff', marginBottom: 2 }}>Ask Sparky to explain any result</Text>
-          <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>Every calculator has an "Explain with Sparky" button</Text>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff', marginBottom: 2 }}>Ask SparkAI to explain any result</Text>
+          <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>Every calculator has an "Explain with SparkAI" button</Text>
         </View>
         <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.5)" />
       </TouchableOpacity>
@@ -3262,14 +3364,14 @@ const LearnScreen = ({ setTab, C, onStreakUpdate }) => {
           <Ionicons name="calendar-outline" size={24} color={C.blue} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 2 }}></Text>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 2 }}>Daily Code Question</Text>
           <Text style={{ fontSize: 12, color: C.textSec }}>Today: {today.category} · {today.difficulty}</Text>
           <Text style={{ fontSize: 11, color: C.textTert, marginTop: 2 }} numberOfLines={1}>{today.question}</Text>
         </View>
         <Ionicons name="chevron-forward" size={16} color={C.textTert} />
       </TouchableOpacity>
 
-      {/* NEC Reference (Sparky AI browse) */}
+      {/* NEC Reference (SparkAI browse) */}
       <TouchableOpacity onPress={() => setTab('necai')} activeOpacity={0.85}
         style={{ backgroundColor: C.surface, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: C.border, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
         <View style={{ width: 50, height: 50, borderRadius: 14, backgroundColor: C.amberBg, alignItems: 'center', justifyContent: 'center' }}>
@@ -3277,7 +3379,7 @@ const LearnScreen = ({ setTab, C, onStreakUpdate }) => {
         </View>
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, marginBottom: 2 }}>NEC Reference</Text>
-          <Text style={{ fontSize: 12, color: C.textSec }}>Tap the book icon in Sparky AI to browse 20 NEC topics</Text>
+          <Text style={{ fontSize: 12, color: C.textSec }}>Tap the book icon in SparkAI to browse 20 NEC topics</Text>
         </View>
         <Ionicons name="chevron-forward" size={16} color={C.textTert} />
       </TouchableOpacity>
@@ -3705,7 +3807,7 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
               <Text style={{ fontSize: 12, color: C.textSec, marginTop: 1 }}>$7.99/mo · $49.99/yr Launch Special · 100 AI answers/mo</Text>
             </View>
           </View>
-          {['100 Sparky AI answers/month','Box Fill Calculator','Conduit Fill Calculator','Saved Projects & History','PDF Report Export (coming)','Priority new features'].map(f => (
+          {['100 SparkAI answers/month','Box Fill Calculator','Conduit Fill Calculator','Saved Projects & History','PDF Report Export (coming)','Priority new features'].map(f => (
             <View key={f} style={{ flexDirection: 'row', gap: 8, alignItems: 'center', paddingVertical: 3 }}>
               <Ionicons name="checkmark-circle" size={15} color={C.blue} />
               <Text style={{ fontSize: 12, color: C.text, fontWeight: '500' }}>{f}</Text>
@@ -3735,9 +3837,9 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
       <SectionTitle title=" Query Packs" />
       <Card C={C} style={{ marginBottom: 20, padding: 0, overflow: 'hidden' }}>
         <View style={{ padding: 12, backgroundColor: C.amberBg, borderBottomWidth: 1, borderBottomColor: C.border }}>
-          <Text style={{ fontSize: 12, fontWeight: '600', color: C.amber }}>Need more answers? Add a Sparky AI pack anytime.</Text>
+          <Text style={{ fontSize: 12, fontWeight: '600', color: C.amber }}>Need more answers? Add a SparkAI pack anytime.</Text>
         </View>
-        {[{ label: '15 Sparky AI Answers', price: '$1.99' },{ label: '50 Sparky AI Answers', price: '$4.99' },{ label: '150 Sparky AI Answers', price: '$9.99' }].map((pack, i, arr) => (
+        {[{ label: '15 SparkAI Answers', price: '$1.99' },{ label: '50 SparkAI Answers', price: '$4.99' },{ label: '150 SparkAI Answers', price: '$9.99' }].map((pack, i, arr) => (
           <TouchableOpacity key={pack.label} onPress={onBuyPacks} activeOpacity={0.7}
             style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 13, borderBottomWidth: i < arr.length - 1 ? 1 : 0, borderBottomColor: C.borderLight }}>
             <Ionicons name="chatbubble-ellipses-outline" size={16} color={C.amber} style={{ marginRight: 10 }} />
@@ -3753,8 +3855,8 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
       {/* 3 — Follow SparkConnect */}
       <SectionTitle title="Follow SparkConnect" />
       <Card C={C} style={{ marginBottom: 20, padding: 0, overflow: 'hidden' }}>
-        <Row icon="logo-instagram" label="Instagram" val="@sparkconnectpro" iconBg="#FCE4EC" iconColor="#E1306C" onPress={() => openLink('https://instagram.com/sparkconnectpro')} />
-        <Row icon="logo-tiktok" label="TikTok" val="@spark.connect" iconBg="#F3F3F3" iconColor="#000" onPress={() => openLink('https://www.tiktok.com/@spark.connect')} />
+        <Row icon="logo-instagram" label="Instagram" val="@sparkconnectelectricapp" iconBg="#FCE4EC" iconColor="#E1306C" onPress={() => openLink('https://instagram.com/sparkconnectelectricapp')} />
+        <Row icon="logo-tiktok" label="TikTok" val="@sparkconnectelectricapp" iconBg="#F3F3F3" iconColor="#000" onPress={() => openLink('https://www.tiktok.com/@sparkconnectelectricapp')} />
         <Row icon="globe-outline" label="Website" val="sparkconnect.pro" onPress={() => openLink('https://www.sparkconnect.pro')} />
         <Row icon="bulb-outline" label="Suggest a Feature" onPress={openFeedback} />
       </Card>
@@ -3810,8 +3912,8 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
       <Card C={C} style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
         {[
           { code: 'english',  flag: '🇺🇸', label: 'English',            sub: 'Default' },
-          { code: 'spanish',  flag: '🇪🇸', label: 'Español (Spanish)',   sub: 'Sparky AI responds in Spanish' },
-          { code: 'mandarin', flag: '🇨🇳', label: '普通话 (Mandarin)',    sub: 'Sparky AI responds in Mandarin' },
+          { code: 'spanish',  flag: '🇪🇸', label: 'Español (Spanish)',   sub: 'SparkAI responds in Spanish' },
+          { code: 'mandarin', flag: '🇨🇳', label: '普通话 (Mandarin)',    sub: 'SparkAI responds in Mandarin' },
         ].map((lang, i, arr) => (
           <TouchableOpacity key={lang.code}
             onPress={() => { if (setAppLanguage) setAppLanguage(lang.code); safeStorageSet('@sc_app_language', lang.code); }}
@@ -3827,7 +3929,7 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
       </Card>
       <View style={{ backgroundColor: C.amberBg, borderRadius: 10, padding: 10, marginBottom: 20, flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
         <Ionicons name="information-circle-outline" size={14} color={C.amber} />
-        <Text style={{ flex: 1, fontSize: 11, color: C.amber, lineHeight: 16 }}>Full app translation (menus, labels) coming in a future update. Currently, Sparky AI will respond in the selected language — use the language mode chip inside Sparky AI or change the app default here.</Text>
+        <Text style={{ flex: 1, fontSize: 11, color: C.amber, lineHeight: 16 }}>Full app translation (menus, labels) coming in a future update. Currently, SparkAI will respond in the selected language — use the language mode chip inside SparkAI or change the app default here.</Text>
       </View>
 
       {/* 7 — Legal */}
@@ -3863,7 +3965,7 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
 const TABS = [
   { id: 'home',        icon: 'home',               label: 'Home' },
   { id: 'calculators', icon: 'calculator-outline',  label: 'Calculators' },
-  { id: 'necai',       icon: 'chatbubble-ellipses',  label: 'Sparky AI' },
+  { id: 'necai',       icon: 'chatbubble-ellipses',  label: 'SparkAI' },
   { id: 'jobcam',      icon: 'camera',               label: 'Job Cam' },
   { id: 'learn',       icon: 'school',               label: 'Learn' },
 ];
@@ -3872,7 +3974,7 @@ const SCREEN_LABELS = {
   home: 'SparkConnect', bend: 'Pipe Bending', volt: 'Voltage Drop',
   wire: 'Wire Colors', formulas: 'Formula Reference', boxfill: 'Box Fill',
   conduitfill: 'Conduit Fill', ampacity: 'Ampacity Lookup',
-  estimator: 'Material Estimator', necai: 'Sparky AI',
+  estimator: 'Material Estimator', necai: 'SparkAI',
   examprep: 'Code Quiz', jobcam: 'Job Cam', settings: 'Settings',
   calculators: 'Calculators', learn: 'Learn',
   wiringlab: 'Wiring Simulator', troubleshoot: 'Troubleshoot', jobsite: 'Job Site',
@@ -3900,7 +4002,7 @@ const SplashScreen = ({ onDone }) => {
     return () => clearTimeout(timer);
   }, []);
 
-  const FEATURE_PILLS = ['Pipe Bending', 'Sparky AI', 'Voltage Drop', 'Ampacity', 'Wire Colors'];
+  const FEATURE_PILLS = ['Pipe Bending', 'SparkAI', 'Voltage Drop', 'Ampacity', 'Wire Colors'];
 
   return (
     <View style={splashStyles.container}>
@@ -4142,7 +4244,7 @@ export default function App() {
       setPaywall(null);
       Alert.alert(
         res.isPro ? 'Welcome to Pro! ⚡' : 'Purchase complete ⚡',
-        res.isPro ? 'Everything is unlocked. Get after it.' : 'Your Sparky AI answers have been added.',
+        res.isPro ? 'Everything is unlocked. Get after it.' : 'Your SparkAI answers have been added.',
       );
     } else if (res.error) {
       Alert.alert('Purchase failed', res.error);

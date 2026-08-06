@@ -58,7 +58,7 @@ export const KEY_SPECS = Object.freeze({
   BACKEND_URL: {
     label: 'Backend base URL', prefix: 'https://', severity: Severity.DEGRADED,
     platform: 'all', secret: false,
-    consequence: 'Spark AI, remote feature flags and any payment work cannot reach a server.',
+    consequence: 'SparkAI, remote feature flags and any payment work cannot reach a server.',
   },
 });
 

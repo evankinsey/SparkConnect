@@ -269,7 +269,7 @@ export const validate = (circuit, expectations = {}) => {
 
 /**
  * Primary failure category, for the UI headline and for the structured payload
- * sent to Spark AI (AI-03). Returns null when the circuit is valid.
+ * sent to SparkAI (AI-03). Returns null when the circuit is valid.
  */
 export const primaryFailure = (result) => {
   if (result.valid) return null;

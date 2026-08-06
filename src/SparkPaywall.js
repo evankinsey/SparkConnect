@@ -235,7 +235,7 @@ function PacksView({ sel, onSel, busy, onBuy, onClose }) {
   const best = bestValuePack();
   return (
     <>
-      <Text style={s.eyebrow}>Spark AI</Text>
+      <Text style={s.eyebrow}>SparkAI</Text>
       <Text style={s.title}>Top up your answers</Text>
       <Text style={s.sub}>One-time purchase. They never expire and no subscription is needed.</Text>
 

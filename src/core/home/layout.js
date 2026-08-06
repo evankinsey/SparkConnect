@@ -31,7 +31,7 @@ export const HOME_CARDS = Object.freeze([
   { id: 'examprep', kind: CardKind.SHORTCUT, tab: 'examprep', title: 'Code Quiz', sub: 'Exam practice', icon: 'ribbon', group: 'Training' },
 
   // Tools
-  { id: 'spark_ai', kind: CardKind.SHORTCUT, tab: 'necai', title: 'Spark AI', sub: 'Electrical field assistant', icon: 'flash', group: 'Tools' },
+  { id: 'spark_ai', kind: CardKind.SHORTCUT, tab: 'necai', title: 'SparkAI', sub: 'Electrical field assistant', icon: 'flash', group: 'Tools' },
   { id: 'bend', kind: CardKind.SHORTCUT, tab: 'bend', title: 'Pipe Bending', sub: '90° · offsets · saddles', icon: 'git-branch', group: 'Tools' },
   { id: 'volt', kind: CardKind.SHORTCUT, tab: 'volt', title: 'Voltage Drop', sub: 'Single and three phase', icon: 'trending-down', group: 'Tools' },
   { id: 'boxfill', kind: CardKind.SHORTCUT, tab: 'boxfill', title: 'Box Fill', sub: 'NEC 314.16', icon: 'cube', group: 'Tools' },

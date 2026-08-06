@@ -129,9 +129,9 @@ export const PLACEMENT_COPY = Object.freeze({
     sub: 'Timed challenges, par times, and a score worth sharing.',
   },
   [Placement.AI_SIMULATION_EXPLANATION]: {
-    eyebrow: 'Spark AI',
+    eyebrow: 'SparkAI',
     headline: 'Find out why that circuit failed',
-    sub: 'Spark AI explains the fault, what to inspect, and the mistake most people make.',
+    sub: 'SparkAI explains the fault, what to inspect, and the mistake most people make.',
   },
   [Placement.PROGRESS_HISTORY_LOCKED]: {
     eyebrow: 'Progress',
@@ -144,7 +144,7 @@ export const PLACEMENT_COPY = Object.freeze({
     sub: 'Build your own sets from the topics you get wrong.',
   },
   [Placement.AI_LIMIT_REACHED]: {
-    eyebrow: 'Spark AI',
+    eyebrow: 'SparkAI',
     headline: 'Out of answers for today',
     sub: 'Pro gives you 20 answers a day, with your calculator and job already in context.',
   },
@@ -166,12 +166,12 @@ export const PLACEMENT_COPY = Object.freeze({
   [Placement.SETTINGS_UPGRADE]: {
     eyebrow: 'SparkConnect Pro',
     headline: 'The complete field workflow',
-    sub: 'Calculate, ask Spark AI, save it to the job, and turn it into paperwork that gets you paid.',
+    sub: 'Calculate, ask SparkAI, save it to the job, and turn it into paperwork that gets you paid.',
   },
   [Placement.ONBOARDING_COMPLETE]: {
     eyebrow: 'Nice work',
     headline: 'That is one of about forty tools',
-    sub: 'Pro opens the rest, plus the Wiring Simulator and unlimited Spark AI.',
+    sub: 'Pro opens the rest, plus the Wiring Simulator and unlimited SparkAI.',
   },
 });
 
@@ -184,17 +184,20 @@ export const copyForPlacement = (placement) =>
 //
 // "Priority new features" was removed — UI-05. It promised nothing specific.
 
+// Each line sells the outcome, with the concrete mechanism in the sub-line —
+// "what you get out of it", not "what we built" (UI-05 still applies: no
+// vague promises, every benefit has a specific sub).
 export const PRO_BENEFITS = Object.freeze([
-  { icon: 'flash', title: '20 Spark AI answers a day', sub: 'Knows the calculator you are in' },
-  { icon: 'calculator', title: 'Every calculator, unlimited', sub: 'No daily cap' },
-  { icon: 'school', title: 'Wiring & troubleshooting lab', sub: 'Interactive, not videos' },
-  { icon: 'camera', title: 'Unlimited Job Cam and exports', sub: 'Your branding on invoices' },
-  { icon: 'time', title: 'Saved history across every tool', sub: 'Pick up where you left off' },
+  { icon: 'flash', title: 'Get unstuck in the field, fast', sub: '20 SparkAI answers a day, your job in context' },
+  { icon: 'calculator', title: 'Never lose another calculation', sub: 'Every calculator unlimited, history saved to the job' },
+  { icon: 'school', title: 'Wire it wrong here, not on the job', sub: 'Full wiring & troubleshooting simulator' },
+  { icon: 'camera', title: 'Save thousands documenting every job', sub: 'Unlimited Job Cam, your branding on exports' },
+  { icon: 'time', title: 'Walk back into any job cold', sub: 'Photos, numbers and notes right where you left them' },
 ]);
 
 export const LIFETIME_BENEFITS = Object.freeze([
   'Core calculators forever',
-  '5 Spark AI answers a day',
+  '5 SparkAI answers a day',
   '25 Job Cam projects',
   '5 invoice exports a month',
 ]);

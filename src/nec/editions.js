@@ -127,7 +127,7 @@ export const matchesEdition = (item, userEdition) => {
   return item.editions.includes(eff);
 };
 
-/** AI-02 — the `adoptedCodeContext` field of the structured Spark AI payload. */
+/** AI-02 — the `adoptedCodeContext` field of the structured SparkAI payload. */
 export const adoptedCodeContext = (userEdition) => {
   const raw = normalizeEdition(userEdition);
   return {

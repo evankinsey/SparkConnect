@@ -14,7 +14,7 @@ const LEVELS = [
 ];
 
 const TOOLS = [
-  { id:'sparky',   label:'🤖 Sparky AI',      sub:'NEC code answers in seconds' },
+  { id:'sparky',   label:'🤖 SparkAI',      sub:'NEC code answers in seconds' },
   { id:'pipebend', label:'📐 Pipe Bending',    sub:'Stub-up, offset, 3-bend saddle' },
   { id:'boxfill',  label:'📦 Box Fill',        sub:'NEC 314.16 fill calculator' },
   { id:'conduit',  label:'🔵 Conduit Fill',    sub:'EMT, RMC, PVC fill %' },
@@ -145,7 +145,7 @@ function DisclaimerScreen({ onNext }) {
       <Text style={s.eyebrow}>Before You Start</Text>
       <Text style={s.heading}>A word on safety</Text>
       {[
-        { i:'⚡', t:'AI answers are a reference tool', d:'Sparky AI provides NEC code guidance, not engineering advice. Always verify with a licensed electrician.' },
+        { i:'⚡', t:'AI answers are a reference tool', d:'SparkAI provides NEC code guidance, not engineering advice. Always verify with a licensed electrician.' },
         { i:'📋', t:'Check local amendments', d:'Local jurisdictions may adopt different NEC editions. Always check with your AHJ.' },
         { i:'🔒', t:'Never work live', d:'SparkConnect helps you plan and document. Lockout/tagout before any electrical work.' },
         { i:'📱', t:'Your data stays private', d:'Job photos and calculations stay on your device. Nothing is shared without your permission.' },
@@ -172,7 +172,7 @@ function TrialScreen({ role, onStart, onSkip }) {
       <Text style={s.eyebrow}>Try Pro Free</Text>
       <Text style={s.heading}>3 days on us ⚡</Text>
       <Text style={s.subT}>{student ? 'Perfect for exam prep and daily job use.' : 'Everything you need on the job.'} Cancel anytime.</Text>
-      {['🤖  20 Sparky AI answers/day','🧰  All calculators, unlimited','📸  Unlimited Job Cam projects','🎯  Full Exam Prep library','⚡  Full NEC code lookup'].map((line,i) => (
+      {['🤖  20 SparkAI answers/day','🧰  All calculators, unlimited','📸  Unlimited Job Cam projects','🎯  Full Exam Prep library','⚡  Full NEC code lookup'].map((line,i) => (
         <View key={i} style={s.trialRow}>
           <Text style={s.trialRowT}>{line}</Text>
           <Text style={s.trialChk}>✓</Text>
