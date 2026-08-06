@@ -527,3 +527,42 @@ test('a model returning junk shapes does not crash the pipeline', async () => {
     assert.ok([Provenance.MODEL, Provenance.REFUSED].includes(r.provenance));
   }
 });
+
+// ─── The screen is actually on the pipeline ──────────────────────────────────
+
+test('NecAiScreen routes through ask() rather than calling the backend first', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const { dirname, join } = await import('node:path');
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'App.js'), 'utf8');
+
+  const send = src.slice(src.indexOf('const handleSend'), src.indexOf('const handleSend') + 12000);
+
+  assert.ok(send.includes('sparkAsk('), 'the send path must go through the pipeline');
+  assert.ok(send.includes('askModel:'),
+    'the backend must be INJECTED as the last resort, not called first');
+
+  // The backend call has to live inside the askModel callback. If it were still
+  // called directly, every guardrail would be bypassed for every question.
+  const askModelAt = send.indexOf('askModel:');
+  const backendAt = send.indexOf('askNecBackend(');
+  assert.ok(backendAt > askModelAt,
+    'askNecBackend is called outside askModel, which bypasses the whole pipeline');
+
+  assert.ok(send.includes('knowledge: knowledgeBase'), 'the reviewed reference is wired in');
+  assert.ok(send.includes('pipeline.needs'), 'partial calculations ask for what is missing');
+  assert.ok(send.includes('evidence?.warnings'), 'the evidence warnings reach the UI');
+});
+
+test('the bubble shows provenance and the unverified-data warning', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const { dirname, join } = await import('node:path');
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'App.js'), 'utf8');
+
+  assert.ok(src.includes('msg.provenanceLabel'),
+    'a computed answer and a generated one must not look the same on screen');
+  assert.ok(src.includes('msg.warnings'),
+    'an answer from an unchecked table has to say so where the user is');
+  assert.ok(src.includes('msg.showVerifyPrompt'));
+});

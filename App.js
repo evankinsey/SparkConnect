@@ -13,6 +13,9 @@ import { analytics } from './src/analytics';
 // layout hook runs during the root render.
 import { HomeCards, HomeCustomizeScreen, useHomeLayout, AllToolsSection } from './src/screens/HomeCards';
 import ToolsScreen from './src/screens/ToolsScreen';
+import { ask as sparkAsk, Provenance as SparkProvenance } from './src/core/ai/sparkai';
+import { knowledgeBase } from './src/core/ai/knowledge';
+import { answerFooter } from './src/core/ai/answer';
 import { CAST_IMAGES } from './src/screens/castImages';
 import { buildPulse, dayIndexFor } from './src/core/home/pulse';
 import { getDailyQuestion } from './src/core/content/dailyQuestions';
@@ -2369,22 +2372,89 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
       ...(imgBase64 ? { image: imgBase64, imageType: 'image/jpeg' } : {}),
     };
 
-    const result = await askNecBackend(payload);
+    // ── Everything goes through the SparkAI pipeline ─────────────────────
+    //
+    // The backend is no longer called first. It is injected as the LAST resort
+    // inside `sparkAsk`, which means:
+    //
+    //   · a computable question is computed locally and never leaves the device
+    //   · a question about the open project is read from confirmed data
+    //   · a reviewed-reference question is quoted with its citation
+    //   · only what none of those can serve reaches the model, and its answer
+    //     comes back through the seal that stops it stating a specification
+    //
+    // Wiring the screen to the pipeline rather than the pipeline to the screen
+    // is what makes the guardrails real instead of merely written.
+    let rateLimited = false;
+    let backendMeta = null;
 
-    if (result === 'rate_limited') {
+    const pipeline = await sparkAsk(finalQuestion, {
+      knowledge: knowledgeBase,
+      // Image questions still take the model path — the backend prompt has not
+      // been aligned to the observation-first vision contract yet, so routing
+      // them through readPhoto would claim a structure the response does not have.
+      conversation: messages.slice(-6).map(m => ({
+        role: m.role === 'user' ? 'user' : 'assistant',
+        text: m.text || '',
+        tool: m.tool || null,
+        params: m.params || null,
+      })),
+      askModel: async ({ question, context }) => {
+        const result = await askNecBackend({ ...payload, question, sparkContext: context });
+        if (result === 'rate_limited') { rateLimited = true; throw new Error('rate_limited'); }
+        if (!result?.answer) throw new Error('no answer');
+        backendMeta = result;
+        if (result.remainingQuestions !== undefined) setRemainingQuestions(result.remainingQuestions);
+        return {
+          text: result.answer,
+          sources: result.references || [],
+          confidence: 0.8,
+        };
+      },
+    });
+
+    const footer = answerFooter(pipeline);
+
+    if (rateLimited) {
       setMessages(prev => [...prev, {
         id: Date.now().toString(), role: 'sparky', isRateLimit: true,
         text: `You've used your ${isPro ? '100 monthly' : '5 daily'} free answers. Upgrade to Pro for 100 answers/month, or grab a quick answer pack.`,
       }]);
-    } else if (result?.answer) {
-      if (result.remainingQuestions !== undefined) setRemainingQuestions(result.remainingQuestions);
+    } else if (pipeline.provenance !== SparkProvenance.REFUSED) {
       setMessages(prev => [...prev, {
         id: Date.now().toString(), role: 'sparky',
-        text: result.answer,
-        refs: result.references || [],
-        fieldNote: result.fieldNote || null,
-        disclaimer: result.disclaimer || null,
-        calcTab: result.calcTab || null,
+        text: pipeline.detail ? `${pipeline.text}\n\n${pipeline.detail}` : pipeline.text,
+        refs: footer.sources,
+        fieldNote: backendMeta?.fieldNote || null,
+        // Where the answer came from, shown rather than implied. A computed
+        // answer and a generated one must not look the same on screen.
+        provenanceLabel: footer.label,
+        showVerifyPrompt: footer.showVerifyPrompt,
+        // Surfaced from the evidence contract: an answer computed from a table
+        // nobody has checked against print says so here.
+        warnings: pipeline.evidence?.warnings || [],
+        tool: pipeline.tool || null,
+        params: pipeline.params || null,
+        disclaimer: backendMeta?.disclaimer || null,
+        calcTab: backendMeta?.calcTab || null,
+      }]);
+    } else if (pipeline.needs?.length) {
+      // A partial calculation asks for exactly what is missing, by name, rather
+      // than assuming a default and returning a confident wrong number.
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(), role: 'sparky',
+        text: pipeline.needsPrompts.join('\n'),
+        provenanceLabel: 'Needs a couple more details',
+      }]);
+    } else if (pipeline.reason && !/no model is available/i.test(pipeline.reason)) {
+      // A real refusal — energized work, a high-risk subject with nothing solid
+      // behind it, an unverifiable citation. Shown as itself, not as an error.
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(), role: 'sparky',
+        text: pipeline.text,
+        fieldNote: pipeline.reason,
+        disclaimer: pipeline.suggestion || null,
+        provenanceLabel: 'Not answered',
       }]);
     } else {
       // Fallback: local NEC KB scored search
@@ -2447,6 +2517,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: 9, fontWeight: '700', color: accentColor, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>
               {msg.isLocal ? 'SparkAI · Offline' : 'SparkAI'}
+              {!!msg.provenanceLabel && ` · ${msg.provenanceLabel}`}
             </Text>
 
             {/* Main bubble */}
@@ -2462,6 +2533,25 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
                     </View>
                   ))}
                 </View>
+              )}
+
+              {/* Where the number came from, and what is still unchecked about
+                  it. A computed answer and a generated one must not look the
+                  same on screen — and an answer read off a table nobody has
+                  verified against print has to say so where the user is, not
+                  only in a document. */}
+              {Array.isArray(msg.warnings) && msg.warnings.length > 0 && (
+                <View style={{ backgroundColor: C.amberBg, borderRadius: 8, padding: 10, marginTop: 10, borderLeftWidth: 2, borderLeftColor: C.amber }}>
+                  {msg.warnings.map((w, i) => (
+                    <Text key={i} style={{ fontSize: 11, color: C.text, lineHeight: 16, marginTop: i ? 6 : 0 }}>{w}</Text>
+                  ))}
+                </View>
+              )}
+
+              {msg.showVerifyPrompt && (
+                <Text style={{ fontSize: 10.5, color: C.textTert, lineHeight: 15, marginTop: 8 }}>
+                  Written by SparkAI rather than calculated. Verify before relying on it.
+                </Text>
               )}
 
               {/* Field note */}
