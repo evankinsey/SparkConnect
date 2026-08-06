@@ -12,6 +12,7 @@ import { analytics } from './src/analytics';
 // the lazyScreen() note further down. Home still imports statically because the
 // layout hook runs during the root render.
 import { HomeCards, HomeCustomizeScreen, useHomeLayout, AllToolsSection } from './src/screens/HomeCards';
+import ToolsScreen from './src/screens/ToolsScreen';
 import { CAST_IMAGES } from './src/screens/castImages';
 import { buildPulse, dayIndexFor } from './src/core/home/pulse';
 import { getDailyQuestion } from './src/core/content/dailyQuestions';
@@ -4178,7 +4179,7 @@ const TABS = [
   { id: 'calculators', icon: 'calculator-outline',  label: 'Calculators' },
   { id: 'necai',       icon: 'chatbubble-ellipses',  label: 'SparkAI' },
   { id: 'projects',    icon: 'folder-open',          label: 'Projects' },
-  { id: 'learn',       icon: 'school',               label: 'Learn' },
+  { id: 'tools',       icon: 'construct',            label: 'Tools' },
 ];
 
 const SCREEN_LABELS = {
@@ -4187,7 +4188,7 @@ const SCREEN_LABELS = {
   conduitfill: 'Conduit Fill', ampacity: 'Ampacity Lookup',
   estimator: 'Material Estimator', necai: 'SparkAI',
   examprep: 'Code Quiz', jobcam: 'Job Cam', settings: 'Settings',
-  calculators: 'Calculators', learn: 'Learn',
+  calculators: 'Calculators', learn: 'Study Paths', tools: 'Tools',
   wiringlab: 'Wiring Simulator', troubleshoot: 'Troubleshoot', jobsite: 'Job Site',
   flashcards: 'Flashcards', projects: 'Projects', materials: 'Material List',
   community: 'Community', customizehome: 'Customize Home',
@@ -4554,7 +4555,7 @@ export default function App() {
   // src/core/home/layout.js so adding a Home feature is a data change.
   const { layout: homeLayout, save: saveHomeLayout } = useHomeLayout();
 
-  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','wiringlab','troubleshoot','jobsite','flashcards','customizehome','projects','materials','community','permits','blueprint','panelschedule'];
+  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','tools','wiringlab','troubleshoot','jobsite','flashcards','customizehome','projects','materials','community','permits','blueprint','panelschedule'];
 
   // Stable handlers — avoids stale closure in Settings toggle rows
   const handleDailyQToggle = React.useCallback((v) => {
@@ -4663,6 +4664,9 @@ export default function App() {
       case 'estimator':   return <EstimatorScreen C={C} setTab={navigateTo} />;
       case 'necai':       return <NecAiScreen C={C} setTab={navigateTo} initialSearch={necaiInitSearch} clearInitSearch={() => setNecaiInitSearch('')} onUpgrade={() => setPaywall('pro')} onBuyPacks={() => setPaywall('packs')} isPro={isPro} />;
       case 'examprep':    return <ExamPrepScreen C={C} onStreakUpdate={updateStreak} isPro={isPro} />;
+      case 'tools':       return <ToolsScreen C={C} setTab={navigateTo} />;
+      // Learn is still reachable — it is the study-path index now, one of
+      // the tools rather than a tab competing with them.
       case 'learn':       return <LearnScreen setTab={navigateTo} C={C} onStreakUpdate={updateStreak} />;
       case 'wiringlab':   return <WiringLabScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;
       case 'troubleshoot':return <TroubleshootScreen C={C} setTab={navigateTo} onStreakUpdate={updateStreak} />;

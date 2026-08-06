@@ -34,7 +34,7 @@ export const HOME_CARDS = Object.freeze([
   { id: 'jobsite', kind: CardKind.SHORTCUT, tab: 'jobsite', title: 'Job Site', sub: 'Walk the site, do the work', icon: 'business', group: 'Training' },
   { id: 'flashcards', kind: CardKind.SHORTCUT, tab: 'flashcards', title: 'Flashcards', sub: 'Spaced repetition', icon: 'albums', group: 'Training' },
   { id: 'examprep', kind: CardKind.SHORTCUT, tab: 'examprep', title: 'Code Quiz', sub: 'Exam practice', icon: 'ribbon', group: 'Training' },
-  { id: 'learn', kind: CardKind.SHORTCUT, tab: 'learn', title: 'Learn', sub: 'Lessons and study paths', icon: 'school', group: 'Training' },
+  { id: 'learn', kind: CardKind.SHORTCUT, tab: 'learn', title: 'Study Paths', sub: 'Apprentice to master, in order', icon: 'school', group: 'Training' },
 
   // Tools
   { id: 'spark_ai', kind: CardKind.SHORTCUT, tab: 'necai', title: 'SparkAI', sub: 'Electrical field assistant', icon: 'flash', group: 'Tools' },
