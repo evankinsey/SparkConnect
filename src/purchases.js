@@ -26,11 +26,16 @@ try {
 
 const ENTITLEMENT = 'pro';
 
+// Every product we can buy directly by identifier, subscriptions included.
+// Subscriptions are listed here so the direct path below can serve them when
+// the Offerings system is not configured — see purchaseProduct().
 const STORE_PRODUCT_IDS = [
   ProductId.PACK_15,
   ProductId.PACK_50,
   ProductId.PACK_150,
   ProductId.LIFETIME_TOOLS,
+  ProductId.PRO_MONTHLY,
+  ProductId.PRO_ANNUAL,
 ];
 
 let configured = false;
@@ -58,11 +63,30 @@ export async function initPurchases() {
   }
 }
 
+/** Buy by product identifier. This path needs only the product to exist in
+ *  App Store Connect — no Offering, no dashboard packages. */
+async function buyByIdentifier(productId) {
+  const prods = await Purchases.getProducts(STORE_PRODUCT_IDS);
+  const prod = (prods || []).find(p => p.productIdentifier === productId);
+  if (!prod) return null;
+  const { customerInfo } = await Purchases.purchaseStoreProduct(prod);
+  return customerInfo;
+}
+
 /**
- * Buy anything by our internal ProductId.
- *   PRO_ANNUAL / PRO_MONTHLY → package purchase from the current offering
- *   packs / lifetime         → store product purchase
- * Returns { ok, isPro, cancelled, error }.
+ * Buy anything by our internal ProductId. Returns { ok, isPro, cancelled, error }.
+ *
+ * ONE PATH FOR EVERY BUTTON. Subscriptions used to go through Offerings while
+ * packs went through getProducts, so the two buttons could fail for completely
+ * different reasons — and did: the packs said "could not be loaded" while Pro
+ * said "no products registered for your offerings". Two failures, two messages,
+ * one confused user.
+ *
+ * Now Offerings is an OPTIMISATION, not a requirement. It is tried first for
+ * subscriptions because a package purchase carries the offering/paywall
+ * metadata RevenueCat reports on, but if the Offering is missing or empty we
+ * fall through to buying the identifier directly — the same call the packs
+ * already make, which only needs the product to exist in App Store Connect.
  */
 export async function purchaseProduct(productId) {
   if (!Purchases) {
@@ -70,24 +94,35 @@ export async function purchaseProduct(productId) {
   }
   try {
     if (productId === ProductId.PRO_ANNUAL || productId === ProductId.PRO_MONTHLY) {
-      const offerings = await Purchases.getOfferings();
-      const pkgs = offerings?.current?.availablePackages || [];
-      const wanted = productId === ProductId.PRO_ANNUAL ? PACKAGE_TYPE.ANNUAL : PACKAGE_TYPE.MONTHLY;
-      const pkg = pkgs.find(p => p.packageType === wanted) || pkgs[0];
-      if (!pkg) {
-        return { ok: false, isPro: false, error: 'Subscription plans have not finished loading. Check your connection and try again.' };
+      // Preferred: a package from the current offering.
+      try {
+        const offerings = await Purchases.getOfferings();
+        const pkgs = offerings?.current?.availablePackages || [];
+        const wanted = productId === ProductId.PRO_ANNUAL ? PACKAGE_TYPE.ANNUAL : PACKAGE_TYPE.MONTHLY;
+        const pkg = pkgs.find(p => p.packageType === wanted)
+          || pkgs.find(p => p.product?.identifier === productId);
+        if (pkg) {
+          const { customerInfo } = await Purchases.purchasePackage(pkg);
+          return { ok: proFrom(customerInfo), isPro: proFrom(customerInfo) };
+        }
+      } catch (e) {
+        if (e?.userCancelled) return { ok: false, isPro: false, cancelled: true };
+        // An offerings misconfiguration is not a dead end — fall through.
       }
-      const { customerInfo } = await Purchases.purchasePackage(pkg);
+
+      // Fallback: buy the subscription by identifier, exactly like a pack.
+      const customerInfo = await buyByIdentifier(productId);
+      if (!customerInfo) {
+        return { ok: false, isPro: false, error: 'This product could not be loaded from the App Store. Please try again.' };
+      }
       return { ok: proFrom(customerInfo), isPro: proFrom(customerInfo) };
     }
 
     // One-time store products: answer packs and Lifetime Tools.
-    const prods = await Purchases.getProducts(STORE_PRODUCT_IDS);
-    const prod = (prods || []).find(p => p.productIdentifier === productId);
-    if (!prod) {
+    const customerInfo = await buyByIdentifier(productId);
+    if (!customerInfo) {
       return { ok: false, isPro: false, error: 'This product could not be loaded from the App Store. Please try again.' };
     }
-    const { customerInfo } = await Purchases.purchaseStoreProduct(prod);
     // Packs are consumables — they do not flip the entitlement; ok means paid.
     return { ok: true, isPro: proFrom(customerInfo) };
   } catch (e) {
