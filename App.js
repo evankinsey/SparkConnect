@@ -13,6 +13,7 @@ import { analytics } from './src/analytics';
 // layout hook runs during the root render.
 import { HomeCards, HomeCustomizeScreen, useHomeLayout } from './src/screens/HomeCards';
 import { CAST_IMAGES } from './src/screens/castImages';
+import { buildPulse, dayIndexFor } from './src/core/home/pulse';
 import { getDailyQuestion } from './src/core/content/dailyQuestions';
 import {
   refreshDailyQuestionNotifications,
@@ -957,6 +958,25 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
           </View>
         </View>
       )}
+
+      {/* ── Pulse — one thin line, never a card. It only ever states something
+             the app actually knows about THIS user; it never invents a
+             community statistic, because nothing counts one. ── */}
+      {(() => {
+        const pulse = buildPulse({
+          streak, jobsitePercent: 0, answeredToday: revealed, dayIndex: dayIndexFor(),
+        });
+        const body = (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 16, paddingVertical: 8 }}>
+            <Ionicons name={pulse.icon} size={13} color={C.amber} />
+            <Text style={{ flex: 1, fontSize: 11.5, color: C.textSec }} numberOfLines={1}>{pulse.text}</Text>
+            {pulse.tab && <Ionicons name="chevron-forward" size={12} color={C.textTert} />}
+          </View>
+        );
+        return pulse.tab
+          ? <TouchableOpacity onPress={() => setTab(pulse.tab)} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={pulse.text}>{body}</TouchableOpacity>
+          : <View accessible accessibilityLabel={pulse.text}>{body}</View>;
+      })()}
 
       {/* Quick Tools — 2×2 grid */}
       <View style={{ paddingHorizontal: 16, marginBottom: 4 }}>
@@ -4128,7 +4148,7 @@ const SCREEN_LABELS = {
   wiringlab: 'Wiring Simulator', troubleshoot: 'Troubleshoot', jobsite: 'Job Site',
   flashcards: 'Flashcards', projects: 'Projects', materials: 'Material List',
   community: 'Community', customizehome: 'Customize Home',
-  permits: 'Permit Assistant', blueprint: 'Blueprint Takeoff',
+  permits: 'Permit Assistant', blueprint: 'Blueprint Takeoff', panelschedule: 'Panel Schedule',
 };
 
 // ─── SPLASH SCREEN ───────────────────────────────────────────────────────────
@@ -4366,6 +4386,7 @@ const MaterialsScreen   = lazyScreen('Material List',   () => require('./src/scr
 const CommunityScreen   = lazyScreen('Community',       () => require('./src/screens/CommunityScreen'));
 const PermitScreen      = lazyScreen('Permit Assistant', () => require('./src/screens/PermitScreen'));
 const BlueprintScreen   = lazyScreen('Blueprint Takeoff', () => require('./src/screens/BlueprintScreen'));
+const PanelScheduleScreen = lazyScreen('Panel Schedule', () => require('./src/screens/PanelScheduleScreen'));
 
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
@@ -4478,7 +4499,7 @@ export default function App() {
   // src/core/home/layout.js so adding a Home feature is a data change.
   const { layout: homeLayout, save: saveHomeLayout } = useHomeLayout();
 
-  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','wiringlab','troubleshoot','jobsite','flashcards','customizehome','projects','materials','community','permits','blueprint'];
+  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','wiringlab','troubleshoot','jobsite','flashcards','customizehome','projects','materials','community','permits','blueprint','panelschedule'];
 
   // Stable handlers — avoids stale closure in Settings toggle rows
   const handleDailyQToggle = React.useCallback((v) => {
@@ -4596,6 +4617,7 @@ export default function App() {
       case 'materials':   return <MaterialsScreen C={C} setTab={navigateTo} />;
       case 'community':   return <CommunityScreen C={C} setTab={navigateTo} />;
       case 'permits':     return <PermitScreen C={C} setTab={navigateTo} onAskAi={(q) => { setNecaiInitSearch(q); navigateTo('necai'); }} />;
+      case 'panelschedule': return <PanelScheduleScreen C={C} setTab={navigateTo} />;
       case 'blueprint':   return (
         <BlueprintScreen
           C={C}

@@ -6,7 +6,7 @@
 // decides what is allowed through, and it is tested. A model that returns
 // -3 receptacles must be stopped there, not here.
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Image, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -14,6 +14,7 @@ import {
   validateTakeoff, parseTakeoffReply, takeoffPrompt, takeoffRows,
   totalDevices, takeoffToMaterials, Confidence, TAKEOFF_DISCLAIMER,
 } from '../core/field/takeoff';
+import { expandTakeoff, expansionSummary } from '../core/field/assemblies';
 
 export default function BlueprintScreen({ C, setTab, pickImage, askBackend, isPro, onUpgrade, onSendToMaterials }) {
   const [image, setImage] = useState(null);
@@ -147,6 +148,8 @@ export default function BlueprintScreen({ C, setTab, pickImage, askBackend, isPr
 function Result({ C, takeoff, onRedo, onSendToMaterials, setTab }) {
   const rows = takeoffRows(takeoff);
   const low = takeoff.confidence === Confidence.LOW;
+  const [showEstimate, setShowEstimate] = useState(false);
+  const expansion = useMemo(() => expandTakeoff(takeoff), [takeoff]);
 
   return (
     <View>
@@ -197,10 +200,54 @@ function Result({ C, takeoff, onRedo, onSendToMaterials, setTab }) {
         </View>
       )}
 
+      {/* Estimator view: the count expanded into a bill of material plus the
+          hours to hang it. A device count is not a bid; this is what turns one
+          into the start of one. */}
+      <TouchableOpacity onPress={() => setShowEstimate((v) => !v)}
+        accessibilityRole="button" accessibilityLabel="Expand into materials and labor"
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 9, backgroundColor: C.purpleBg, borderRadius: 12, padding: 13, marginBottom: 10 }}>
+        <Ionicons name="construct" size={17} color={C.purple} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 13, fontWeight: '800', color: C.purple }}>Estimator view</Text>
+          <Text style={{ fontSize: 11, color: C.textSec }}>{expansionSummary(expansion)}</Text>
+        </View>
+        <Ionicons name={showEstimate ? 'chevron-up' : 'chevron-down'} size={15} color={C.purple} />
+      </TouchableOpacity>
+
+      {showEstimate && (
+        <View style={{ marginBottom: 10 }}>
+          <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.border, marginBottom: 10 }}>
+            <Text style={{ fontSize: 10.5, fontWeight: '800', color: C.textSec, letterSpacing: 0.6, marginBottom: 9 }}>BILL OF MATERIAL</Text>
+            {expansion.materials.map((m, i) => (
+              <View key={i} style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.borderLight }}>
+                <Text style={{ flex: 1, fontSize: 12.5, color: C.text }}>{m.item}</Text>
+                <Text style={{ fontSize: 12.5, fontWeight: '700', color: C.text }}>{m.qty} {m.unit}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.border, marginBottom: 10 }}>
+            <View style={{ flexDirection: 'row', marginBottom: 9 }}>
+              <Text style={{ flex: 1, fontSize: 10.5, fontWeight: '800', color: C.textSec, letterSpacing: 0.6 }}>LABOR</Text>
+              <Text style={{ fontSize: 12, fontWeight: '800', color: C.text }}>{expansion.totalHours} hrs</Text>
+            </View>
+            {expansion.labor.map((l) => (
+              <View key={l.id} style={{ flexDirection: 'row', paddingVertical: 5 }}>
+                <Text style={{ flex: 1, fontSize: 12, color: C.text }}>{l.label} × {l.count}</Text>
+                <Text style={{ fontSize: 12, color: C.textSec }}>{l.hours} hrs</Text>
+              </View>
+            ))}
+          </View>
+
+          <Text style={{ fontSize: 10.5, color: C.textTert, lineHeight: 16, marginBottom: 4 }}>{expansion.laborDisclaimer}</Text>
+          <Text style={{ fontSize: 10.5, color: C.textTert, lineHeight: 16 }}>{expansion.wireDisclaimer}</Text>
+        </View>
+      )}
+
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <TouchableOpacity
           onPress={() => {
-            const mats = takeoffToMaterials(takeoff);
+            const mats = showEstimate ? expansion.materials : takeoffToMaterials(takeoff);
             if (onSendToMaterials) { onSendToMaterials(mats); return; }
             Alert.alert('Material list', `${mats.length} lines ready. Open Material List to price them.`);
           }}
