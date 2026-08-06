@@ -165,6 +165,34 @@ for (const scenario of SCENARIOS) {
   ok(`${scenario.id} — fault produces a real behavioural change`);
 }
 
+// ─── 3b. The Day One level ──────────────────────────────────────────────────
+// The game is not exempt. Every wiring step it contains goes through the same
+// solver as the Wiring Simulator, and every calculation states its method.
+
+section('Day One level');
+
+const { DAY_ONE, StepKind, lessonForStep, gradeCalcStep } = await import('../src/core/game/dayOne.js');
+
+for (const s of DAY_ONE) {
+  if (s.kind === StepKind.WIRE) {
+    const lesson = lessonForStep(s.id);
+    if (!lesson) { bad(`${s.id}: names lesson "${s.lessonId}" which does not exist`); continue; }
+    const res = validate(solutionCircuit(lesson), lesson.expectations);
+    if (!res.valid) {
+      bad(`${s.id}: its lesson does not validate`, res.errors.map((e) => e.message).join('\n'));
+      continue;
+    }
+    ok(`${s.id} — graded by the solver via ${lesson.id}`);
+  } else if (s.kind === StepKind.CALC) {
+    if (!s.method) { bad(`${s.id}: produces a number with no stated method`); continue; }
+    const graded = gradeCalcStep(s.id, s.answer);
+    if (!graded || !graded.correct) { bad(`${s.id}: its own answer does not grade as correct`); continue; }
+    ok(`${s.id} — ${s.answer} ${s.unit}, from a stated method`);
+  } else {
+    ok(`${s.id} — ${s.kind.toLowerCase()} step, no electrical claim`);
+  }
+}
+
 // ─── 4. No content may carry an unresolvable citation ────────────────────────
 
 section('Citations');
@@ -174,6 +202,10 @@ for (const lesson of ALL_LESSONS) {
   for (const note of lesson.referenceNotes ?? []) {
     if (note && note.ref) citationSources.push({ where: lesson.id, ref: note.ref, verified: note.verified === true });
   }
+}
+
+for (const s of DAY_ONE) {
+  if (s.ref) citationSources.push({ where: `dayone:${s.id}`, ref: s.ref, verified: true });
 }
 
 const { NEC_QUESTIONS } = await import('../src/core/content/dailyQuestions.js');

@@ -114,3 +114,58 @@ test('a floating stick only arms inside its control zone', () => {
   assert.equal(floatingOrigin(340, 700, W, H, { side: 'left' }), null, 'nor the opposite corner');
   assert.ok(floatingOrigin(340, 700, W, H, { side: 'right' }), 'left-handed mode mirrors it');
 });
+
+// ─── JOBSITE ART CONTRACT ────────────────────────────────────────────────────
+// The brief was specific and the last two attempts failed it in the same way,
+// so the requirements are pinned here rather than left to a screenshot.
+
+import { readFileSync } from 'node:fs';
+import { fileURLToPath as fu } from 'node:url';
+import { dirname as dn, join as jn } from 'node:path';
+
+const artSource = () =>
+  readFileSync(jn(dn(fu(import.meta.url)), '..', 'src', 'screens', 'topdownArt.js'), 'utf8');
+
+test('a wall is framing, not a filled block', () => {
+  const src = artSource();
+  const wall = src.slice(src.indexOf('export const StudWall'), src.indexOf('export const BarJoist'));
+
+  // The failure both earlier versions shipped: a rect spanning the whole tile,
+  // which reads as a shipping container instead of a stud wall. Cavities must
+  // stay open so the slab shows through.
+  assert.ok(!/width=\{TILE \+ 1\}\s+height=\{TILE \+ 1\}/.test(wall),
+    'a wall tile must never be filled edge to edge');
+  assert.ok(wall.includes('<Stud'), 'individual studs, drawn one at a time');
+  assert.ok(/track/i.test(wall), 'top and bottom track');
+});
+
+test('studs march at one spacing instead of restarting every tile', () => {
+  const src = artSource();
+  assert.ok(src.includes('STUDS_PER_TILE'), 'spacing is a constant, not four magic fractions');
+  assert.ok(!/const studs = \[0\.14/.test(src),
+    'per-tile fractions leave a visibly wrong gap where two tiles meet');
+});
+
+test('studs are C-section with punched service holes', () => {
+  const src = artSource();
+  const stud = src.slice(src.indexOf('const Stud = '), src.indexOf('export const StudWall'));
+  assert.ok(/flange/.test(stud), 'a steel stud is a C, not a bar');
+  assert.ok(/punched|hole/i.test(stud),
+    'the knockout is the most recognisable thing about light-gauge steel');
+});
+
+test('the shell has something overhead', () => {
+  const src = artSource();
+  assert.ok(src.includes('export const BarJoist'),
+    'an unfinished commercial building is open to deck and joists');
+  const joist = src.slice(src.indexOf('export const BarJoist'));
+  assert.ok(/opacity=\{o\}|opacity=\{0\./.test(joist),
+    'overhead structure must stay faint enough not to compete with the floor');
+});
+
+test('the jobsite screen actually draws the joists', () => {
+  const screen = readFileSync(
+    jn(dn(fu(import.meta.url)), '..', 'src', 'screens', 'JobsiteScreen.js'), 'utf8');
+  assert.ok(screen.includes('BarJoist'), 'imported and used, not merely defined');
+  assert.ok(screen.includes('{overhead}'), 'and placed in the draw order');
+});

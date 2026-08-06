@@ -76,37 +76,142 @@ export const SlabTile = ({ tx, ty, indoor }) => {
  * on regular centres between them, and nothing filling the cavity — the slab
  * shows through, which is exactly what a framed wall looks like before rock.
  */
-export const StudWall = ({ tx, ty, horiz }) => {
-  const x = tx * TILE, y = ty * TILE;
-  const T = TILE * 0.115;          // track thickness
-  const D = TILE * 0.30;           // wall depth (track to track)
-  const off = (TILE - D) / 2;
-  const studs = [0.14, 0.38, 0.62, 0.86];
+// One tile is 4 ft of wall, so 16" on centre puts three studs in a tile. The
+// positions are computed from the tile's WORLD coordinate rather than from
+// fractions of the tile, which is the difference between framing and wallpaper:
+// per-tile fractions restart at every boundary and leave a visibly wrong gap
+// where two tiles meet. Real studs march at one spacing down the whole run.
+const STUDS_PER_TILE = 3;
+const STUD_PITCH = 1 / STUDS_PER_TILE;
+
+/**
+ * A single steel stud seen from above: a C-section, not a solid bar.
+ *
+ * You are looking down into the channel, so what reads is the web with a flange
+ * turned at each end — and the punched service hole, which is the most
+ * recognisable thing about light-gauge steel and the reason an electrician
+ * knows at a glance where the pipe goes.
+ */
+const Stud = ({ cx, cy, depth, horiz }) => {
+  const web = TILE * 0.055;        // thickness of the steel as drawn
+  const flange = depth * 0.30;     // the turned legs of the C
+  const holeR = depth * 0.15;
 
   if (horiz) {
+    // Wall runs left-right, so studs stand across it (vertical on screen).
+    const x = cx - web / 2;
+    const y0 = cy - depth / 2;
     return (
       <G>
-        <Rect x={x} y={y + off + D} width={TILE + 1} height={TILE * 0.09} fill={SKY.shadow} />
+        <Rect x={x} y={y0} width={web} height={depth} fill={SKY.steelMid} />
+        {/* flanges, slightly brighter where the light catches the turned edge */}
+        <Rect x={x - web * 0.55} y={y0} width={web * 2.1} height={flange * 0.34} fill={SKY.steel} />
+        <Rect x={x - web * 0.55} y={y0 + depth - flange * 0.34} width={web * 2.1} height={flange * 0.34} fill={SKY.steel} />
+        {/* punched service hole — where the conduit and the MC actually go */}
+        <Ellipse cx={cx} cy={cy} rx={web * 0.34} ry={holeR} fill={SKY.slabAlt} opacity={0.95} />
+      </G>
+    );
+  }
+  const y = cy - web / 2;
+  const x0 = cx - depth / 2;
+  return (
+    <G>
+      <Rect x={x0} y={y} width={depth} height={web} fill={SKY.steelMid} />
+      <Rect x={x0} y={y - web * 0.55} width={flange * 0.34} height={web * 2.1} fill={SKY.steel} />
+      <Rect x={x0 + depth - flange * 0.34} y={y - web * 0.55} width={flange * 0.34} height={web * 2.1} fill={SKY.steel} />
+      <Ellipse cx={cx} cy={cy} rx={holeR} ry={web * 0.34} fill={SKY.slabAlt} opacity={0.95} />
+    </G>
+  );
+};
+
+export const StudWall = ({ tx, ty, horiz }) => {
+  const x = tx * TILE, y = ty * TILE;
+  const T = TILE * 0.085;          // track steel, thinner than the stud web
+  const D = TILE * 0.30;           // wall depth, track to track
+  const off = (TILE - D) / 2;
+
+  // Continuous across tiles: stud n of this tile is at the same pitch as stud n
+  // of the tile beside it, so a wall run reads as one line of framing.
+  const studs = [];
+  for (let i = 0; i < STUDS_PER_TILE; i++) studs.push((i + 0.5) * STUD_PITCH);
+
+  if (horiz) {
+    const midY = y + off + D / 2;
+    return (
+      <G>
+        <Rect x={x} y={y + off + D} width={TILE + 1} height={TILE * 0.075} fill={SKY.shadow} />
         {studs.map((f) => (
-          <Rect key={f} x={x + TILE * f - TILE * 0.035} y={y + off} width={TILE * 0.07} height={D}
-            fill={SKY.steelMid} />
+          <Stud key={f} cx={x + TILE * f} cy={midY} depth={D} horiz />
         ))}
+        {/* Top and bottom track: U-channel, drawn as the web with a lip, so the
+            wall has a visible top and bottom plate rather than two grey lines. */}
         <Rect x={x} y={y + off} width={TILE + 1} height={T} fill={SKY.steel} />
+        <Rect x={x} y={y + off + T} width={TILE + 1} height={T * 0.28} fill={SKY.steelDark} opacity={0.55} />
         <Rect x={x} y={y + off + D - T} width={TILE + 1} height={T} fill={SKY.steelMid} />
+        <Rect x={x} y={y + off + D - T} width={TILE + 1} height={T * 0.28} fill={SKY.steelDark} opacity={0.4} />
         <Rect x={x} y={y + off} width={TILE + 1} height={0.8} fill="#F2F5F8" opacity={0.8} />
       </G>
     );
   }
+
+  const midX = x + off + D / 2;
   return (
     <G>
-      <Rect x={x + off + D} y={y} width={TILE * 0.09} height={TILE + 1} fill={SKY.shadow} />
+      <Rect x={x + off + D} y={y} width={TILE * 0.075} height={TILE + 1} fill={SKY.shadow} />
       {studs.map((f) => (
-        <Rect key={f} x={x + off} y={y + TILE * f - TILE * 0.035} width={D} height={TILE * 0.07}
-          fill={SKY.steelMid} />
+        <Stud key={f} cx={midX} cy={y + TILE * f} depth={D} horiz={false} />
       ))}
       <Rect x={x + off} y={y} width={T} height={TILE + 1} fill={SKY.steel} />
+      <Rect x={x + off + T} y={y} width={T * 0.28} height={TILE + 1} fill={SKY.steelDark} opacity={0.55} />
       <Rect x={x + off + D - T} y={y} width={T} height={TILE + 1} fill={SKY.steelMid} />
+      <Rect x={x + off + D - T} y={y} width={T * 0.28} height={TILE + 1} fill={SKY.steelDark} opacity={0.4} />
       <Rect x={x + off} y={y} width={0.8} height={TILE + 1} fill="#F2F5F8" opacity={0.8} />
+    </G>
+  );
+};
+
+/**
+ * Open bar joists overhead. An unfinished commercial shell has no ceiling — you
+ * look up into deck and joists — and drawing nothing overhead is what made the
+ * interior read as a floor plan rather than a building.
+ *
+ * Deliberately faint: this is above the player, so it must never compete with
+ * the things they can walk into.
+ */
+export const BarJoist = ({ tx, ty, horiz }) => {
+  const x = tx * TILE, y = ty * TILE;
+  const o = 0.13;
+  if (horiz) {
+    return (
+      <G opacity={o}>
+        <Rect x={x} y={y + TILE * 0.30} width={TILE + 1} height={TILE * 0.035} fill={SKY.steelDark} />
+        <Rect x={x} y={y + TILE * 0.62} width={TILE + 1} height={TILE * 0.035} fill={SKY.steelDark} />
+        {/* the zigzag web between the chords */}
+        <Path
+          d={Array.from({ length: 4 }, (_, i) => {
+            const x0 = x + (i * TILE) / 4;
+            const x1 = x + ((i + 0.5) * TILE) / 4;
+            const x2 = x + ((i + 1) * TILE) / 4;
+            return `M ${x0} ${y + TILE * 0.32} L ${x1} ${y + TILE * 0.62} L ${x2} ${y + TILE * 0.32}`;
+          }).join(' ')}
+          stroke={SKY.steelDark} strokeWidth={1.1} fill="none"
+        />
+      </G>
+    );
+  }
+  return (
+    <G opacity={o}>
+      <Rect x={x + TILE * 0.30} y={y} width={TILE * 0.035} height={TILE + 1} fill={SKY.steelDark} />
+      <Rect x={x + TILE * 0.62} y={y} width={TILE * 0.035} height={TILE + 1} fill={SKY.steelDark} />
+      <Path
+        d={Array.from({ length: 4 }, (_, i) => {
+          const y0 = y + (i * TILE) / 4;
+          const y1 = y + ((i + 0.5) * TILE) / 4;
+          const y2 = y + ((i + 1) * TILE) / 4;
+          return `M ${x + TILE * 0.32} ${y0} L ${x + TILE * 0.62} ${y1} L ${x + TILE * 0.32} ${y2}`;
+        }).join(' ')}
+        stroke={SKY.steelDark} strokeWidth={1.1} fill="none"
+      />
     </G>
   );
 };

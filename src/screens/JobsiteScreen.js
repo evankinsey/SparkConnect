@@ -36,7 +36,7 @@ import {
   knobOffset, floatingOrigin,
 } from '../core/game/topdown';
 import {
-  SKY, SlabTile, StudWall, Worker, ROLE_LOOK,
+  SKY, SlabTile, StudWall, BarJoist, Worker, ROLE_LOOK,
   Panelboard, JBox, EmtRun, AFrameLadder, WireReel, GangBox, MaterialCart,
   PrintTable, DrywallStack, SafetyCone, WorkTruck, Dumpster, SiteTrailer,
   Tree, Palm, FenceRun, Pallet, ObjectiveMarker, DoneMarker,
@@ -348,6 +348,7 @@ function World({ grid, pos, progress, near, route, facing, step }) {
 
   const floors = [];
   const walls = [];
+  const overhead = [];
   for (let y = 0; y < MAP_H; y++) {
     for (let x = 0; x < MAP_W; x++) {
       if (!tileVisible(x, y, cam, W, H)) continue;
@@ -355,6 +356,13 @@ function World({ grid, pos, progress, near, route, facing, step }) {
         walls.push(<StudWall key={`w${x},${y}`} tx={x} ty={y} horiz={wallHoriz(x, y)} />);
       } else {
         floors.push(<SlabTile key={`f${x},${y}`} tx={x} ty={y} indoor={indoor(x, y)} />);
+        // An unfinished commercial shell has no ceiling — you look up into deck
+        // and open bar joists. Drawing nothing overhead is what made the
+        // interior read as a floor plan instead of a building. Every third tile
+        // so it reads as a rhythm of joists rather than a hatch pattern.
+        if (indoor(x, y) && y % 3 === 0) {
+          overhead.push(<BarJoist key={`j${x},${y}`} tx={x} ty={y} horiz />);
+        }
       }
     }
   }
@@ -390,6 +398,11 @@ function World({ grid, pos, progress, near, route, facing, step }) {
           })}
 
           {floors}
+
+          {/* Joists sit above the slab and under everything a player can touch,
+              so the shell reads as a building without competing with the props
+              or the crew. */}
+          {overhead}
 
           {routeD && (
             <G>
