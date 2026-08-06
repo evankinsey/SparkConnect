@@ -4708,7 +4708,9 @@ export default function App() {
       {/* ── Screen Content ── */}
       <View style={{ flex: 1 }}>{renderScreen()}</View>
 
-      {/* ── Bottom Tab Bar ── */}
+      {/* ── Bottom Tab Bar ── hidden inside the job site, which owns the whole
+             screen. App navigation over a game reads as a web page. ── */}
+      {tab !== 'jobsite' && (
       <View style={[styles.tabBar, { backgroundColor: C.tabBar, borderTopColor: C.tabBorder }]}>
         {TABS.map(t => (
           <TouchableOpacity
@@ -4723,6 +4725,7 @@ export default function App() {
           </TouchableOpacity>
         ))}
       </View>
+      )}
 
       {/* ── Paywall — the ONE purchase surface, wired to real RevenueCat ── */}
       <SparkPaywall

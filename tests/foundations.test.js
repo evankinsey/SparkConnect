@@ -37,7 +37,11 @@ test('FLG-01…FLG-11: all eleven required flags exist', () => {
 
 test('FLG-12: every incomplete or money-touching feature defaults OFF', () => {
   for (const name of FLAG_NAMES) {
+    // The exemption is for features that are complete, touch no money, and can
+    // be killed remotely without a rebuild. Anything incomplete or financial
+    // still has to default OFF.
     if (name === 'updatedLightThemeEnabled') continue; // safe, reversible, complete
+    if (name === 'isoJobsiteEnabled') continue;        // pure rendering, no money, remote-killable
     assert.equal(DEFAULTS[name], false, `${name} must default to false`);
   }
 });
@@ -58,6 +62,10 @@ test('FLG-12: payment flags cannot be forced on by a local dev override either',
 test('FLG-13: a remote kill-switch can turn a live feature off without a rebuild', () => {
   assert.equal(resolve('updatedLightThemeEnabled', {}), true);
   assert.equal(resolve('updatedLightThemeEnabled', { remote: { updatedLightThemeEnabled: false } }), false);
+  // The job site rebuild is exempt from defaulting OFF, so it has to earn that
+  // by being genuinely killable from the server.
+  assert.equal(resolve('isoJobsiteEnabled', {}), true);
+  assert.equal(resolve('isoJobsiteEnabled', { remote: { isoJobsiteEnabled: false } }), false);
 });
 
 test('FLG-13: a remote payload can turn a training flag on', () => {

@@ -58,6 +58,8 @@ const FILES = [
   'src/circuit/inspect.js',
   'src/core/training/generated.js',
   'src/core/game/packs.js',
+  'src/screens/jobsiteArt.js',
+  'src/core/game/iso.js',
   'src/core/game/fieldTasks.js',
   'src/core/paywall/entitlements.js',
   'src/screens/FieldTaskScreen.js',

@@ -18,6 +18,12 @@ export const DEFAULTS = Object.freeze({
   troubleshootingGamesEnabled: false,   // FLG-03 — lessons not yet built
   challengeModeEnabled: false,          // FLG-04 — needs par times per lesson
 
+  // The isometric job site rebuild. ON by default because the flag exists to
+  // switch it OFF fast if a device shows a problem the emulator did not — the
+  // old top-down renderer is still in git and this is a one-line revert, which
+  // is the whole point of shipping a rewrite behind a flag.
+  isoJobsiteEnabled: true,              // FLG-14
+
   // Payments — no backend exists. Enabling these client-side would violate
   // PAY-04/05/06 and SEC-12.
   stripeConnectEnabled: false,          // FLG-05

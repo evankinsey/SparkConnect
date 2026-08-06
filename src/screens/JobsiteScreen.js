@@ -12,17 +12,26 @@ import { View, Text, TouchableOpacity, Dimensions, Vibration, Platform, Image, P
 import { Ionicons } from '@expo/vector-icons';
 import Svg, {
   Rect, Circle, G, Path, Image as SvgImage, ClipPath, Defs,
-  Text as SvgText, RadialGradient, LinearGradient, Stop,
+  RadialGradient, Stop,
 } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   buildMap, movePlayer, nearestStation, completeStation, emptyJobsiteProgress,
   isComplete, jobsitePercent, sanitizeProgress, STATIONS, ROOMS, SPAWN, Tile, TaskKind,
-  pathBetween, distanceFeet, nextObjective,
+  pathBetween, distanceFeet, nextObjective, MAP_W, MAP_H,
 } from '../core/game/jobsite';
 import { dialogueFor, characterForStation } from '../core/game/cast';
 import { fieldTaskForStation } from '../core/game/fieldTasks';
+import {
+  toIso, depthKey, sortByDepth, isoCamera, inView, Layer,
+  facingFrom, joystickVector, screenToWorldVector,
+} from '../core/game/iso';
+import {
+  PALETTE, Shadow, StudWall, FloorTile, Panel, JunctionBox, ConduitRun,
+  Ladder, WireSpool, WorkBench, MaterialCart, TempLight, PrintTable,
+  Electrician, ObjectivePin, DoneMarker,
+} from './jobsiteArt';
 import { portraitFor } from './castImages';
 import WiringLabScreen from './WiringLabScreen';
 import TroubleshootScreen from './TroubleshootScreen';
@@ -34,7 +43,32 @@ const KEY_PAD = '@sc_jobsite_pad_v1';
 const SPEED = 0.13;      // tiles per tick
 const TICK = 45;         // ms
 const VIEW_TILES_X = 11; // how much of the site is on screen
-const PAD_SIZE = 190;    // footprint of the d-pad cluster, for drag clamping
+const PAD_SIZE = 150;    // footprint of the joystick, for drag clamping
+
+// Set dressing. Positions are hand-placed against walls and in corners; none
+// of them block a doorway or a station, and none of them affect collision —
+// they are scenery, and the walkable grid is still the only source of truth.
+const PROPS = [
+  { id: 'p-panel',   kind: 'Panel',        x: 6.2,  y: 8.6,  props: { energized: true } },
+  { id: 'p-panel2',  kind: 'Panel',        x: 19.2, y: 8.6 },
+  { id: 'p-jb1',     kind: 'JunctionBox',  x: 4.2,  y: 2.6 },
+  { id: 'p-jb2',     kind: 'JunctionBox',  x: 14.2, y: 2.6 },
+  { id: 'p-jb3',     kind: 'JunctionBox',  x: 12.2, y: 8.6 },
+  { id: 'p-cond1',   kind: 'ConduitRun',   x: 10.5, y: 6.1,  props: { length: 3 } },
+  { id: 'p-cond2',   kind: 'ConduitRun',   x: 16.5, y: 12.1, props: { length: 4 } },
+  { id: 'p-ladder',  kind: 'Ladder',       x: 9.5,  y: 12.4 },
+  { id: 'p-ladder2', kind: 'Ladder',       x: 17.5, y: 6.4 },
+  { id: 'p-spool',   kind: 'WireSpool',    x: 11.4, y: 12.5 },
+  { id: 'p-spool2',  kind: 'WireSpool',    x: 21.6, y: 12.4 },
+  { id: 'p-bench',   kind: 'WorkBench',    x: 3.6,  y: 12.4 },
+  { id: 'p-cart',    kind: 'MaterialCart', x: 7.5,  y: 6.4 },
+  { id: 'p-print',   kind: 'PrintTable',   x: 14.5, y: 6.4 },
+  { id: 'p-light1',  kind: 'TempLight',    x: 12.5, y: 6.5 },
+  { id: 'p-light2',  kind: 'TempLight',    x: 5.5,  y: 12.5 },
+  { id: 'p-light3',  kind: 'TempLight',    x: 20.5, y: 6.5 },
+];
+
+const PROP_ART = { Panel, JunctionBox, ConduitRun, Ladder, WireSpool, WorkBench, MaterialCart, TempLight, PrintTable };
 
 // Night rough-in: bare concrete, steel stud framing, one work light. The
 // reference art is dark and the old brown-dirt palette read as a board game.
@@ -56,6 +90,21 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
   // read on close, and it must not schedule a render in between.
   const solvedRef = useRef(false);
   const dir = useRef({ x: 0, y: 0 });
+  const [facing, setFacing] = useState('S');
+  const [moving, setMoving] = useState(false);
+  // Left-handed players get the stick on the right. Persisted, because
+  // handedness is a property of the person, not the session.
+  const [stickSide, setStickSide] = useState('left');
+  useEffect(() => {
+    AsyncStorage.getItem(KEY_PAD).then((v) => { if (v === 'left' || v === 'right') setStickSide(v); }).catch(() => {});
+  }, []);
+  const swapStickSide = useCallback(() => {
+    setStickSide((s) => {
+      const next = s === 'left' ? 'right' : 'left';
+      AsyncStorage.setItem(KEY_PAD, next).catch(() => {});
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     AsyncStorage.getItem(KEY)
@@ -74,9 +123,13 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
     if (active) return undefined;   // the world pauses while a task is open
     const id = setInterval(() => {
       const d = dir.current;
-      if (!d.x && !d.y) return;
-      const norm = d.x && d.y ? 0.7071 : 1;  // no free speed on the diagonal
-      setPos((p) => movePlayer(grid, p, d.x * SPEED * norm, d.y * SPEED * norm));
+      if (!d.x && !d.y) { setMoving(false); return; }
+      setMoving(true);
+      setFacing(facingFrom(d.x, d.y) ?? 'S');
+      // The joystick already returns a unit-ish vector scaled by how far it is
+      // pushed, so speed comes from the stick and no diagonal normalisation is
+      // needed — pushing diagonally is not a free speed boost.
+      setPos((p) => movePlayer(grid, p, d.x * SPEED, d.y * SPEED));
     }, TICK);
     return () => clearInterval(id);
   }, [grid, active]);
@@ -169,16 +222,21 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
   // you are standing inside is the thing that was asked for.
   return (
     <View style={{ flex: 1, backgroundColor: SITE.dirt }}>
-      <WorldView C={C} grid={grid} pos={pos} progress={progress} near={near} route={route} routeFeet={routeFeet} />
+      <WorldView C={C} grid={grid} pos={pos} progress={progress} near={near} route={route} facing={facing} moving={moving} />
 
       {/* ── HUD ── Task list top-left, XP top-centre, message bar low. Laid
              out to match the reference: information at the edges, the site
              itself uninterrupted in the middle. */}
-      <View pointerEvents="none" style={{ position: 'absolute', top: 12, left: 12, right: 12 }}>
+      <View pointerEvents="box-none" style={{ position: 'absolute', top: 12, left: 12, right: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+          <TouchableOpacity onPress={() => setTab && setTab('home')} activeOpacity={0.8}
+            accessibilityRole="button" accessibilityLabel="Leave the job site"
+            style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(12,16,20,0.86)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="chevron-back" size={20} color="#fff" />
+          </TouchableOpacity>
           <View style={{ backgroundColor: 'rgba(12,16,20,0.86)', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }}>
-            <Text style={{ fontSize: 14, fontWeight: '800', color: '#fff', letterSpacing: 0.3 }}>JOB SITE</Text>
-            <Text style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.6)' }}>Rough-In · {STATIONS.length} stations</Text>
+            <Text style={{ fontSize: 13, fontWeight: '800', color: '#fff', letterSpacing: 0.3 }}>COMMERCIAL ROUGH-IN</Text>
+            <Text style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.6)' }}>Day One · {STATIONS.length} stations</Text>
           </View>
           <View style={{ flex: 1, backgroundColor: 'rgba(12,16,20,0.86)', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
@@ -242,8 +300,32 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
         )}
       </View>
 
-      {/* D-pad — drag it wherever your thumb actually is */}
-      <DPad C={C} dir={dir} />
+      {/* Movement stick, lower-left by default; the interact button sits
+          opposite it so thumbs never collide. */}
+      <Joystick C={C} dir={dir} side={stickSide} onSwapSide={swapStickSide} />
+
+      {/* Interact — only when there is actually something to interact with */}
+      {near && !toast && (
+        <TouchableOpacity
+          onPress={() => startStation(near)}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={`${isComplete(progress, near.id) ? 'Redo' : 'Start'} ${near.label}`}
+          style={{
+            position: 'absolute',
+            [stickSide === 'right' ? 'left' : 'right']: 26,
+            bottom: 96 + 18,
+            width: 86, height: 86, borderRadius: 43,
+            backgroundColor: isComplete(progress, near.id) ? 'rgba(22,163,74,0.92)' : 'rgba(244,161,29,0.95)',
+            alignItems: 'center', justifyContent: 'center',
+            borderWidth: 2, borderColor: 'rgba(255,255,255,0.25)',
+          }}>
+          <Ionicons name={near.icon ?? 'hammer'} size={26} color="#1A1408" />
+          <Text style={{ fontSize: 9.5, fontWeight: '900', color: '#1A1408', letterSpacing: 0.6, marginTop: 2 }}>
+            {isComplete(progress, near.id) ? 'REDO' : 'START'}
+          </Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -297,152 +379,110 @@ function StationCard({ C, station, done, onStart }) {
 
 // ─── The world ───────────────────────────────────────────────────────────────
 
-function WorldView({ C, grid, pos, progress, near, route, routeFeet }) {
-  const { width: W, height: viewH } = Dimensions.get('window');
-  const TS = W / VIEW_TILES_X;
+function WorldView({ C, grid, pos, progress, near, route, facing, moving }) {
+  const { width: W, height: H } = Dimensions.get('window');
+  const cam = useMemo(() => isoCamera(pos, MAP_W, MAP_H, W, H, 1), [pos, W, H]);
 
-  const mapW = grid[0].length * TS, mapH = grid.length * TS;
-  const camX = mapW <= W ? (mapW - W) / 2 : Math.max(0, Math.min(pos.x * TS - W / 2, mapW - W));
-  const camY = mapH <= viewH ? (mapH - viewH) / 2 : Math.max(0, Math.min(pos.y * TS - viewH / 2, mapH - viewH));
+  // Everything is collected into one list and painted back to front. There is
+  // no z-buffer in SVG — depth order IS the occlusion, which is why the sort
+  // lives in a tested module rather than in JSX ordering.
+  const items = [];
+  const push = (x, y, layer, node) => items.push({ depth: depthKey(x, y, layer), node });
 
-  // Walls are drawn as steel stud framing rather than solid blocks: a vertical
-  // stud with a shadowed face and a top/bottom track. That single change is
-  // most of why the site now reads as an unfinished building instead of a maze.
-  const WALL_H = TS * 0.55;
+  const insideRoom = (x, y) => ROOMS.some((r) => x > r.x && x < r.x + r.w - 1 && y > r.y && y < r.y + r.h - 1);
+
+  for (let y = 0; y < MAP_H; y++) {
+    for (let x = 0; x < MAP_W; x++) {
+      if (!inView(x, y, cam, W, H)) continue;   // an iso map is mostly off-screen
+      if (grid[y][x] === Tile.WALL) {
+        // A doorway is a wall tile with floor on both sides of the run; the
+        // generator carves those, so a gap in the grid IS the opening.
+        push(x, y, Layer.WALL, <StudWall key={`w${x},${y}`} x={x} y={y} />);
+      } else {
+        push(x, y, Layer.FLOOR, <FloorTile key={`f${x},${y}`} x={x} y={y} indoor={insideRoom(x, y)} />);
+      }
+    }
+  }
+
+  // Set dressing. Placed against walls and in corners so the site reads as
+  // occupied rather than as an empty diagram.
+  for (const p of PROPS) {
+    if (!inView(Math.floor(p.x), Math.floor(p.y), cam, W, H)) continue;
+    const Comp = PROP_ART[p.kind];
+    if (Comp) push(p.x, p.y, Layer.PROP, <Comp key={p.id} x={p.x} y={p.y} {...(p.props || {})} />);
+  }
+
+  // The route, drawn on the floor so props and walls cover it correctly.
+  if (route.length > 1) {
+    const d = route.map((p, k) => {
+      const q = toIso(p.x, p.y);
+      return `${k ? 'L' : 'M'} ${q.x} ${q.y}`;
+    }).join(' ');
+    push(0, 0, Layer.DECAL, (
+      <G key="route">
+        <Path d={d} stroke="rgba(34,197,94,0.30)" strokeWidth={13} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <Path d={d} stroke="#22C55E" strokeWidth={4} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      </G>
+    ));
+  }
+
+  for (const s of STATIONS) {
+    if (!inView(Math.floor(s.x), Math.floor(s.y), cam, W, H)) continue;
+    const done = isComplete(progress, s.id);
+    const who = characterForStation(s.id);
+    const art = who ? portraitFor(who.id) : null;
+    const b = toIso(s.x, s.y);
+    push(s.x, s.y, Layer.ACTOR, (
+      <G key={s.id}>
+        <Shadow x={s.x} y={s.y} rx={13} ry={6.5} />
+        {art && (
+          <>
+            <Circle cx={b.x} cy={b.y - 26} r={15} fill="#12161B" />
+            <SvgImage x={b.x - 14} y={b.y - 40} width={28} height={28} href={art}
+              preserveAspectRatio="xMidYMid slice" clipPath={`url(#clip-${s.id})`} />
+            <Circle cx={b.x} cy={b.y - 26} r={14.5} fill="none"
+              stroke={near?.id === s.id ? '#22C55E' : done ? '#16A34A' : (who?.accent ?? '#F4A11D')} strokeWidth={2.5} />
+          </>
+        )}
+      </G>
+    ));
+    push(s.x, s.y, Layer.OVERHEAD, done
+      ? <DoneMarker key={`m${s.id}`} x={s.x} y={s.y} />
+      : <ObjectivePin key={`m${s.id}`} x={s.x} y={s.y} />);
+  }
+
+  push(pos.x, pos.y, Layer.ACTOR,
+    <Electrician key="me" x={pos.x} y={pos.y} facing={facing} walking={moving} />);
+
+  const ordered = sortByDepth(items);
 
   return (
-    <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: SITE.ground }}>
-      <Svg width={W} height={viewH}>
+    <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: PALETTE.ground }}>
+      <Svg width={W} height={H}>
         <Defs>
-          <RadialGradient id="worklight" cx="50%" cy="42%" r="62%">
-            <Stop offset="0%" stopColor="#FFF3D6" stopOpacity="0.20" />
-            <Stop offset="55%" stopColor="#FFE0A0" stopOpacity="0.06" />
-            <Stop offset="100%" stopColor="#000000" stopOpacity="0" />
+          <RadialGradient id="worklight" cx="50%" cy="50%" r="55%">
+            <Stop offset="0%" stopColor="#FFE9B0" stopOpacity="0.13" />
+            <Stop offset="100%" stopColor="#000" stopOpacity="0" />
           </RadialGradient>
-          <LinearGradient id="studface" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0%" stopColor={SITE.stud} />
-            <Stop offset="100%" stopColor={SITE.studShadow} />
-          </LinearGradient>
+          <RadialGradient id="vignette" cx="50%" cy="50%" r="72%">
+            <Stop offset="60%" stopColor="#000" stopOpacity="0" />
+            <Stop offset="100%" stopColor="#000" stopOpacity="0.55" />
+          </RadialGradient>
           {STATIONS.map((s) => (
             <ClipPath key={`clip-${s.id}`} id={`clip-${s.id}`}>
-              <Circle cx={s.x * TS} cy={s.y * TS} r={TS * 0.42} />
+              <Circle cx={toIso(s.x, s.y).x} cy={toIso(s.x, s.y).y - 26} r={14} />
             </ClipPath>
           ))}
         </Defs>
 
-        <G transform={`translate(${-camX}, ${-camY})`}>
-          {/* Slab */}
-          {grid.map((row, y) => row.map((t, x) => (
-            <Rect key={`g${x},${y}`} x={x * TS} y={y * TS} width={TS + 0.5} height={TS + 0.5}
-              fill={(x + y) % 2 === 0 ? SITE.ground : SITE.groundAlt} />
-          )))}
-
-          {/* Poured floors inside the rooms, slightly lighter than the yard */}
-          {ROOMS.map((r) => (
-            <G key={r.id}>
-              <Rect x={(r.x + 1) * TS} y={(r.y + 1) * TS}
-                width={(r.w - 2) * TS} height={(r.h - 2) * TS} fill={SITE.slab} />
-              {/* Control joints — cheap, and they sell "concrete" instantly */}
-              {Array.from({ length: r.w - 2 }, (_, i) => (
-                <Rect key={`j${i}`} x={(r.x + 1 + i) * TS} y={(r.y + 1) * TS}
-                  width={1} height={(r.h - 2) * TS} fill={SITE.slabAlt} />
-              ))}
-            </G>
-          ))}
-
-          {/* Steel stud framing */}
-          {grid.map((row, y) => row.map((t, x) => {
-            if (t !== Tile.WALL) return null;
-            const px = x * TS, py = y * TS;
-            return (
-              <G key={`w${x},${y}`}>
-                {/* Cast shadow on the slab in front of the wall */}
-                <Rect x={px} y={py + TS} width={TS + 0.5} height={TS * 0.22} fill="rgba(0,0,0,0.35)" />
-                {/* Bottom track */}
-                <Rect x={px} y={py + TS - WALL_H * 0.14} width={TS + 0.5} height={WALL_H * 0.14} fill={SITE.track} />
-                {/* Studs — two per tile, on 16in-ish visual spacing */}
-                {[0.26, 0.68].map((f, i) => (
-                  <Rect key={i} x={px + TS * f} y={py + TS - WALL_H} width={TS * 0.15} height={WALL_H}
-                    fill="url(#studface)" />
-                ))}
-                {/* Top track */}
-                <Rect x={px} y={py + TS - WALL_H} width={TS + 0.5} height={WALL_H * 0.16} fill={SITE.track} />
-              </G>
-            );
-          }))}
-
-          {/* Work-light pool, centred on the player */}
-          <Rect x={pos.x * TS - TS * 6} y={pos.y * TS - TS * 6} width={TS * 12} height={TS * 12} fill="url(#worklight)" />
-
-          {/* The route to the next objective — a walkable path, not a straight
-              line, so it never crosses a wall. */}
-          {route.length > 1 && (
-            <G>
-              <Path d={route.map((p, i) => `${i ? 'L' : 'M'} ${p.x * TS} ${p.y * TS}`).join(' ')}
-                stroke={SITE.routeGlow} strokeWidth={TS * 0.34} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-              <Path d={route.map((p, i) => `${i ? 'L' : 'M'} ${p.x * TS} ${p.y * TS}`).join(' ')}
-                stroke={SITE.route} strokeWidth={TS * 0.11} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-            </G>
-          )}
-
-          {/* Crew */}
-          {STATIONS.map((s) => {
-            const cdone = isComplete(progress, s.id);
-            const isNear = near?.id === s.id;
-            const who = characterForStation(s.id);
-            const art = who ? portraitFor(who.id) : null;
-            const cx = s.x * TS, cy = s.y * TS, r = TS * 0.42;
-            return (
-              <G key={s.id}>
-                <Circle cx={cx} cy={cy + TS * 0.44} r={TS * 0.28} fill="rgba(0,0,0,0.45)" />
-                {art && (
-                  <SvgImage x={cx - r} y={cy - r} width={r * 2} height={r * 2}
-                    href={art} preserveAspectRatio="xMidYMid slice" clipPath={`url(#clip-${s.id})`} />
-                )}
-                <Circle cx={cx} cy={cy} r={r} fill="none"
-                  stroke={isNear ? '#22C55E' : cdone ? '#16A34A' : (who?.accent ?? '#F4A11D')}
-                  strokeWidth={isNear ? 4 : 3} />
-                {/* Objective pin above an unfinished station */}
-                {!cdone && (
-                  <G>
-                    <Circle cx={cx} cy={cy - r - TS * 0.34} r={TS * 0.17} fill="#F4A11D" />
-                    <SvgText x={cx} y={cy - r - TS * 0.28} fill="#1A1408" fontSize={TS * 0.22} fontWeight="bold" textAnchor="middle">!</SvgText>
-                  </G>
-                )}
-                {cdone && (
-                  <G>
-                    <Circle cx={cx + r * 0.72} cy={cy - r * 0.72} r={TS * 0.17} fill="#16A34A" stroke="#fff" strokeWidth={1.5} />
-                    <Path d={`M ${cx + r * 0.72 - TS * 0.07} ${cy - r * 0.72} l ${TS * 0.05} ${TS * 0.055} l ${TS * 0.095} ${-TS * 0.11}`}
-                      stroke="#fff" strokeWidth={2.2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                  </G>
-                )}
-              </G>
-            );
-          })}
-
-          {/* You — hi-vis vest, hard hat, seen from behind and above */}
-          <G>
-            <Circle cx={pos.x * TS} cy={pos.y * TS + TS * 0.38} r={TS * 0.24} fill="rgba(0,0,0,0.5)" />
-            <Circle cx={pos.x * TS} cy={pos.y * TS} r={TS * 0.42} fill="none" stroke="#22C55E" strokeWidth={2.5} opacity={0.75} />
-            <Rect x={pos.x * TS - TS * 0.21} y={pos.y * TS - TS * 0.04} width={TS * 0.42} height={TS * 0.44}
-              rx={TS * 0.1} fill="#1A1A1F" />
-            <Rect x={pos.x * TS - TS * 0.21} y={pos.y * TS + TS * 0.04} width={TS * 0.42} height={TS * 0.12} fill="#D7F205" opacity={0.9} />
-            <Rect x={pos.x * TS - TS * 0.21} y={pos.y * TS + TS * 0.22} width={TS * 0.42} height={TS * 0.08} fill="#D7F205" opacity={0.9} />
-            <Circle cx={pos.x * TS} cy={pos.y * TS - TS * 0.16} r={TS * 0.17} fill="#F4A11D" />
-            <Rect x={pos.x * TS - TS * 0.24} y={pos.y * TS - TS * 0.2} width={TS * 0.48} height={TS * 0.07}
-              rx={TS * 0.035} fill="#FFB93A" />
-          </G>
+        <G transform={`translate(${cam.tx}, ${cam.ty})`}>
+          {ordered.map((it) => it.node)}
         </G>
 
-        {/* Distance badge, pinned to the top of the route */}
-        {route.length > 1 && routeFeet > 0 && (
-          <G>
-            <Rect x={W / 2 - TS * 0.62} y={12} width={TS * 1.24} height={TS * 0.5} rx={TS * 0.12} fill="rgba(12,16,20,0.85)" />
-            <SvgText x={W / 2} y={12 + TS * 0.35} fill="#22C55E" fontSize={TS * 0.28} fontWeight="bold" textAnchor="middle">
-              {routeFeet} ft
-            </SvgText>
-          </G>
-        )}
+        {/* Work-light pool and edge vignette sell the "one light on a dark
+            site" look far more cheaply than per-object lighting would. */}
+        <Rect x={0} y={0} width={W} height={H} fill="url(#worklight)" pointerEvents="none" />
+        <Rect x={0} y={0} width={W} height={H} fill="url(#vignette)" pointerEvents="none" />
       </Svg>
     </View>
   );
@@ -452,93 +492,82 @@ function WorldView({ C, grid, pos, progress, near, route, routeFeet }) {
 // Press-and-hold, not tap-to-step: holding a direction is how walking feels.
 // Big targets — this gets used with gloves on.
 
-function DPad({ C, dir }) {
+/**
+ * Drag joystick. Replaces the four-button pad, which had a real bug: its up
+ * and down arrows were positioned with only `top`/`bottom`, and in React
+ * Native an absolutely-positioned child with no `left` defaults to the left
+ * edge — both vertical arrows sat on top of the left arrow. Vertical movement
+ * was not broken logic, the buttons simply were not where they appeared.
+ *
+ * A stick also gives continuous speed and every direction for free, which a
+ * four-button pad never can.
+ */
+function Joystick({ C, dir, side, onSwapSide }) {
   const { width: SW, height: SH } = Dimensions.get('window');
-  const clamp = useCallback((p) => ({
-    x: Math.max(8, Math.min(p.x, SW - PAD_SIZE - 8)),
-    y: Math.max(8, Math.min(p.y, SH - PAD_SIZE - 8)),
-  }), [SW, SH]);
+  const R = 56;              // stick travel radius
+  const BASE = R * 2;
 
-  const [origin, setOrigin] = useState(() => clamp({ x: 16, y: SH - PAD_SIZE - 24 }));
-  const [dragging, setDragging] = useState(false);
-  // Where the pad was when this drag started. A ref because the responder
-  // callbacks close over it and must not re-subscribe on every move.
-  const start = useRef(origin);
+  const home = useMemo(() => ({
+    x: side === 'right' ? SW - BASE - 26 : 26,
+    y: SH - BASE - 96,
+  }), [side, SW, SH]);
 
-  useEffect(() => {
-    AsyncStorage.getItem(KEY_PAD)
-      .then((raw) => {
-        if (!raw) return;
-        const saved = JSON.parse(raw);
-        if (typeof saved?.x === 'number' && typeof saved?.y === 'number') setOrigin(clamp(saved));
-      })
-      .catch(() => { /* an unreadable preference is just the default corner */ });
-  }, [clamp]);
+  const [knob, setKnob] = useState({ x: 0, y: 0 });
+  const [active, setActive] = useState(false);
 
-  // Drag by the handle only. If the whole cluster were draggable, every walk
-  // input would fight the gesture recogniser.
   const pan = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 3 || Math.abs(g.dy) > 3,
-    onPanResponderGrant: () => { start.current = origin; setDragging(true); },
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: () => setActive(true),
     onPanResponderMove: (_e, g) => {
-      setOrigin(clamp({ x: start.current.x + g.dx, y: start.current.y + g.dy }));
+      const v = joystickVector(g.dx, g.dy, R);
+      const len = Math.hypot(g.dx, g.dy) || 1;
+      const clamped = Math.min(len, R);
+      setKnob({ x: (g.dx / len) * clamped, y: (g.dy / len) * clamped });
+      // Screen drag → world direction, so pushing up the screen walks "up" the
+      // floor rather than diagonally across it.
+      const w = screenToWorldVector(v.x, v.y);
+      dir.current = { x: w.x * v.magnitude, y: w.y * v.magnitude };
     },
-    onPanResponderRelease: () => {
-      setDragging(false);
-      // Read through the setter so the persisted value is the settled one.
-      setOrigin((p) => { AsyncStorage.setItem(KEY_PAD, JSON.stringify(p)).catch(() => {}); return p; });
-    },
-    onPanResponderTerminate: () => setDragging(false),
-  }), [origin, clamp]);
-
-  const set = (x, y) => () => { dir.current = { x, y }; };
-  const stop = () => { dir.current = { x: 0, y: 0 }; };
-
-  // One round pad, like the reference: a dark disc with four arrows and a
-  // draggable hub. Reads as a game control instead of four floating buttons.
-  const R = 62;
-  const Arrow = ({ icon, x, y, label, style }) => (
-    <TouchableOpacity
-      onPressIn={set(x, y)}
-      onPressOut={stop}
-      activeOpacity={0.6}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      style={[{ position: 'absolute', width: 46, height: 46, alignItems: 'center', justifyContent: 'center' }, style]}>
-      <Ionicons name={icon} size={24} color="rgba(255,255,255,0.92)" />
-    </TouchableOpacity>
-  );
+    onPanResponderRelease: () => { setActive(false); setKnob({ x: 0, y: 0 }); dir.current = { x: 0, y: 0 }; },
+    onPanResponderTerminate: () => { setActive(false); setKnob({ x: 0, y: 0 }); dir.current = { x: 0, y: 0 }; },
+  }), [dir, R]);
 
   return (
-    <View style={{ position: 'absolute', left: origin.x, top: origin.y, width: PAD_SIZE, height: PAD_SIZE, alignItems: 'center', opacity: dragging ? 0.7 : 1 }}>
-      <View style={{
-        width: R * 2.3, height: R * 2.3, borderRadius: R * 1.15,
-        backgroundColor: 'rgba(12,16,20,0.78)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.14)',
-        alignItems: 'center', justifyContent: 'center',
-      }}>
-        <Arrow icon="chevron-up"      x={0}  y={-1} label="Walk up"    style={{ top: 4 }} />
-        <Arrow icon="chevron-down"    x={0}  y={1}  label="Walk down"  style={{ bottom: 4 }} />
-        <Arrow icon="chevron-back"    x={-1} y={0}  label="Walk left"  style={{ left: 4 }} />
-        <Arrow icon="chevron-forward" x={1}  y={0}  label="Walk right" style={{ right: 4 }} />
-        {/* Draggable hub — dead centre, the one spot with no arrow, so moving
-            the pad never fights a walk input. */}
-        <View
-          {...pan.panHandlers}
-          accessibilityRole="adjustable"
-          accessibilityLabel="Drag to reposition the walk controls"
-          style={{
-            width: R * 0.92, height: R * 0.92, borderRadius: R * 0.46,
-            backgroundColor: dragging ? 'rgba(34,197,94,0.85)' : 'rgba(255,255,255,0.13)',
-            borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.22)',
-            alignItems: 'center', justifyContent: 'center',
-          }}>
-          <Ionicons name="move" size={16} color="rgba(255,255,255,0.75)" />
+    <View style={{ position: 'absolute', left: home.x, top: home.y, alignItems: 'center' }}>
+      <View
+        {...pan.panHandlers}
+        accessibilityRole="adjustable"
+        accessibilityLabel="Movement stick. Drag to walk in any direction."
+        style={{
+          width: BASE, height: BASE, borderRadius: R,
+          backgroundColor: 'rgba(12,16,20,0.62)',
+          borderWidth: 1.5, borderColor: active ? 'rgba(34,197,94,0.55)' : 'rgba(255,255,255,0.14)',
+          alignItems: 'center', justifyContent: 'center',
+        }}>
+        {/* Direction ticks — they say "this is a stick" without stealing taps */}
+        {[['chevron-up', { top: 6 }], ['chevron-down', { bottom: 6 }],
+          ['chevron-back', { left: 6 }], ['chevron-forward', { right: 6 }]].map(([icon, pos]) => (
+          <View key={icon} pointerEvents="none" style={{ position: 'absolute', ...pos }}>
+            <Ionicons name={icon} size={15} color="rgba(255,255,255,0.3)" />
+          </View>
+        ))}
+        <View pointerEvents="none" style={{
+          width: R * 0.92, height: R * 0.92, borderRadius: R * 0.46,
+          transform: [{ translateX: knob.x }, { translateY: knob.y }],
+          backgroundColor: active ? 'rgba(34,197,94,0.85)' : 'rgba(255,255,255,0.16)',
+          borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.28)',
+          alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Ionicons name="move" size={16} color="rgba(255,255,255,0.8)" />
         </View>
       </View>
-      <Text style={{ fontSize: 9.5, fontWeight: '800', letterSpacing: 1.2, color: 'rgba(255,255,255,0.5)', marginTop: 6 }}>
-        DRAG TO MOVE
-      </Text>
+      <TouchableOpacity onPress={onSwapSide} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+        accessibilityRole="button" accessibilityLabel="Move the stick to the other side of the screen">
+        <Text style={{ fontSize: 9, fontWeight: '800', letterSpacing: 1.1, color: 'rgba(255,255,255,0.45)', marginTop: 7 }}>
+          SWAP SIDE
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }
