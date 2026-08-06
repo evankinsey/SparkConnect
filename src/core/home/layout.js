@@ -51,10 +51,13 @@ export const HOME_CARDS = Object.freeze([
   { id: 'panelschedule', kind: CardKind.SHORTCUT, tab: 'panelschedule', title: 'Panel Schedule', sub: 'Build it, balance it, share it', icon: 'grid', group: 'Work' },
 
   // Work
-  { id: 'projects', kind: CardKind.SHORTCUT, tab: 'projects', title: 'Projects', sub: 'Job records and photos', icon: 'folder-open', group: 'Work' },
+  { id: 'projects', kind: CardKind.SHORTCUT, tab: 'projects', title: 'Projects', sub: 'Everything on one job', icon: 'folder-open', group: 'Work' },
   { id: 'materials', kind: CardKind.SHORTCUT, tab: 'materials', title: 'Material List', sub: 'Build it, send it', icon: 'cart', group: 'Work' },
   { id: 'community', kind: CardKind.SHORTCUT, tab: 'community', title: 'Community', sub: 'Questions and jobs', icon: 'people', group: 'Work' },
-  { id: 'jobcam', kind: CardKind.SHORTCUT, tab: 'jobcam', title: 'Job Cam', sub: 'Document the job', icon: 'camera', group: 'Work' },
+  // Job Cam is the camera inside a project now, so the card points at Projects.
+  // Kept under its own id so a saved layout holding 'jobcam' still resolves
+  // instead of vanishing from that user's Home.
+  { id: 'jobcam', kind: CardKind.SHORTCUT, tab: 'projects', title: 'Job Cam', sub: 'Photos, inside your projects', icon: 'camera', group: 'Work' },
   { id: 'estimator', kind: CardKind.SHORTCUT, tab: 'estimator', title: 'Estimator', sub: 'Material and labour', icon: 'hammer', group: 'Work' },
 ]);
 

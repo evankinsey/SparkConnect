@@ -4177,7 +4177,7 @@ const TABS = [
   { id: 'home',        icon: 'home',               label: 'Home' },
   { id: 'calculators', icon: 'calculator-outline',  label: 'Calculators' },
   { id: 'necai',       icon: 'chatbubble-ellipses',  label: 'SparkAI' },
-  { id: 'jobcam',      icon: 'camera',               label: 'Job Cam' },
+  { id: 'projects',    icon: 'folder-open',          label: 'Projects' },
   { id: 'learn',       icon: 'school',               label: 'Learn' },
 ];
 
@@ -4685,7 +4685,10 @@ export default function App() {
       );
       case 'customizehome': return <HomeCustomizeScreen C={C} layout={homeLayout} onSave={saveHomeLayout} onDone={() => { setHomeKey(k => k + 1); navigateTo('home'); }} />;
       case 'settings':    return <SettingsScreen C={C} themePreference={themePreference} setThemePreference={chooseTheme} showDailyQ={showDailyQ} onDailyQToggle={handleDailyQToggle} appLanguage={appLanguage} setAppLanguage={setAppLanguage} isPro={isPro} onUpgrade={() => setPaywall('pro')} onBuyPacks={() => setPaywall('packs')} onRestore={handleRestorePurchases} />;
-      case 'jobcam':      return <JobCamScreen C={C} setTab={navigateTo} />;
+      // Job Cam is a feature inside a project now. Anything still pointing
+      // here — a deep link, saved nav state, an old shortcut — lands on
+      // Projects, which is where its photos were migrated to.
+      case 'jobcam':      return <ProjectsScreen C={C} setTab={navigateTo} />;
       default:            return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} />;
     }
   };

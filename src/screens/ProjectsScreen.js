@@ -1,9 +1,14 @@
-// ─── JOB CAM 2.0 — PROJECTS ──────────────────────────────────────────────────
-// Photos become a job record instead of a camera roll.
+// ─── PROJECTS ────────────────────────────────────────────────────────────────
+// The container. A contractor does not think "I want Job Cam" — they think
+// "I'm working on Starbucks", and everything about Starbucks lives here:
+// photos, takeoff, estimate, panel schedule, permit, inspections, notes.
 //
-// Kept as a separate tab from the existing Job Cam rather than replacing it.
-// The old screen holds people's photos; swapping it out mid-release is how you
-// lose someone's inspection evidence.
+// Job Cam is now the camera INSIDE a project. It was a good name for a camera
+// and a bad name for a filing system.
+//
+// The old Job Cam kept its own separate project list and photo store, which
+// this screen never read — so a user with photos there could not see them here.
+// They are folded in on load, once, without losing any (see projectMerge.js).
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Share } from 'react-native';
@@ -15,8 +20,17 @@ import {
   addPhoto, tagPhoto, setFolder, togglePinned,
   photosInFolder, beforeAfterPairs, projectStats, missingShots,
 } from '../core/domain/jobcam';
+import {
+  mergeJobCamIntoProjects, migrationMessage, legacyStoreIsFullyMigrated,
+} from '../core/domain/projectMerge';
+import { projectOverview } from '../core/domain/projectArtifacts';
 
 const KEY = '@sc_projects_v1';
+
+// The old Job Cam store. Read on load and folded in; never written to again.
+const LEGACY_PROJECTS_KEY = '@sc_cam_projects';
+const LEGACY_PHOTOS_KEY = '@sc_cam_photos';
+const LEGACY_MIGRATED_KEY = '@sc_cam_migrated_at';
 const nowIso = () => new Date().toISOString();
 
 const loadPicker = async () => {
@@ -26,12 +40,40 @@ const loadPicker = async () => {
 export default function ProjectsScreen({ C, setTab }) {
   const [projects, setProjects] = useState(null);
   const [openId, setOpenId] = useState(null);
+  const [migrationNote, setMigrationNote] = useState(null);
 
   useEffect(() => {
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(KEY);
-        setProjects(raw ? JSON.parse(raw) : []);
+        const current = raw ? JSON.parse(raw) : [];
+
+        // Job Cam used to keep its own project list and its own photos, in a
+        // separate store this screen never read. A user with photos there could
+        // not see them here and nothing said so. Fold them in on load.
+        //
+        // The legacy keys are deliberately NOT cleared. They are the only copy
+        // until we can prove every photo landed, and `legacyStoreIsFullyMigrated`
+        // is what proves it — deleting the source because a migration looked
+        // fine is how photos disappear.
+        const [camProjects, camPhotos] = await Promise.all([
+          AsyncStorage.getItem(LEGACY_PROJECTS_KEY),
+          AsyncStorage.getItem(LEGACY_PHOTOS_KEY),
+        ]);
+
+        if (camProjects || camPhotos) {
+          const { projects: merged, report } = mergeJobCamIntoProjects(current, camProjects, camPhotos);
+          if (!report.nothingToDo) {
+            setProjects(merged);
+            setMigrationNote(migrationMessage(report));
+            try { await AsyncStorage.setItem(KEY, JSON.stringify(merged)); } catch (e) { /* ignore */ }
+            if (legacyStoreIsFullyMigrated(merged, camPhotos)) {
+              try { await AsyncStorage.setItem(LEGACY_MIGRATED_KEY, String(Date.now())); } catch (e) { /* ignore */ }
+            }
+            return;
+          }
+        }
+        setProjects(current);
       } catch (e) { setProjects([]); }
     })();
   }, []);
@@ -61,12 +103,18 @@ export default function ProjectsScreen({ C, setTab }) {
     );
   }
 
-  return <ProjectList C={C} projects={projects} onOpen={setOpenId} onCreate={persist} setTab={setTab} />;
+  return (
+    <ProjectList
+      C={C} projects={projects} onOpen={setOpenId} onCreate={persist} setTab={setTab}
+      migrationNote={migrationNote}
+      onDismissNote={() => setMigrationNote(null)}
+    />
+  );
 }
 
 // ─── List + create ───────────────────────────────────────────────────────────
 
-function ProjectList({ C, projects, onOpen, onCreate, setTab }) {
+function ProjectList({ C, projects, onOpen, onCreate, setTab, migrationNote, onDismissNote }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [template, setTemplate] = useState(ProjectTemplate.SERVICE_CALL);
@@ -90,6 +138,28 @@ function ProjectList({ C, projects, onOpen, onCreate, setTab }) {
           <Text style={{ fontSize: 12, color: C.textTert }}>Job records you can defend an inspection with</Text>
         </View>
       </View>
+
+      {/* Photos that were in the old Job Cam store now live here. Said out loud
+          rather than silently: a user who took 40 photos in Job Cam needs to
+          know where they went, and needs to see the count to trust it. */}
+      {!!migrationNote && (
+        <View style={{
+          backgroundColor: C.greenBg ?? C.tealBg, borderRadius: 12, padding: 12, marginBottom: 14,
+          flexDirection: 'row', gap: 9, alignItems: 'flex-start',
+          borderWidth: 1, borderColor: C.green ?? C.teal,
+        }}>
+          <Ionicons name="albums" size={17} color={C.green ?? C.teal} style={{ marginTop: 1 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 12.5, fontWeight: '700', color: C.text, marginBottom: 2 }}>
+              Job Cam is part of Projects now
+            </Text>
+            <Text style={{ fontSize: 11.5, color: C.textSec, lineHeight: 16 }}>{migrationNote}</Text>
+          </View>
+          <TouchableOpacity onPress={onDismissNote} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons name="close" size={16} color={C.textTert} />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {!creating ? (
         <TouchableOpacity
