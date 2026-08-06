@@ -23,6 +23,12 @@ export const FailureMessage = {
   COMMON_INCORRECT: 'Common terminal appears incorrect',
   TRAVELER_INCOMPLETE: 'One traveler path is incomplete',
   NEUTRAL_MISSING: 'Neutral continuity is missing',
+  // Named on purpose, unlike most of this vocabulary. A switched grounded
+  // conductor is not a puzzle to be discovered — it is the fault that leaves a
+  // fixture energized while the switch reads OFF, and the person who opens that
+  // fixture is expecting it to be dead. NEC 404.2(B). The user is told what
+  // kind of mistake it is; the validator still does not say which wire to move.
+  NEUTRAL_SWITCHED: 'The grounded conductor is being switched',
   GROUND_MISSING: 'Equipment grounding continuity is missing',
   TERMINAL_OVERLOADED: 'Too many conductors land on one terminal',
   ROLE_NOT_ACCEPTED: 'That conductor role does not belong on this terminal',
@@ -139,22 +145,41 @@ const checkShorts = (circuit) => {
   })];
 };
 
+/**
+ * Two different faults live here and they must not share a message.
+ *
+ *   OPEN neutral      — never reaches the supply, in any switch position.
+ *                       The load simply does not work. Annoying, obvious, safe.
+ *
+ *   SWITCHED neutral  — reaches the supply in SOME positions and not others,
+ *                       because the switch was put in the grounded conductor
+ *                       instead of the ungrounded one.
+ *
+ * The second one is the dangerous one, and it is dangerous precisely because it
+ * LOOKS like it works: the lamp goes on and off, the customer is happy, and the
+ * fixture stays energized with the switch off. Reporting both as "neutral
+ * continuity is missing" told the learner nothing about which one they had
+ * built. Now the truth table decides, and each fault gets its own name.
+ */
 const checkNeutralContinuity = (circuit) => {
   const out = [];
   const { rows } = truthTable(circuit);
   for (const load of loadComponents(circuit.components)) {
-    // The grounded conductor runs to the load unswitched — it must reach the
-    // supply in EVERY position. A neutral that comes and goes is a switched
-    // neutral, which is exactly what this lesson must not teach.
-    const everyState = rows.every((r) => {
+    const reach = rows.map((r) => {
       const l = r.loads.find((x) => x.id === load.id);
-      return l && l.neutralReachesSupply;
+      return !!(l && l.neutralReachesSupply);
     });
-    if (!everyState) {
-      out.push(finding(Category.CONTINUITY, FailureMessage.NEUTRAL_MISSING, {
+    if (reach.every(Boolean)) continue;
+
+    const switched = reach.some(Boolean); // reaches in some states, not all
+    out.push(switched
+      ? finding(Category.SWITCHING, FailureMessage.NEUTRAL_SWITCHED, {
+        components: [load.id], rule: 'NEVER_SWITCH_THE_GROUNDED_CONDUCTOR',
+        detail: 'A switch may only interrupt the ungrounded conductor. Interrupting the grounded conductor leaves the load energized when the switch is off.',
+      })
+      : finding(Category.CONTINUITY, FailureMessage.NEUTRAL_MISSING, {
         components: [load.id], rule: 'NEUTRAL_UNSWITCHED_AT_LOAD',
       }));
-    }
   }
   return out;
 };
@@ -273,6 +298,14 @@ export const validate = (circuit, expectations = {}) => {
  */
 export const primaryFailure = (result) => {
   if (result.valid) return null;
+
+  // A switched grounded conductor outranks its own category. It is filed under
+  // SWITCHING, which would otherwise bury it behind an open ground or a missing
+  // termination — and of everything this validator can find, it is the one a
+  // learner most needs to hear about first.
+  const switchedNeutral = result.errors.find((f) => f.rule === 'NEVER_SWITCH_THE_GROUNDED_CONDUCTOR');
+  if (switchedNeutral) return switchedNeutral;
+
   const order = [Category.SHORT, Category.GROUNDING, Category.CONTINUITY, Category.SWITCHING, Category.TERMINATION, Category.ROLE];
   for (const cat of order) {
     const hit = result.errors.find((f) => f.category === cat);
