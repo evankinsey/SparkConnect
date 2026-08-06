@@ -8,7 +8,7 @@
 //
 // The engine decides correctness. This file only renders and collects taps.
 
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, Alert, Vibration, Platform,
 } from 'react-native';
@@ -19,6 +19,7 @@ import { validate, primaryFailure } from '../circuit/validator';
 import { conductor, ConductorRole } from '../circuit/model';
 import { attributionFor, TRAINING_DISCLAIMER } from '../circuit/review';
 import { scoreAttempt, nextHint, rankForXp, TimerMode } from '../circuit/scoring';
+import { buildGuide, remainingRoles, promptForRole, matchGuidedTap, roleName } from '../circuit/guided';
 import CircuitCanvas, { ROLE_COLORS } from './CircuitCanvas';
 
 const ROLE_CHIPS = [
@@ -136,6 +137,22 @@ function LessonPlayer({ C, lesson, onExit, onStreakUpdate, onSolved }) {
   const [solved, setSolved] = useState(false);
   const [score, setScore] = useState(null);
 
+  // ── Guided mode ──
+  // Default ON. The whole point is that a beginner is never staring at an
+  // empty board wondering what to do first. Expert mode is one tap away and
+  // behaves exactly as it always has.
+  const [guided, setGuided] = useState(true);
+  const [remaining, setRemaining] = useState(() => buildGuide(lesson).remaining);
+  const [coach, setCoach] = useState(null);
+  const totalSteps = useMemo(() => buildGuide(lesson).total, [lesson]);
+  const doneSteps = totalSteps - remaining.length;
+  const roleChips = useMemo(() => remainingRoles(remaining), [remaining]);
+  // Keep the chosen conductor pointed at something that is still needed.
+  useEffect(() => {
+    if (!guided || remaining.length === 0) return;
+    if (!roleChips.some((c) => c.role === role)) setRole(roleChips[0].role);
+  }, [guided, roleChips, role, remaining.length]);
+
   const buzz = useCallback((ms) => {
     // SUX-05 asks for a short haptic on a wrong answer. Vibration is the only
     // thing available without adding a dependency mid-release.
@@ -157,14 +174,38 @@ function LessonPlayer({ C, lesson, onExit, onStreakUpdate, onSolved }) {
       return;
     }
 
+    if (guided && remaining.length > 0) {
+      const m = matchGuidedTap(components, remaining, role, pending, terminalId);
+      setPending(null);
+      if (!m.ok) {
+        // A wrong tap in guided mode teaches — it does not add a bad wire.
+        setCoach(m.coach);
+        buzz([0, 40, 60, 40]);
+        return;
+      }
+      setCoach(null);
+      setRemaining((prev) => prev.filter((c) => c.key !== m.consumedKey));
+      setWires((prev) => [...prev, conductor(m.conductor.fromTerminal, m.conductor.toTerminal, m.conductor.role)]);
+      buzz(18);
+      return;
+    }
+
     setWires((prev) => [...prev, conductor(pending, terminalId, role)]);
     setPending(null);
   };
 
   const removeWire = (id) => {
     if (solved) return;
+    const gone = wires.find((w) => w.id === id);
     setWires((prev) => prev.filter((w) => w.id !== id));
     setResult(null);
+    // Put the step back on the guided to-do list so the count stays honest.
+    if (guided && gone) {
+      setRemaining((prev) => [...prev, {
+        key: `re${id}`, role: gone.role,
+        fromTerminal: gone.fromTerminal, toTerminal: gone.toTerminal,
+      }]);
+    }
   };
 
   const test = () => {
@@ -196,6 +237,15 @@ function LessonPlayer({ C, lesson, onExit, onStreakUpdate, onSolved }) {
   const reset = () => {
     setWires([]); setPending(null); setResult(null); setHint(null);
     setResets((n) => n + 1); setSolved(false); setScore(null);
+    setRemaining(buildGuide(lesson).remaining); setCoach(null);
+  };
+
+  // Switching modes mid-lesson clears the board rather than trying to
+  // reconcile hand-run wires against the guided checklist.
+  const toggleGuided = () => {
+    setGuided((g) => !g);
+    setWires([]); setPending(null); setResult(null); setCoach(null);
+    setRemaining(buildGuide(lesson).remaining);
   };
 
   const failure = result && !result.valid ? primaryFailure(result) : null;
@@ -215,41 +265,86 @@ function LessonPlayer({ C, lesson, onExit, onStreakUpdate, onSolved }) {
           <Text style={{ fontSize: 16, fontWeight: '800', color: C.text }}>{lesson.title}</Text>
           <Text style={{ fontSize: 11, color: C.textTert }}>{lesson.difficulty} · tap two terminals to connect</Text>
         </View>
+        <TouchableOpacity
+          onPress={toggleGuided}
+          accessibilityRole="button"
+          accessibilityLabel={guided ? 'Switch to expert mode' : 'Switch to guided mode'}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 99, backgroundColor: guided ? C.blueSub : C.surface, borderWidth: 1, borderColor: guided ? C.blue : C.border }}>
+          <Ionicons name={guided ? 'school' : 'construct'} size={13} color={guided ? C.blue : C.textSec} />
+          <Text style={{ fontSize: 11, fontWeight: '700', color: guided ? C.blue : C.textSec }}>{guided ? 'Guided' : 'Expert'}</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Objective */}
-      <View style={{ backgroundColor: C.blueSub, borderRadius: 12, padding: 12, marginBottom: 14 }}>
-        <Text style={{ fontSize: 11, fontWeight: '800', color: C.blue, marginBottom: 5 }}>OBJECTIVE</Text>
-        {lesson.learningObjectives.slice(0, 3).map((o, i) => (
-          <Text key={i} style={{ fontSize: 12, color: C.text, lineHeight: 18 }}>• {o}</Text>
-        ))}
-      </View>
+      {/* Guided: one step at a time, with a progress bar. Objectives are a wall
+          of text for a beginner — in guided mode the step IS the instruction. */}
+      {guided && !solved ? (
+        <View style={{ backgroundColor: C.blueSub, borderRadius: 12, padding: 12, marginBottom: 14 }}>
+          <Text style={{ fontSize: 11, fontWeight: '800', color: C.blue, marginBottom: 5 }}>
+            STEP {Math.min(doneSteps + 1, totalSteps)} OF {totalSteps}
+          </Text>
+          <Text style={{ fontSize: 13.5, color: C.text, lineHeight: 20, fontWeight: '600' }}>
+            {remaining.length ? promptForRole(role) : 'Every conductor is run. Hit Test Circuit.'}
+          </Text>
+          <View style={{ height: 5, borderRadius: 3, backgroundColor: C.border, marginTop: 10, overflow: 'hidden' }}>
+            <View style={{ width: `${Math.round((doneSteps / Math.max(totalSteps, 1)) * 100)}%`, height: 5, backgroundColor: C.blue }} />
+          </View>
+        </View>
+      ) : (
+        <View style={{ backgroundColor: C.blueSub, borderRadius: 12, padding: 12, marginBottom: 14 }}>
+          <Text style={{ fontSize: 11, fontWeight: '800', color: C.blue, marginBottom: 5 }}>OBJECTIVE</Text>
+          {lesson.learningObjectives.slice(0, 3).map((o, i) => (
+            <Text key={i} style={{ fontSize: 12, color: C.text, lineHeight: 18 }}>• {o}</Text>
+          ))}
+        </View>
+      )}
+
+      {/* Coach line — what the last wrong tap got wrong, without the answer */}
+      {coach && !solved && (
+        <View style={{ flexDirection: 'row', gap: 8, backgroundColor: C.amberBg, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+          <Ionicons name="bulb" size={16} color={C.amber} />
+          <Text style={{ flex: 1, fontSize: 12.5, color: C.text, lineHeight: 19 }}>{coach}</Text>
+        </View>
+      )}
 
       {/* Conductor role picker */}
       {!solved && (
         <>
           <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, marginBottom: 7, letterSpacing: 0.5 }}>
-            CONDUCTOR TYPE
+            {guided ? 'STEP 1 · CHOOSE YOUR CONDUCTOR' : 'CONDUCTOR TYPE'}
           </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
             <View style={{ flexDirection: 'row', gap: 7 }}>
-              {ROLE_CHIPS.filter((r) => lesson.allowedWireTypes.includes(r.role)).map((r) => {
-                const active = role === r.role;
-                return (
-                  <TouchableOpacity
-                    key={r.role}
-                    onPress={() => setRole(r.role)}
-                    style={{
-                      flexDirection: 'row', alignItems: 'center', gap: 6,
-                      paddingHorizontal: 12, paddingVertical: 9, borderRadius: 20,
-                      backgroundColor: active ? C.blue : C.surface,
-                      borderWidth: 1.5, borderColor: active ? C.blue : C.border,
-                    }}>
-                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: r.color, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)' }} />
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: active ? '#fff' : C.textSec }}>{r.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
+              {ROLE_CHIPS
+                .filter((r) => lesson.allowedWireTypes.includes(r.role))
+                // Guided mode hides conductor types this lesson has no more of,
+                // so the choice is always between real options.
+                .filter((r) => !guided || roleChips.some((c) => c.role === r.role))
+                .map((r) => {
+                  const active = role === r.role;
+                  const left = roleChips.find((c) => c.role === r.role)?.count ?? 0;
+                  return (
+                    <TouchableOpacity
+                      key={r.role}
+                      onPress={() => { setRole(r.role); setCoach(null); }}
+                      accessibilityRole="button"
+                      accessibilityLabel={guided ? `${roleName(r.role)}, ${left} left to run` : roleName(r.role)}
+                      accessibilityState={{ selected: active }}
+                      style={{
+                        flexDirection: 'row', alignItems: 'center', gap: 6,
+                        paddingHorizontal: 12, paddingVertical: 9, borderRadius: 20,
+                        backgroundColor: active ? C.blue : C.surface,
+                        borderWidth: 1.5, borderColor: active ? C.blue : C.border,
+                      }}>
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: r.color, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)' }} />
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: active ? '#fff' : C.textSec }}>{r.label}</Text>
+                      {guided && left > 0 && (
+                        <View style={{ minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 4, backgroundColor: active ? 'rgba(255,255,255,0.28)' : C.border, alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ fontSize: 9.5, fontWeight: '800', color: active ? '#fff' : C.textSec }}>{left}</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
             </View>
           </ScrollView>
         </>
@@ -269,7 +364,9 @@ function LessonPlayer({ C, lesson, onExit, onStreakUpdate, onSolved }) {
 
       {pending && (
         <Text style={{ fontSize: 12, color: C.blue, fontWeight: '600', marginBottom: 10, textAlign: 'center' }}>
-          Now tap the terminal to connect it to — or tap it again to cancel.
+          {guided
+            ? `Now tap where the ${roleName(role).toLowerCase()} lands — or tap again to cancel.`
+            : 'Now tap the terminal to connect it to — or tap it again to cancel.'}
         </Text>
       )}
 
