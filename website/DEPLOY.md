@@ -28,52 +28,77 @@ The one rule that keeps it true: **never deploy anything to the
 
 ---
 
-## The safe path
+## The safe path — no terminal required
 
-Run the verifier at every step. It lives next to this file.
+Everything below is done in a browser. It works on a phone. There is no CLI
+step, because the site is already committed to GitHub and Vercel can deploy
+straight from the repo.
 
-```
-cd website
-./verify-api.sh                 # baseline, BEFORE you touch anything
-```
+### 1. Import the repo as a NEW project
 
-Green means SparkAI is up right now. Write down that it passed — that is the
-thing you compare against later.
+vercel.com → **Add New… → Project** → import `evankinsey/SparkConnect`.
 
-1. **Create a NEW Vercel project.** Call it `sparkconnect-site`.
-   - Root directory: `website`
-   - Framework Preset: **Other**
-   - Build command: **none** (leave empty)
-   - Output directory: **leave empty** — `vercel.json` sets it
-   There is no build step. It is static HTML with inline CSS and JS.
+Then, before you click Deploy:
 
-2. **Deploy to preview.** Open the preview URL and click through the page.
+| Setting | Value |
+|---|---|
+| Project Name | `sparkconnect-site` |
+| Framework Preset | **Other** |
+| Root Directory | `website` &nbsp;← **this is the important one** |
+| Build Command | leave empty |
+| Output Directory | leave empty (`vercel.json` handles it) |
+| Install Command | leave empty |
 
-3. **Confirm the API is still fine.** Nothing you did should have touched it,
-   and this proves it:
-   ```
-   ./verify-api.sh
-   ```
+Root Directory `website` is what makes this safe *and* what makes it work:
+Vercel only ever looks inside that folder, so it cannot see the app source and
+cannot accidentally build anything.
 
-4. **Move the domain.** Vercel → `sparkconnect-website` → Settings → Domains →
-   remove `sparkconnect.pro`. Then `sparkconnect-site` → Domains → add it.
-   DNS is already pointed at Vercel, so this is a reassignment, not a DNS change.
+### 2. Point it at the right branch
 
-5. **Verify both.**
-   ```
-   ./verify-api.sh                                    # the app's backend
-   curl -sI https://sparkconnect.pro | head -1        # the new site
-   ```
+The site lives on `claude/daily-code-question-home-rh6cip`, not on `main` —
+`main` is still the old 1.0 code.
 
-6. **Leave `sparkconnect-website` running, untouched, forever.** It has no custom
-   domain now and it does not need one. It serves `*.vercel.app/api/*`, which is
-   what every shipped build calls.
+Project → **Settings → Git → Production Branch** → set it to
+`claude/daily-code-question-home-rh6cip` → Save → **Deployments → Redeploy**.
+
+*(If you merge that branch to `main` later, change this back to `main` and
+redeploy. Nothing else moves.)*
+
+### 3. Look at it
+
+Open the `*.vercel.app` URL Vercel gives you. Click every nav and footer link —
+they all resolve, there are no placeholder 404s. Check it on your phone.
+
+### 4. Move the domain
+
+- `sparkconnect-website` → Settings → Domains → remove `sparkconnect.pro`
+- `sparkconnect-site` → Settings → Domains → add `sparkconnect.pro`
+
+DNS already points at Vercel, so this is a reassignment between projects, not a
+DNS change. It takes effect in seconds, not hours.
+
+### 5. Check both
+
+Open in a browser:
+
+- `https://sparkconnect.pro` → the new site
+- `https://sparkconnect-website.vercel.app/api/ask-nec` → **must not be a 404.**
+  A blank page, an error object, or "Method Not Allowed" are all fine — they
+  mean the function is still deployed. 404 is the only bad answer.
+
+When you have a working terminal again, `./verify-api.sh` does this properly,
+including POSTing a real question.
+
+### 6. Never deploy to `sparkconnect-website` again
+
+It has no custom domain now and does not need one. It serves
+`*.vercel.app/api/*`, which is what every shipped build calls.
 
 ---
 
 ## Rollback
 
-If step 5 fails, you have about a minute of work:
+If step 5 fails, you have about a minute of work, all in the browser:
 
 1. Vercel → `sparkconnect-site` → Domains → remove `sparkconnect.pro`
 2. Vercel → `sparkconnect-website` → Domains → add it back
@@ -117,10 +142,26 @@ Do not rename, restructure, or "tidy" anything under `/api/`.
 ```
 website/
   index.html                        the site — self-contained, no build step
+  privacy.html                      linked FROM INSIDE THE APP — must exist
+  terms.html                        linked FROM INSIDE THE APP — must exist
+  whats-new.html                    release notes
   tools/
+    index.html                      calculator index
     conduit-fill-calculator.html    first SEO page, working calculator
+  vercel.json                       no build step, security headers
+  verify-api.sh                     the check to run at every step
   DEPLOY.md                         this file
 ```
+
+**privacy.html and terms.html are not optional.** The app's own onboarding
+checkboxes link to `sparkconnect.pro/terms` and `sparkconnect.pro/privacy`
+(`src/OnboardingFlow.js`). If the domain moves to a site without them, the
+legal links inside the shipping app 404.
+
+They were written from what the code actually does — two outbound calls, a
+locally generated random device id, everything else on the device. Read them
+before you publish, and if you already have policy text that App Store review
+has seen, use that instead.
 
 Everything is inline: no external fonts, no CDN scripts, no image requests. That
 is deliberate — it's what makes the page fast, and it means the site cannot break
