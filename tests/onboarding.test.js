@@ -112,13 +112,20 @@ test('value comes before the ask', () => {
   assert.equal(stepById(StepId.PROOF).effect, null, 'the value moment asks for nothing');
 });
 
-test('you can go back, and back never skips the record', () => {
-  let s = run({ [StepId.ROLE]: 'journeyman' });
+test('you can go back, and back never discards an answer', () => {
+  // Step 0 is the disclaimer, so getting anywhere means accepting first.
+  let s = run({ [StepId.LEGAL]: true, [StepId.ROLE]: 'journeyman' });
   s = advance(s);
   assert.equal(s.index, 1);
+  assert.equal(stepById(STEPS[1].id).id, StepId.ROLE);
+
+  s = advance(s);
+  assert.equal(s.index, 2);
   s = back(s);
-  assert.equal(s.index, 0);
+  assert.equal(s.index, 1);
   assert.equal(s.answers[StepId.ROLE], 'journeyman', 'going back must not discard an answer');
+  assert.equal(s.answers[StepId.LEGAL], true, 'nor the acceptance');
+
   assert.equal(back(beginOnboarding()).index, 0, 'back from the first step stays put');
   assert.equal(progress(beginOnboarding()), 0);
 });
@@ -216,4 +223,43 @@ test('two questions is the budget', () => {
   // personalisation it buys.
   const asks = STEPS.filter((s) => s.kind === 'CHOICE');
   assert.ok(asks.length <= 2, `${asks.length} questions before value is too many`);
+});
+
+// ─── The disclaimer comes first ──────────────────────────────────────────────
+
+test('nothing electrical is shown before the terms are accepted', async () => {
+  const { orderingFault } = await import('../src/core/onboarding/flow.js');
+  // This was wrong once. The demo screen puts a real NEC citation in front of
+  // somebody, and it had drifted ahead of the acceptance it depends on — a
+  // legal gate sitting behind the exact thing it exists to gate.
+  assert.equal(orderingFault(), null);
+
+  // And the check actually catches it, rather than passing vacuously.
+  const broken = [
+    { id: 'DEMO', showsElectricalContent: true, effect: null },
+    { id: 'LEGAL', effect: 'LEGAL_ACCEPTANCE' },
+  ];
+  const fault = orderingFault(broken);
+  assert.equal(fault.step, 'DEMO');
+  assert.match(fault.reason, /before the terms are accepted/);
+
+  // A flow with no acceptance step at all is also a fault.
+  assert.match(orderingFault([{ id: 'X', effect: null }]).reason, /No step records acceptance/);
+});
+
+test('the disclaimer is the first screen, and it cannot be skipped', () => {
+  assert.equal(STEPS[0].id, StepId.LEGAL);
+  assert.equal(STEPS[0].required, true);
+  assert.equal(STEPS[0].skippable, false);
+  // Leading with the limits is the product's argument, not an apology — so the
+  // copy states what the app will not do rather than listing obligations.
+  assert.match(STEPS[0].title, /will not do/i);
+});
+
+test('a user cannot reach any other screen without accepting', () => {
+  const s = beginOnboarding();
+  assert.equal(s.index, 0);
+  assert.equal(canAdvance(s), false, 'the very first screen must hold');
+  assert.equal(advance(s).index, 0, 'advancing without accepting must be a no-op');
+  assert.equal(canAdvance(answer(s, StepId.LEGAL, true)), true);
 });

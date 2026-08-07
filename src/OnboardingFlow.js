@@ -242,7 +242,18 @@ function ProofStep() {
   );
 }
 
-/** The compliance record. Unchanged in substance from what shipped. */
+/**
+ * The compliance record, and the first thing anybody sees.
+ *
+ * SAME SUBSTANCE, DIFFERENT SHAPE. The old version opened with six bullets of
+ * obligations and three checkboxes — accurate, and it read as a terms-of-service
+ * wall, which is what makes a first screen a bounce.
+ *
+ * This says the same things as three short statements of what the app IS and
+ * ISN'T. That framing is not a softening: "we will not tell you a breaker size
+ * from a paragraph" is a harder commitment than "verify all calculations", and
+ * it is the product's actual argument. Leading with the limits is the brand.
+ */
 function LegalStep({ value, onChange }) {
   const [boxes, setBoxes] = useState({ terms: false, privacy: false, disc: false });
   const toggle = (k) => {
@@ -251,31 +262,46 @@ function LegalStep({ value, onChange }) {
     onChange(next.terms && next.privacy && next.disc);
   };
 
-  const points = [
-    'Verify every calculation before installation',
-    'Follow the manufacturer instructions',
-    'Follow the NEC edition your jurisdiction has adopted',
-    'Follow your local AHJ requirements',
-    'Obtain permits and inspections when required',
-    'Work safely and use proper PPE',
+  const limits = [
+    {
+      icon: 'close-circle',
+      title: 'It is not your inspector',
+      body: 'Nothing here replaces the code your jurisdiction adopted, your approved plans, '
+        + 'permits, inspections, or licensed supervision.',
+    },
+    {
+      icon: 'calculator',
+      title: 'It does the arithmetic. You do the judgement',
+      body: 'Check every calculation against the job in front of you, the manufacturer '
+        + 'instructions, and the edition your AHJ enforces.',
+    },
+    {
+      icon: 'shield-checkmark',
+      title: 'It never assumes a circuit is dead',
+      body: 'De-energize, lock out and verify absence of voltage yourself. The app will '
+        + 'not tell you something is safe to touch.',
+    },
   ];
 
   const rows = [
+    { key: 'disc', label: 'I understand this is a reference tool and does not replace licensed electrical supervision', url: null },
     { key: 'terms', label: 'I agree to the Terms of Service', url: 'https://sparkconnect.pro/terms' },
     { key: 'privacy', label: 'I agree to the Privacy Policy', url: 'https://sparkconnect.pro/privacy' },
-    { key: 'disc', label: 'I understand this is a reference tool and does not replace licensed electrical supervision', url: null },
   ];
 
   return (
     <View style={{ gap: 9 }}>
-      <View style={s.qCard}>
-        {points.map((p) => (
-          <View key={p} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start', marginBottom: 9 }}>
-            <Ionicons name="checkmark" size={14} color={C.blue2} style={{ marginTop: 3 }} />
-            <Text style={{ flex: 1, fontSize: 13.5, color: C.text2, lineHeight: 19 }}>{p}</Text>
+      {limits.map((l) => (
+        <View key={l.title} style={s.limit}>
+          <Ionicons name={l.icon} size={19} color={C.hi} style={{ marginTop: 1 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={s.limitT}>{l.title}</Text>
+            <Text style={s.limitB}>{l.body}</Text>
           </View>
-        ))}
-      </View>
+        </View>
+      ))}
+
+      <View style={{ height: 6 }} />
 
       {rows.map((r) => (
         <TouchableOpacity
@@ -401,6 +427,14 @@ const s = StyleSheet.create({
   checkT: { flex: 1, fontSize: 13.5, color: C.text2, lineHeight: 20 },
 
   freeNote: { flexDirection: 'row', gap: 9, alignItems: 'flex-start', backgroundColor: C.raised, borderRadius: 12, padding: 13 },
+
+  limit: {
+    flexDirection: 'row', gap: 12, alignItems: 'flex-start',
+    backgroundColor: C.card, borderWidth: 1, borderColor: C.line,
+    borderRadius: 14, padding: 15,
+  },
+  limitT: { fontSize: 14.5, fontWeight: '750', color: C.text, letterSpacing: -0.2, marginBottom: 4 },
+  limitB: { fontSize: 13, color: C.text2, lineHeight: 19 },
 
   footer: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 12, gap: 4, borderTopWidth: 1, borderTopColor: C.lineSoft },
   cta: { backgroundColor: C.blue, borderRadius: 14, paddingVertical: 16, alignItems: 'center', minHeight: 54, justifyContent: 'center' },

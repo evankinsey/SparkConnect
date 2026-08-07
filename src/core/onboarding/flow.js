@@ -19,12 +19,20 @@
 // Each step declares an `effect`, and `EFFECTS` maps each one to the thing it
 // actually moves. A test fails if a step declares an effect nothing consumes.
 //
-// THE CONVERSION SHAPE, and none of it requires a dark pattern:
+// THE ORDERING RULE THAT OUTRANKS CONVERSION: the disclaimer is first, and
+// nothing that puts electrical content on screen may come before it. An earlier
+// draft had it at step four, behind a demo showing a real code question with a
+// real NEC citation — which is electrical guidance handed to somebody who had
+// not yet agreed the app does not replace licensed supervision. `orderingFault()`
+// checks this and a test fails on it, because "remember to keep it first" is not
+// a mechanism.
 //
-//   1. Ask the one question that changes the app, and show it changing.
-//   2. Give something real before asking for anything — a working answer, not
+// THE REST OF THE SHAPE, and none of it requires a dark pattern:
+//
+//   1. Say what the app will not do, and get that on the record.
+//   2. Ask the one question that changes the app, and show it changing.
+//   3. Give something real before asking for anything — a working answer, not
 //      a promise of one.
-//   3. Put the legal acceptance where it belongs, not in front of the door.
 //   4. Ask for the trial once, after value, with the free path in plain sight.
 //
 // WHAT IS DELIBERATELY ABSENT: no fake "building your personalised plan"
@@ -163,6 +171,28 @@ export const focusById = (id) => FOCUS.find((f) => f.id === id) ?? null;
  */
 export const STEPS = Object.freeze([
   {
+    id: StepId.LEGAL,
+    kind: 'CONSENT',
+    // FIRST, AND IT HAS TO BE FIRST. This sat at position four for one draft,
+    // behind the value demo — which shows a real code question with a real NEC
+    // citation. That is electrical guidance handed to somebody who has not yet
+    // agreed the app does not replace licensed supervision, which puts a legal
+    // gate behind the exact thing it exists to gate.
+    //
+    // It also belongs here on the merits. The product's whole thesis is that it
+    // tells you its limits before you find them, and an app that opens by
+    // saying what it will not do is making its argument, not apologising. What
+    // made the old version a bounce was that it read as a wall of legal text —
+    // that is a copy problem, and the copy is fixed rather than the position.
+    title: 'What this app will not do',
+    sub: 'SparkConnect shows its working and tells you when it cannot. Here is where it stops.',
+    effect: EFFECTS.LEGAL_ACCEPTANCE.id,
+    skippable: false,
+    required: true,
+    // Anything that puts electrical content on screen must come after this.
+    showsElectricalContent: false,
+  },
+  {
     id: StepId.ROLE,
     kind: 'CHOICE',
     title: 'What do you do?',
@@ -190,15 +220,9 @@ export const STEPS = Object.freeze([
     effect: null,
     skippable: true,
     required: false,
-  },
-  {
-    id: StepId.LEGAL,
-    kind: 'CONSENT',
-    title: 'Before you use it on a job',
-    sub: 'SparkConnect is a reference tool. It does not replace licensed supervision, permits or inspections.',
-    effect: EFFECTS.LEGAL_ACCEPTANCE.id,
-    skippable: false,
-    required: true,
+    // A real code question with a real NEC citation. Flagged so the ordering
+    // rule is enforced by a test rather than by whoever edits this next.
+    showsElectricalContent: true,
   },
   {
     id: StepId.NOTIFY,
@@ -222,6 +246,28 @@ export const STEPS = Object.freeze([
     required: false,
   },
 ]);
+
+/**
+ * Is anything electrical shown before it has been agreed to?
+ *
+ * Returns the offending step, or null. This exists because the ordering was
+ * wrong once and nothing noticed: the demo screen puts a real NEC citation in
+ * front of somebody, and it had drifted ahead of the acceptance it depends on.
+ *
+ * A comment saying "keep the disclaimer first" is not a mechanism. This is.
+ */
+export const orderingFault = (steps = STEPS) => {
+  const consentAt = steps.findIndex((s) => s.effect === EFFECTS.LEGAL_ACCEPTANCE.id);
+  if (consentAt < 0) return { step: null, reason: 'No step records acceptance at all.' };
+  const early = steps.findIndex((s, i) => s.showsElectricalContent && i < consentAt);
+  if (early >= 0) {
+    return {
+      step: steps[early].id,
+      reason: `${steps[early].id} puts electrical content on screen before the terms are accepted.`,
+    };
+  }
+  return null;
+};
 
 export const stepAt = (i) => STEPS[i] ?? null;
 export const stepById = (id) => STEPS.find((s) => s.id === id) ?? null;
