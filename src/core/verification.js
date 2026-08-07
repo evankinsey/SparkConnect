@@ -185,10 +185,35 @@ export const DATASETS = Object.freeze({
     id: 'conductor-resistance',
     label: 'Conductor resistance, ohms per 1000 ft',
     where: 'App.js · VD_RES, src/core/ai/tools.js · VD_RESISTANCE',
+    // STILL UNVERIFIED, and the reason is worth stating because the rows below
+    // were all confirmed against print on 2026-08-07.
+    //
+    // The register refuses a verified status without a named source EDITION, and
+    // the photograph of Table 8 does not show one — page 70-728 is a page
+    // number, not a year. Table 8's resistances are stable across recent
+    // editions, which is exactly the reasoning that makes assuming it tempting
+    // and wrong: "probably unchanged" is how a table gets attributed to an
+    // edition nobody checked. One photo of the title page closes this out.
     status: VerificationStatus.UNVERIFIED,
-    transcribedFrom: 'memory',
-    note: 'Chapter 9 Table 8 values. Drives every voltage-drop answer in the app.',
-    checkInstructions: 'Confirm uncoated copper DC resistance for 14 AWG through 1 AWG against Table 8.',
+    transcribedFrom: 'memory; rows since matched against NEC Chapter 9, Table 8, printed page 70-728',
+    verifiedRows: Object.freeze([
+      'Uncoated copper, STRANDED, ohm/kFT — 14 AWG 3.14, 12 AWG 1.98, 10 AWG 1.24, '
+      + '8 AWG 0.778, 6 AWG 0.491, 4 AWG 0.308, 2 AWG 0.194, 1 AWG 0.154. '
+      + 'All eight match the shipped values exactly (checked 2026-08-07 against a '
+      + 'photograph of the printed page). Edition still unconfirmed.',
+    ]),
+    note: 'Chapter 9 Table 8 values. Drives every voltage-drop answer in the app.\n'
+      + 'STRANDED, NOT SOLID. Table 8 lists both for 14–8 AWG and they differ by about 2% '
+      + '(14 AWG is 3.07 solid against 3.14 stranded). The app uses the stranded figure '
+      + 'throughout, which reports the slightly LARGER drop — the safe direction to be wrong '
+      + 'in, and the right default for conduit work. A solid #14 in NM cable will calculate '
+      + 'marginally conservative, which is intended rather than an oversight.',
+    outstandingRows: Object.freeze([
+      '3 AWG (0.245) and every size 1/0 and larger are on the printed page but not in the app. '
+      + 'Not wrong, just absent — the calculator stops at 1 AWG.',
+      'Coated copper and aluminum columns are unused by the app and were not transcribed.',
+    ]),
+    checkInstructions: 'Confirmed. Re-check if the voltage-drop calculator is extended past 1 AWG.',
   }),
   'nec-citations': dataset({
     id: 'nec-citations',

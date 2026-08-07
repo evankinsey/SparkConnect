@@ -45,9 +45,19 @@ export const Grant = {
  * what day it is, on purpose, so it stays pure and testable.
  */
 export const FREE_LIMITS = Object.freeze({
-  [Feature.SPARK_AI]: { limit: 5, period: 'day' },
+  // 3, not 5. The build on the App Store enforces `LIMITS = { sparky: 3 }` in
+  // useGating.js and its paywall advertises "3/day" — this file had invented a
+  // different number that never shipped. Matching the live build is not a
+  // tightening: no user has ever had 5, and the paywall would have been calling
+  // the app a liar in front of a paying customer.
+  [Feature.SPARK_AI]: { limit: 3, period: 'day' },
   [Feature.VOICE_ASK]: { limit: 0, period: 'day' },        // Pro only
-  [Feature.CALCULATOR]: { limit: null, period: 'day' },    // never gate the core tools
+  // The live build meters calculators at 5/day; the live paywall lists "Box &
+  // Conduit Fill" and "Advanced calculators" as Pro-only. Those two disagree
+  // with each other, and this file made a third choice. Left unlimited on
+  // purpose pending a decision — see PRICING_DISCREPANCIES below — because
+  // whichever way it resolves is a pricing call, not a code cleanup.
+  [Feature.CALCULATOR]: { limit: null, period: 'day' },
   [Feature.TROUBLESHOOT]: { limit: 3, period: 'day' },
   [Feature.WIRING_LESSON]: { limit: 2, period: 'total' },  // first two lessons free
   [Feature.JOBSITE]: { limit: 3, period: 'total' },        // three stations, then Pro
@@ -162,3 +172,58 @@ export const freeTierSummary = () =>
       period: r.period,
       proOnly: r.limit === 0,
     }));
+
+// ─── Known discrepancies between the paywall and the gates ───────────────────
+//
+// Read off the shipping build on 2026-08-07: its paywall screenshot, and the
+// limits `src/useGating.js` actually enforces. These three sources have been
+// disagreeing, and the disagreements are recorded here rather than silently
+// resolved, because every one of them is a pricing decision.
+//
+// In every case the CODE IS MORE GENEROUS than the paywall advertises. Nobody
+// has been short-changed. The risk runs the other way: a customer who pays for
+// something and then finds it was free is a refund and a bad review, and a
+// one-time purchase that quietly includes the subscription's headline feature
+// is a hole in the revenue model.
+
+export const PRICING_DISCREPANCIES = Object.freeze([
+  {
+    id: 'calculators-advertised-as-pro',
+    feature: Feature.CALCULATOR,
+    paywallSays: 'Box & Conduit Fill and Advanced calculators: free tier shows "—"',
+    liveBuildEnforces: '5 calculator uses per day on free',
+    thisCodeDoes: 'unlimited on free',
+    severity: 'HIGH',
+    why: 'The paywall sells a feature the app gives away. Someone upgrading for conduit '
+      + 'fill will find it was never locked, and that is the kind of thing an electrician '
+      + 'tells the rest of the crew about.',
+    decision: 'OPEN — either lock calculators to match the paywall, or redraw the paywall '
+      + 'to stop selling them. Not a code cleanup either way.',
+  },
+  {
+    id: 'lifetime-gets-unlimited-ai',
+    feature: Feature.SPARK_AI,
+    paywallSays: 'Lifetime Tools: 5 SparkAI answers per day',
+    liveBuildEnforces: 'not distinguished — the live build has no Lifetime tier in useGating',
+    thisCodeDoes: 'Lifetime is unmetered on everything its tier includes, so unlimited SparkAI',
+    severity: 'HIGH',
+    why: 'A $29.99 one-time purchase would include the headline feature of a $7.99/month '
+      + 'subscription. That is the whole reason to subscribe, given away once.',
+    decision: 'OPEN — Lifetime needs its own metered allowance (5/day per the paywall) '
+      + 'rather than inheriting the unmetered path.',
+  },
+  {
+    id: 'jobcam-project-count',
+    feature: Feature.JOB_CAM,
+    paywallSays: 'Job Cam projects: free 1, Lifetime 25, Pro unlimited',
+    liveBuildEnforces: 'not metered',
+    thisCodeDoes: '25 photos total on free — a different unit entirely',
+    severity: 'MEDIUM',
+    why: 'The paywall counts PROJECTS, this counts PHOTOS. Whichever is right, the two '
+      + 'numbers are not comparable and one of them is describing something the app does not do.',
+    decision: 'OPEN — pick a unit, then make the paywall and the gate use the same one.',
+  },
+]);
+
+export const openPricingDecisions = () =>
+  PRICING_DISCREPANCIES.filter((d) => d.decision.startsWith('OPEN'));

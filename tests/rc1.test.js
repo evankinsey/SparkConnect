@@ -347,3 +347,38 @@ test('the entitlement id matches the live build', async () => {
   const src = await import('node:fs').then((fs) => fs.readFileSync('src/purchases.js', 'utf8'));
   assert.match(src, /const ENTITLEMENT = 'pro';/);
 });
+
+// ─── The gates must agree with the build that is selling ─────────────────────
+
+test('the free SparkAI allowance matches the shipping build', async () => {
+  const { FREE_LIMITS: L, Feature: F } = await import('../src/core/paywall/entitlements.js');
+  // useGating.js on the live build: LIMITS = { sparky: 3 }, and its paywall
+  // advertises "3/day". This file had invented 5, which never shipped.
+  assert.equal(L[F.SPARK_AI].limit, 3);
+  assert.equal(L[F.SPARK_AI].period, 'day');
+});
+
+test('disagreements with the paywall are recorded, not silently resolved', async () => {
+  const { PRICING_DISCREPANCIES, openPricingDecisions } =
+    await import('../src/core/paywall/entitlements.js');
+  assert.ok(PRICING_DISCREPANCIES.length >= 3);
+  for (const d of PRICING_DISCREPANCIES) {
+    assert.ok(d.id && d.paywallSays && d.thisCodeDoes && d.why, `${d.id} incomplete`);
+    assert.ok(['HIGH', 'MEDIUM', 'LOW'].includes(d.severity));
+  }
+  // These are pricing calls, so they stay open until a person makes them.
+  assert.equal(openPricingDecisions().length, PRICING_DISCREPANCIES.length);
+  assert.ok(PRICING_DISCREPANCIES.some((d) => d.id === 'lifetime-gets-unlimited-ai'),
+    'a one-time purchase including the subscription headline feature must be on the record');
+});
+
+test('conductor resistance rows are recorded as checked but not yet verified', async () => {
+  const { datasetById, isVerified } = await import('../src/core/verification.js');
+  const d = datasetById('conductor-resistance');
+  assert.ok(d.verifiedRows.length >= 1, 'the rows checked against print must be recorded');
+  assert.match(d.verifiedRows[0], /3\.14/);
+  assert.match(d.verifiedRows[0], /Edition still unconfirmed/i);
+  // Rows checked is not the same as table verified. The edition gate holds.
+  assert.equal(isVerified('conductor-resistance'), false,
+    'no edition means no verified status, however many rows were read');
+});
