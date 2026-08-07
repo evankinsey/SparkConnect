@@ -109,3 +109,54 @@ for (const file of FILES) {
     );
   });
 }
+
+// ─── Nested PII (regression) ─────────────────────────────────────────────────
+// The flat `customerName` allowlist was correct while every caller flattened
+// its payload. A project record carries `customer: { name, phone, email }` and
+// a daily log carries `crew: [{ name }]` — inner keys that matched nothing, so
+// the whole branch survived stripping. Containers are named now.
+
+test('a nested customer record does not survive stripping', async () => {
+  const { stripIdentifying } = await import('../src/core/ai/context.js');
+  const stripped = stripIdentifying({
+    id: 'p1',
+    name: 'Reyes panel upgrade',
+    address: '14 Mill Road',
+    customer: { name: 'Ana Reyes', phone: '555-0100', email: 'ana@example.com' },
+    loadVa: 2400,
+  });
+  assert.equal(stripped.customer, undefined, 'the customer subtree must not reach a model');
+  assert.equal(stripped.address, undefined);
+  assert.equal(stripped.loadVa, 2400, 'the electrical facts must survive');
+  assert.equal(stripped.name, 'Reyes panel upgrade', 'the job name is not identifying on its own');
+});
+
+test('crew names in a daily log do not survive stripping', async () => {
+  const { stripIdentifying } = await import('../src/core/ai/context.js');
+  const stripped = stripIdentifying({
+    date: '2026-03-02',
+    crew: [{ name: 'Evan', role: 'JW', minutes: 480 }],
+    authorName: 'Evan',
+    visitors: 'Inspector walked the rough',
+    workPerformed: 'Set panel',
+  });
+  assert.equal(stripped.crew, undefined);
+  assert.equal(stripped.authorName, undefined);
+  assert.equal(stripped.visitors, undefined);
+  assert.equal(stripped.date, '2026-03-02');
+});
+
+test('every identifying key in the project shapes is covered', async () => {
+  const { stripIdentifying } = await import('../src/core/ai/context.js');
+  const { hydrate, setCustomer, setAddress } = await import('../src/core/domain/projectHub.js');
+  const { project } = await import('../src/core/domain/jobcam.js');
+
+  let p = hydrate(project({ id: 'p1', name: 'Job', template: 'CUSTOM', createdAt: '2026-01-01T00:00:00Z' }));
+  p = setCustomer(p, { name: 'Ana Reyes', phone: '555-0100', email: 'ana@example.com', company: 'Reyes LLC' });
+  p = setAddress(p, '14 Mill Road');
+
+  const json = JSON.stringify(stripIdentifying(p));
+  for (const secret of ['Ana Reyes', '555-0100', 'ana@example.com', 'Reyes LLC', '14 Mill Road']) {
+    assert.ok(!json.includes(secret), `"${secret}" reached the model payload`);
+  }
+});

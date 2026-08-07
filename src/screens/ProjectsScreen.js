@@ -103,14 +103,33 @@ export default function ProjectsScreen({ C, setTab }) {
     })();
   }, []);
 
+  // A swallowed write is worse here than anywhere else in the app. React state
+  // updates either way, so the user watches their daily log appear in the list,
+  // closes the app, and finds it gone — with nothing having said a word. On a
+  // record that exists to settle a billing dispute, that is the failure mode
+  // that matters most, and it is exactly what a full storage quota produces.
+  const persistTo = async (key, next, what) => {
+    try {
+      await AsyncStorage.setItem(key, JSON.stringify(next));
+      return true;
+    } catch (e) {
+      Alert.alert(
+        'Not saved',
+        `${what} could not be written to this device — storage may be full. `
+        + 'It is still on screen, so copy anything you cannot lose before closing the app.',
+      );
+      return false;
+    }
+  };
+
   const persist = async (next) => {
     setProjects(next);
-    try { await AsyncStorage.setItem(KEY, JSON.stringify(next)); } catch (e) { /* ignore */ }
+    return persistTo(KEY, next, 'This project');
   };
 
   const persistLogs = async (next) => {
     setLogs(next);
-    try { await AsyncStorage.setItem(LOGS_KEY, JSON.stringify(next)); } catch (e) { /* ignore */ }
+    return persistTo(LOGS_KEY, next, 'This daily log');
   };
 
   if (!projects) return null;

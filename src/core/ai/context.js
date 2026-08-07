@@ -47,10 +47,21 @@ export const SAFETY_CONTEXT =
 
 // Free-text fields that may contain customer information and are therefore never
 // forwarded, regardless of which tool builds the payload.
+// Listed as CONTAINERS as well as leaves. The flat `customerName` style was
+// enough when every caller flattened its payload, but a project record carries
+// `customer: { name, phone, email }` and a daily log carries
+// `crew: [{ name, role }]` — inner keys that match nothing on this list, so the
+// whole subtree used to survive stripping. Naming the container drops the
+// branch regardless of what the fields inside it are called, which is the only
+// version of this that stays correct when a new module adds a nested shape.
 const NEVER_FORWARD = [
+  // Containers.
+  'customer', 'crew', 'contact', 'billing', 'payments',
+  // Leaves.
   'customerName', 'customerEmail', 'customerPhone', 'customerAddress', 'address',
   'notes', 'internalNotes', 'customerNotes', 'customerMessage', 'contractorName',
   'companyName', 'logoUri', 'photoUri', 'reference',
+  'authorName', 'visitors', 'deliveries', 'phone', 'email',
 ];
 
 /** Recursively strip identifying fields from a plain object. */
