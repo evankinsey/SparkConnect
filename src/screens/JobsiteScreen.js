@@ -40,7 +40,9 @@ import {
   Panelboard, JBox, EmtRun, AFrameLadder, WireReel, GangBox, MaterialCart,
   PrintTable, DrywallStack, SafetyCone, WorkTruck, Dumpster, SiteTrailer,
   Tree, Palm, FenceRun, Pallet, ObjectiveMarker, DoneMarker,
+  ScissorLift, TempPower, ConduitBundle,
 } from './topdownArt';
+import { PROPS as SITE_PROPS, PropKind, buildSiteMap } from '../core/game/props';
 import { portraitFor } from './castImages';
 import WiringLabScreen from './WiringLabScreen';
 import TroubleshootScreen from './TroubleshootScreen';
@@ -101,6 +103,26 @@ const PROP_ART = {
   dumpster: Dumpster, trailer: SiteTrailer, tree: Tree, palm: Palm, pallet: Pallet,
 };
 
+/**
+ * Art for the props that actually take up space.
+ *
+ * The decor above is scenery — you walk straight through it, which is what made
+ * the site read as a painting of a job rather than a job. `core/game/props.js`
+ * places these ones on the collision grid, and a test proves every station is
+ * still reachable with them there.
+ */
+const SITE_PROP_ART = {
+  [PropKind.LADDER]: AFrameLadder,
+  [PropKind.PALLET]: Pallet,
+  [PropKind.GANG_BOX]: GangBox,
+  [PropKind.CONDUIT]: ConduitBundle,
+  [PropKind.LIFT]: ScissorLift,
+  [PropKind.TEMP_POWER]: TempPower,
+  [PropKind.SPOOL]: WireReel,
+  [PropKind.SAWHORSE]: PrintTable,
+  [PropKind.DEBRIS]: DrywallStack,
+};
+
 /** The crew, as people rather than portrait bubbles. */
 const CREW_LOOK = {
   michael: ROLE_LOOK.apprentice, jerry: ROLE_LOOK.foreman,
@@ -109,7 +131,10 @@ const CREW_LOOK = {
 };
 
 export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, onPhotoTaken }) {
-  const grid = useMemo(() => buildMap(), []);
+  // buildSiteMap, not buildMap: the pallet, the lift and the gang box are
+  // things you walk around. Reachability is proven against this same grid in
+  // tests/props.test.js, so clutter can never seal a station in.
+  const grid = useMemo(() => buildSiteMap(), []);
   const [pos, setPos] = useState({ ...SPAWN });
   const [progress, setProgress] = useState(emptyJobsiteProgress());
   const [active, setActive] = useState(null);
@@ -416,6 +441,15 @@ function World({ grid, pos, progress, near, route, facing, step }) {
             if (p.k === 'emtV') return <EmtRun key={`p${i}`} tx={p.x} ty={p.y} len={p.len} horiz={false} />;
             const A = PROP_ART[p.k];
             return A ? <A key={`p${i}`} tx={p.x} ty={p.y} /> : null;
+          })}
+
+          {/* The clutter you go around. Drawn at the CENTRE of its footprint so
+              a two-tile pallet sits over both tiles it blocks — art that does
+              not match the collision box is worse than no collision box. */}
+          {SITE_PROPS.map((p) => {
+            const A = SITE_PROP_ART[p.kind];
+            if (!A) return null;
+            return <A key={p.id} tx={p.x + p.w / 2} ty={p.y + p.h / 2} />;
           })}
 
           {walls}

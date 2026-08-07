@@ -554,6 +554,85 @@ export const Pallet = ({ tx, ty }) => {
   );
 };
 
+/**
+ * Scissor lift, parked. Two tiles wide.
+ *
+ * The one object on site big enough that you go round it rather than past it,
+ * which is why it is drawn to its real footprint instead of a tile-sized icon —
+ * a lift you can walk through is the thing that makes the whole site read as a
+ * painting.
+ */
+export const ScissorLift = ({ tx, ty }) => {
+  const x = tx * TILE, y = ty * TILE, w = TILE * 1.7, h = TILE * 0.8;
+  return (
+    <G>
+      <Shade x={x} y={y + h * 0.42} rx={w * 0.5} ry={h * 0.28} />
+      {/* Deck */}
+      <Rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx={5} fill="#6B7076" />
+      <Rect x={x - w / 2 + 3} y={y - h / 2 + 3} width={w - 6} height={h - 6} rx={4} fill="#8B9199" />
+      {/* Rail, which is what you actually see from above */}
+      <Rect x={x - w / 2 + 2} y={y - h / 2 + 2} width={w - 4} height={h - 4} rx={4}
+        fill="none" stroke={SKY.amber} strokeWidth={3} />
+      {/* Scissor legs showing through the deck grate */}
+      {[-0.22, 0.22].map((f) => (
+        <G key={f}>
+          <Line x1={x + w * f - 10} y1={y - h * 0.22} x2={x + w * f + 10} y2={y + h * 0.22}
+            stroke="#5A6068" strokeWidth={3} />
+          <Line x1={x + w * f - 10} y1={y + h * 0.22} x2={x + w * f + 10} y2={y - h * 0.22}
+            stroke="#5A6068" strokeWidth={3} />
+        </G>
+      ))}
+      {[-1, 1].map((s) => [-1, 1].map((t) => (
+        <Circle key={`${s}${t}`} cx={x + s * (w * 0.38)} cy={y + t * (h * 0.34)} r={4} fill="#3A3E44" />
+      )))}
+    </G>
+  );
+};
+
+/**
+ * Temporary power pole.
+ *
+ * First thing up on any site and the last thing down, which is exactly why it
+ * belongs here: a site with no temp power has no explanation for where the
+ * saws are plugged in.
+ */
+export const TempPower = ({ tx, ty }) => {
+  const x = tx * TILE, y = ty * TILE, w = TILE * 0.5;
+  return (
+    <G>
+      <Shade x={x} y={y + w * 0.3} rx={w * 0.6} ry={w * 0.3} />
+      {/* Base and post, seen down the length of it */}
+      <Rect x={x - w * 0.55} y={y - w * 0.25} width={w * 1.1} height={w * 0.5} rx={3} fill={SKY.woodDark} />
+      <Rect x={x - w * 0.16} y={y - w * 0.7} width={w * 0.32} height={w * 1.4} rx={3} fill={SKY.wood} />
+      {/* The board: a couple of outlets and the cords leaving it */}
+      <Rect x={x - w * 0.4} y={y - w * 0.5} width={w * 0.8} height={w * 0.42} rx={3} fill="#3E4A5A" />
+      {[-0.14, 0.14].map((f) => (
+        <Circle key={f} cx={x + w * f} cy={y - w * 0.29} r={2.6} fill="#D8DFE6" />
+      ))}
+      <Path d={`M ${x + w * 0.3} ${y - w * 0.1} q ${w * 0.5} ${w * 0.3} ${w * 0.9} ${w * 0.1}`}
+        stroke="#E2A11D" strokeWidth={2.5} fill="none" strokeLinecap="round" />
+    </G>
+  );
+};
+
+/** A strapped bundle of conduit, lying against a wall. Two tiles long. */
+export const ConduitBundle = ({ tx, ty }) => {
+  const x = tx * TILE, y = ty * TILE, w = TILE * 1.75;
+  return (
+    <G>
+      <Shade x={x} y={y + 7} rx={w * 0.5} ry={7} />
+      {[-6, -1, 4].map((dy, i) => (
+        <Rect key={dy} x={x - w / 2 + i * 3} y={y + dy} width={w - i * 6} height={4.4} rx={2.2}
+          fill={i === 1 ? SKY.emt : SKY.steelMid} />
+      ))}
+      {/* Straps */}
+      {[-0.26, 0.26].map((f) => (
+        <Rect key={f} x={x + w * f - 2} y={y - 9} width={4} height={19} rx={1.5} fill="#2E3238" opacity={0.75} />
+      ))}
+    </G>
+  );
+};
+
 // ─── Markers ─────────────────────────────────────────────────────────────────
 
 /** Orange objective pin, pulsing. */
