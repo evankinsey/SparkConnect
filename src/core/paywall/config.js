@@ -10,13 +10,49 @@
 // cancellation terms must be stated wherever a trial is offered (PWL-03).
 
 export const ProductId = {
-  PRO_ANNUAL: 'sparkconnect_pro_annual',
+  // MUST match App Store Connect exactly. The shipping build on the App Store
+  // sells the annual plan as `sparkconnect_pro_yearly`, and that build takes
+  // money successfully today — so `_yearly` is the identifier proven to exist.
+  // An earlier rewrite here renamed it to `_annual`, which no store product
+  // answers to: the offerings path still worked (it matches on PACKAGE_TYPE,
+  // not on the id) but the direct-purchase fallback silently found nothing.
+  // That fallback exists precisely because offerings had been misconfigured
+  // before, so the one path meant to survive that was the one that broke.
+  PRO_ANNUAL: 'sparkconnect_pro_yearly',
   PRO_MONTHLY: 'sparkconnect_pro_monthly',
   LIFETIME_TOOLS: 'sparkconnect_lifetime_tools',
+  // Legacy identifiers. The number in the id is NOT the number of answers —
+  // these were created before the packs were resized and renaming a live
+  // product is not possible. `PACKS` below is the source of truth for what a
+  // buyer actually receives.
   PACK_15: 'sparky_answers_10',
   PACK_50: 'sparky_answers_30',
   PACK_150: 'sparky_answers_100',
 };
+
+/**
+ * Identifiers we will also accept from the store for the same plan.
+ *
+ * Renaming a product in App Store Connect is not possible once it has sold, so
+ * a plan can legitimately answer to an older id. Asking for every alias costs
+ * one array entry and removes a class of silent purchase failure — the lookup
+ * takes whichever the store actually returns.
+ */
+export const PRODUCT_ALIASES = Object.freeze({
+  [ProductId.PRO_ANNUAL]: Object.freeze(['sparkconnect_pro_yearly', 'sparkconnect_pro_annual']),
+  [ProductId.PRO_MONTHLY]: Object.freeze(['sparkconnect_pro_monthly']),
+  [ProductId.LIFETIME_TOOLS]: Object.freeze(['sparkconnect_lifetime_tools']),
+  [ProductId.PACK_15]: Object.freeze(['sparky_answers_10']),
+  [ProductId.PACK_50]: Object.freeze(['sparky_answers_30']),
+  [ProductId.PACK_150]: Object.freeze(['sparky_answers_100']),
+});
+
+/** Every identifier worth asking the store about. */
+export const ALL_STORE_IDS = Object.freeze([...new Set(Object.values(PRODUCT_ALIASES).flat())]);
+
+/** Does this store product satisfy the plan we asked for? */
+export const matchesProduct = (productId, storeIdentifier) =>
+  (PRODUCT_ALIASES[productId] ?? [productId]).includes(storeIdentifier);
 
 // Prices in cents. RevenueCat is the source of truth at runtime — these are the
 // display fallbacks and the basis for the "per month" maths, so they must match

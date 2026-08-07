@@ -302,3 +302,48 @@ test('the health report is pasteable', () => {
   assert.match(text, /Safe to tag/);
   assert.match(text, /blueprintEnabled/);
 });
+
+// ─── Store identifiers must match what is already selling ────────────────────
+// The build on the App Store takes money successfully today. Anything here that
+// disagrees with it is a purchase that silently fails for a real customer, so
+// these are pinned rather than described.
+
+test('the annual plan uses the identifier the live build sells', async () => {
+  const { ProductId, PRODUCT_ALIASES, ALL_STORE_IDS, matchesProduct } =
+    await import('../src/core/paywall/config.js');
+
+  // Proven to exist: the shipping build buys this one.
+  assert.equal(ProductId.PRO_ANNUAL, 'sparkconnect_pro_yearly');
+  assert.equal(ProductId.PRO_MONTHLY, 'sparkconnect_pro_monthly');
+
+  // The renamed id is still accepted, so a store product created under either
+  // name resolves rather than silently returning nothing.
+  assert.ok(matchesProduct(ProductId.PRO_ANNUAL, 'sparkconnect_pro_yearly'));
+  assert.ok(matchesProduct(ProductId.PRO_ANNUAL, 'sparkconnect_pro_annual'));
+  assert.ok(!matchesProduct(ProductId.PRO_ANNUAL, 'something_else'));
+
+  // Every plan is asked for by every alias it might carry.
+  for (const [id, aliases] of Object.entries(PRODUCT_ALIASES)) {
+    assert.ok(aliases.includes(id) || aliases.length > 0, `${id} has no store identifier`);
+    for (const a of aliases) assert.ok(ALL_STORE_IDS.includes(a), `${a} is never requested from the store`);
+  }
+});
+
+test('the consumable packs keep their legacy identifiers', async () => {
+  const { ProductId, PACKS } = await import('../src/core/paywall/config.js');
+  // The number in the identifier is not the number of answers. These sold under
+  // these names and cannot be renamed, so the ids are pinned and PACKS is the
+  // source of truth for what a buyer receives.
+  assert.equal(ProductId.PACK_15, 'sparky_answers_10');
+  assert.equal(ProductId.PACK_50, 'sparky_answers_30');
+  assert.equal(ProductId.PACK_150, 'sparky_answers_100');
+  assert.equal(PACKS.find((p) => p.id === ProductId.PACK_15).answers, 15);
+  assert.equal(PACKS.find((p) => p.id === ProductId.PACK_150).answers, 150);
+});
+
+test('the entitlement id matches the live build', async () => {
+  // main uses RC_ENTITLEMENT = 'pro'. If this ever diverges, a real purchase
+  // succeeds and the app still shows the paywall.
+  const src = await import('node:fs').then((fs) => fs.readFileSync('src/purchases.js', 'utf8'));
+  assert.match(src, /const ENTITLEMENT = 'pro';/);
+});

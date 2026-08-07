@@ -14,7 +14,7 @@
 
 import { Platform } from 'react-native';
 import { REVENUECAT_IOS_KEY, REVENUECAT_ANDROID_KEY } from './config/keys';
-import { ProductId } from './core/paywall/config';
+import { ProductId, ALL_STORE_IDS, matchesProduct } from './core/paywall/config';
 
 let Purchases = null;
 let PACKAGE_TYPE = { ANNUAL: 'ANNUAL', MONTHLY: 'MONTHLY' };
@@ -29,14 +29,10 @@ const ENTITLEMENT = 'pro';
 // Every product we can buy directly by identifier, subscriptions included.
 // Subscriptions are listed here so the direct path below can serve them when
 // the Offerings system is not configured — see purchaseProduct().
-const STORE_PRODUCT_IDS = [
-  ProductId.PACK_15,
-  ProductId.PACK_50,
-  ProductId.PACK_150,
-  ProductId.LIFETIME_TOOLS,
-  ProductId.PRO_MONTHLY,
-  ProductId.PRO_ANNUAL,
-];
+// Every identifier the store might answer to, including the older ones a live
+// product can still carry. Asking for all of them is what stops a renamed plan
+// from silently failing to load.
+const STORE_PRODUCT_IDS = ALL_STORE_IDS;
 
 let configured = false;
 
@@ -67,7 +63,9 @@ export async function initPurchases() {
  *  App Store Connect — no Offering, no dashboard packages. */
 async function buyByIdentifier(productId) {
   const prods = await Purchases.getProducts(STORE_PRODUCT_IDS);
-  const prod = (prods || []).find(p => p.productIdentifier === productId);
+  // Match on any known alias, not on our internal id — the store returns
+  // whatever identifier the product was actually created with.
+  const prod = (prods || []).find(p => matchesProduct(productId, p.productIdentifier));
   if (!prod) return null;
   const { customerInfo } = await Purchases.purchaseStoreProduct(prod);
   return customerInfo;
@@ -100,7 +98,7 @@ export async function purchaseProduct(productId) {
         const pkgs = offerings?.current?.availablePackages || [];
         const wanted = productId === ProductId.PRO_ANNUAL ? PACKAGE_TYPE.ANNUAL : PACKAGE_TYPE.MONTHLY;
         const pkg = pkgs.find(p => p.packageType === wanted)
-          || pkgs.find(p => p.product?.identifier === productId);
+          || pkgs.find(p => matchesProduct(productId, p.product?.identifier));
         if (pkg) {
           const { customerInfo } = await Purchases.purchasePackage(pkg);
           return { ok: proFrom(customerInfo), isPro: proFrom(customerInfo) };
