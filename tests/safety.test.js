@@ -112,7 +112,12 @@ test('low confidence produces silence, not a hedge', () => {
   assert.equal(meetsConfidenceFloor('0.99'), false, 'a string is not a confidence');
   // The copy must not contain a soft word that a reader could keep.
   assert.ok(!/probably|likely|should be|might be/i.test(CANNOT_VERIFY));
-  assert.match(CANNOT_VERIFY, /can't verify/i);
+  // Names SparkAI rather than saying "I", so a refusal reads as a component
+  // reporting its limit and not as the app failing.
+  assert.match(CANNOT_VERIFY, /SparkAI/);
+  // Says the refusal was a decision. This is the sentence that makes the most
+  // trustworthy behaviour in the app stop looking like the least reliable one.
+  assert.match(CANNOT_VERIFY, /won't guess/i);
 });
 
 // ─── Citations ───────────────────────────────────────────────────────────────

@@ -143,9 +143,33 @@ export const partitionNarrativeOnly = (items, source) => {
  *
  * "Probably a loose neutral" is worse than silence, because the reader keeps the
  * first half of the sentence and drops the hedge.
+ *
+ * WHY IT IS PHRASED THIS WAY. The previous version — "I can't verify this",
+ * with an internal reason reading "Not confident enough to answer" — was
+ * accurate and read like a fault. Three things changed:
+ *
+ *   · It names SparkAI. "I can't" sounds like the app broke; "SparkAI can't
+ *     answer that with full confidence" is a component reporting its own limit.
+ *   · It says the refusal was a CHOICE. "so it won't guess" is the whole
+ *     product in four words, and it is the sentence that turns the most
+ *     trustworthy behaviour in the app from a dead end into a feature.
+ *   · It does not end there. Callers attach routes — the calculator that
+ *     computes it, the authority that decides it, and a way to report the
+ *     refusal — because a refusal with nowhere to go is what people uninstall.
  */
 export const CANNOT_VERIFY =
-  "I can't verify this. Check the NEC or ask a licensed instructor before acting on it.";
+  "SparkAI can't answer that with full confidence, so it won't guess.";
+
+/**
+ * The line under it, when a screen has room for two.
+ *
+ * Separate constant because the short form is what fits in a chat bubble and
+ * this is what fits under it. Never concatenated blindly — a caller with a
+ * specific route (a calculator, an AHJ) should offer that instead.
+ */
+export const CANNOT_VERIFY_DETAIL =
+  'Check the NEC or ask a licensed electrician before acting on it. If you think this '
+  + 'is something SparkAI should know, report it and it gets reviewed.';
 
 /**
  * Confidence floor for anything electrical. Below this, callers return

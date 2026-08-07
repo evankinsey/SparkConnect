@@ -39,7 +39,11 @@ test('a MODEL answer that states a specification is refused', async () => {
 
   assert.equal(r.provenance, Provenance.REFUSED,
     'a model may explain; it may not size a conductor');
-  assert.match(r.reason, /electrical specification|not permitted/i);
+  // The reason says where the number SHOULD have come from, not just that a
+  // rule was broken. "Not permitted" is a policy; "those come from a calculator
+  // or the code book" is an explanation somebody can act on.
+  assert.match(r.reason, /not allowed/i);
+  assert.match(r.reason, /calculator|code book/i);
 });
 
 test('the assertion detector catches the phrasings that matter', () => {
@@ -283,7 +287,7 @@ test('the model is told what it may not do', () => {
   const joined = SYSTEM_RULES.join(' ');
   assert.match(joined, /may NOT state a conductor size/);
   assert.match(joined, /may NOT cite the NEC/);
-  assert.match(joined, /can't verify this/);
+  assert.match(joined, /can't answer that with full confidence/);
   assert.match(joined, /energized/);
 });
 
@@ -595,8 +599,35 @@ test('a jurisdiction question routes to the authority instead of shrugging', asy
     'what NEC edition does Tampa use',
   );
   assert.equal(r.hasRoute, true);
-  assert.match(r.headline, /depends on the jurisdiction/i);
+  assert.match(r.headline, /jurisdiction/i);
+  // Names SparkAI and frames the refusal as a choice, not a malfunction.
+  assert.match(r.headline, /SparkAI/);
+  assert.match(r.headline, /won’t guess/i);
   assert.ok(r.reason, 'the reason survives — why is what makes a refusal trustworthy');
+});
+
+test('every refusal can be pushed back on', async () => {
+  const { nextActions, ActionKind } = await import('../src/core/ai/nextActions.js');
+
+  // A refusal nobody can contest is indistinguishable from a gap nobody
+  // noticed, and the gaps worth fixing are the ones somebody hit in the field.
+  // Three real routes must not push the report button off the end.
+  const busy = nextActions('what edition does Tampa use for a three way switch voltage drop', {
+    refusalReason: 'jurisdictional',
+  });
+  assert.ok(busy.length <= 3, 'a refusal followed by six buttons is a menu');
+  assert.ok(busy.some((a) => a.kind === ActionKind.REPORT), 'the report slot is reserved');
+
+  // And a real route still comes first — a button that solves the problem
+  // beats a button that files it.
+  assert.notEqual(busy[0].kind, ActionKind.REPORT);
+
+  // Nothing about the job goes with it.
+  const report = busy.find((a) => a.kind === ActionKind.REPORT);
+  assert.match(report.detail, /nothing about your job, your customer or your location/i);
+
+  // An ANSWER is not a refusal, so it gets no report button.
+  assert.equal(nextActions('voltage drop on a long run').some((a) => a.kind === ActionKind.REPORT), false);
 });
 
 test('a computable question routes to the calculator that computes it', async () => {

@@ -137,7 +137,8 @@ export const sealAnswer = (a) => {
 
   if (a.provenance === Provenance.MODEL && a.assertsElectrical) {
     return refuse(
-      'That answer contained an electrical specification, which SparkAI is not permitted to state on its own.',
+      'That answer put a number on something electrical, and SparkAI is not allowed to do '
+      + 'that on its own — those come from a calculator or the code book, never from the model.',
       {
         suggestion: 'Use the matching calculator, or check the NEC edition adopted by your AHJ.',
         question: a.question,
@@ -146,7 +147,14 @@ export const sealAnswer = (a) => {
   }
 
   if (!a.confident && MAY_ASSERT.has(a.provenance) === false) {
-    return refuse('Not confident enough to answer.', { question: a.question });
+    // Not "not confident enough to answer" — that reads as a fault in the app.
+    // Say what SparkAI did and why, in its own name, so the most trustworthy
+    // behaviour in the product stops looking like the least reliable one.
+    return refuse(
+      'SparkAI is not confident enough in this to state it, and it will not guess at '
+      + 'something you might wire.',
+      { question: a.question },
+    );
   }
 
   if (a.sources.length === 0 && a.droppedSources.length > 0) {

@@ -79,7 +79,10 @@ test('a demoted claim is moved, not dropped', () => {
 test('a blurry photo says so instead of guessing', () => {
   const r = readPhoto({ observations: [obs('something metal, too dark to make out', Observation.NOT_CONFIRMED)] });
   assert.equal(r.provenance, Provenance.REFUSED);
-  assert.match(r.text, /can't verify|cannot make out/i);
+  // Refuses in SparkAI's own voice, and says the refusal was a choice.
+  assert.match(r.text, /SparkAI/);
+  assert.match(r.text, /won't guess/i);
+  // And says what to do about the photo, which is the part that fixes it.
   assert.match(r.suggestion, /light|steadier|wider/i);
 });
 
@@ -203,7 +206,11 @@ test('a low-confidence transcript asks the user to repeat', async () => {
 test('silence is not a question', async () => {
   const r = await askByVoice('   ');
   assert.equal(r.provenance, Provenance.REFUSED);
-  assert.match(r.text, /can't verify|did not catch/i);
+  // Nothing was heard, so the reason is about the microphone rather than about
+  // confidence — telling somebody SparkAI is unsure of a question they never
+  // asked is a worse answer than telling them it heard nothing.
+  assert.match(r.reason, /did not catch/i);
+  assert.match(r.suggestion, /closer to the mic/i);
 });
 
 test('the voice path carries the same evidence contract', async () => {

@@ -27,6 +27,7 @@ export const ActionKind = Object.freeze({
   AUTHORITY: 'AUTHORITY',   // go and ask whoever actually decides
   LEARN: 'LEARN',           // show it rather than describe it
   REFINE: 'REFINE',         // the question is answerable with more detail
+  REPORT: 'REPORT',         // tell us this should have been answerable
 });
 
 const action = (kind, label, detail, tab, extra = {}) =>
@@ -111,7 +112,25 @@ export const nextActions = (question, { intent = null, refusalReason = null } = 
       + 'rather than an opinion.', null, { refine: true }));
   }
 
-  return Object.freeze(out.slice(0, 3));
+  // 5. Always a way to say "you should have known that".
+  //
+  //    This is the cheapest correction loop in the app and the only one that
+  //    tells us WHICH refusals were wrong. A refusal nobody can push back on is
+  //    indistinguishable from a gap nobody noticed, and the gaps that matter
+  //    are exactly the ones somebody hit in the field and shrugged at.
+  //
+  //    Reserved a slot rather than appended: three real routes would otherwise
+  //    push it off, and the refusals with the most obvious routes are not the
+  //    ones least worth hearing about.
+  if (!refusalReason) return Object.freeze(out.slice(0, 3));
+
+  return Object.freeze([
+    ...out.slice(0, 2),
+    action(ActionKind.REPORT, 'Report this',
+      'If SparkAI should have been able to answer this, send it over. Your question goes '
+      + 'with it — nothing about your job, your customer or your location does.',
+      null, { report: true }),
+  ]);
 };
 
 /**
@@ -126,9 +145,12 @@ export const refusalWithActions = (refusal, question, options = {}) => {
 
   return Object.freeze({
     ...refusal,
+    // Names SparkAI, and says the refusal was a decision rather than a
+    // malfunction. "I cannot verify that" reads as the app failing; "SparkAI
+    // won't guess" reads as the app working exactly as intended.
     headline: isJurisdictional(question)
-      ? 'That depends on the jurisdiction, and I cannot verify it from here'
-      : 'I cannot verify that well enough to answer',
+      ? 'That one is up to your jurisdiction, and SparkAI won’t guess at it'
+      : 'SparkAI can’t answer that with full confidence, so it won’t guess',
     // The reason, kept, because "why" is what makes a refusal trustworthy
     // rather than evasive.
     reason: refusal.reason,
