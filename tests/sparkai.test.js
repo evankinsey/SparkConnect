@@ -718,3 +718,42 @@ test('an outage does not stop a question the app can compute itself', async () =
     'a computable question must not depend on a hosted endpoint');
   assert.equal(r.backendUnreachable, undefined, 'nothing was reached, because nothing needed to be');
 });
+
+// ─── The confidence the client sends must clear the floor it is judged by ────
+
+test('the client never hands the pipeline a confidence below its own floor', async () => {
+  // THE BUG THIS EXISTS FOR, and it shipped: App.js returned a hardcoded
+  // `confidence: 0.8` for every backend answer while CONFIDENCE_FLOOR was 0.85.
+  // sealAnswer() therefore discarded EVERY model answer in production and
+  // rendered a refusal instead. The answer arrived and was thrown away for
+  // being one twentieth under a line nobody meant to cross, and because a
+  // refusal is what this app does when it is being careful, it looked correct.
+  const fs = await import('node:fs');
+  const { CONFIDENCE_FLOOR } = await import('../src/core/content/authority.js');
+  const src = fs.readFileSync('App.js', 'utf8');
+
+  for (const m of src.matchAll(/confidence:\s*([0-9.]+)\s*[,}]/g)) {
+    const value = Number(m[1]);
+    assert.ok(value >= CONFIDENCE_FLOOR,
+      `App.js hands the pipeline confidence ${value}, below the ${CONFIDENCE_FLOOR} floor — `
+      + 'every answer carrying it will be silently refused');
+  }
+});
+
+test('a backend answer that reports no confidence is not treated as unsure', async () => {
+  // "The backend did not tell us" and "the model said it was unsure" are
+  // different facts. Conflating them is what killed the model path.
+  const quiet = async () => ({
+    text: 'Voltage drop grows with the length of the run and the current in it.',
+    sources: [],
+    confidence: undefined,
+  });
+  const r = await ask('why does my light dim when the compressor starts', { askModel: quiet });
+  assert.equal(r.provenance, Provenance.MODEL, 'an unreported confidence must not veto the answer');
+
+  // And a model that DOES report low confidence is still refused — the floor
+  // still does its job when somebody actually gives it a number.
+  const unsure = async () => ({ text: 'Probably something loose somewhere.', confidence: 0.4 });
+  const r2 = await ask('why does my light dim when the compressor starts', { askModel: unsure });
+  assert.equal(r2.provenance, Provenance.REFUSED);
+});

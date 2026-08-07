@@ -22,7 +22,7 @@ import { Provenance, answer, refuse, sealAnswer, answerFooter } from './answer.j
 import { route, Route, readyForTool, extractParams } from './router.js';
 import { runTool, toolManifest, toolById } from './tools.js';
 import { answer as answerFromTakeoff, groundingContext, breakdown } from '../blueprint/query.js';
-import { assertNarrativeOnly, CANNOT_VERIFY } from '../content/authority.js';
+import { assertNarrativeOnly, CANNOT_VERIFY, CONFIDENCE_FLOOR } from '../content/authority.js';
 import { resolveCitation } from '../../nec/citations.js';
 import { classify, Intent, Risk, criticalRefusal, requiredDisclosures } from './risk.js';
 import { unverifiedDependencies, gateNotice, isProductionReady } from '../verification.js';
@@ -429,7 +429,19 @@ export const ask = async (question, {
     // string where an array belongs crashed the pipeline until a test sent one.
     sources: (Array.isArray(raw?.sources) ? raw.sources : [])
       .filter((r) => typeof r === 'string' && resolveCitation(r)),
-    confidence: Number.isFinite(Number(raw?.confidence)) ? Number(raw.confidence) : 0.5,
+    // UNREPORTED IS NOT UNSURE, and conflating them killed this whole path.
+    //
+    // This defaulted to 0.5 against a 0.85 floor, so any backend that did not
+    // volunteer a confidence had its answer discarded by sealAnswer() — and the
+    // shipping client volunteered 0.8, which also failed. Between the two, every
+    // model answer in production was thrown away and replaced with a refusal.
+    // It looked like the app being careful. It was the app being broken.
+    //
+    // So: a REPORTED confidence is honoured, and the floor still refuses a model
+    // that says it is unsure. Silence means the floor has nothing to judge, and
+    // the guard that actually protects a MODEL answer — it may explain, it may
+    // not state a size, a rating or a citation — has already run above.
+    confidence: Number.isFinite(Number(raw?.confidence)) ? Number(raw.confidence) : CONFIDENCE_FLOOR,
     question,
   });
 

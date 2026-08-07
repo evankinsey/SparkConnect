@@ -2410,7 +2410,18 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
         return {
           text: result.answer,
           sources: result.references || [],
-          confidence: 0.8,
+          // DO NOT INVENT A NUMBER HERE. This read `confidence: 0.8` against a
+          // CONFIDENCE_FLOOR of 0.85, so sealAnswer() discarded EVERY answer the
+          // backend ever returned and showed a refusal instead. The whole model
+          // path was dead in production and it looked like caution.
+          //
+          // The client cannot know how sure the model was, so it passes through
+          // what the backend reports and stays silent when nothing is reported —
+          // undefined lets answer() apply its own default rather than having a
+          // guess here quietly veto a real answer. A MODEL answer is still held
+          // by the authority boundary, which is the guard that actually matters:
+          // it may explain, and it may not state a size, a rating or a citation.
+          confidence: typeof result.confidence === 'number' ? result.confidence : undefined,
         };
       },
     });
