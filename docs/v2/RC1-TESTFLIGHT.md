@@ -1,6 +1,11 @@
 # RC1 → TestFlight
 
-**v1.3.0**, from branch `claude/daily-code-question-home-rh6cip`.
+**v1.3.0, iOS build 28**, from branch `claude/daily-code-question-home-rh6cip`.
+
+> `autoIncrement` is OFF on the production profile and `ios.buildNumber` is
+> pinned to `28`. EAS will upload exactly 28 — it will not quietly become 29.
+> If App Store Connect rejects it as a duplicate, something already used 28;
+> bump app.json to 29 and rebuild rather than turning autoIncrement back on.
 
 Roughly **20 minutes of typing, 30–60 minutes of waiting.**
 
@@ -40,7 +45,7 @@ eas whoami
 git status
 git log --oneline -1
 
-# 3. Build. autoIncrement bumps iOS buildNumber 25 → 26 automatically.
+# 3. Build. buildNumber is pinned to 28 in app.json; autoIncrement is off.
 eas build --platform ios --profile production
 
 # 4. Submit to App Store Connect. ascAppId 6777511635 is already in eas.json.

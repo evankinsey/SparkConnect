@@ -282,12 +282,18 @@ test('the report is complete enough to run a release from', () => {
   }
 });
 
-test('the Annex C cross-check is registered as unverified, not treated as proof', () => {
+test('the Annex C cross-check has been read from print, and remembers what it got wrong', () => {
   const d = datasetById('annex-c-table-c1');
-  assert.equal(isVerified('annex-c-table-c1'), false);
-  assert.match(d.note, /one cell.*was already found wrong|1\/2" with #6/i);
-  // That one wrong cell on first transcription is the strongest available
-  // evidence that recalled tables need checking, so it stays in the record.
+  // Read against printed page 70-778 on 2026-08-07 — all 36 EMT/THHN cells.
+  assert.equal(isVerified('annex-c-table-c1'), true);
+  assert.equal(d.sourceEdition, '2023');
+  assert.ok(d.verifiedRows.some((r) => /all 36 cells/i.test(r)));
+
+  // The cell that was wrong on first transcription stays in the record. It is
+  // the strongest available evidence that recalled tables need checking, and
+  // verifying the table is not a reason to delete the reason it was checked.
+  assert.ok(d.verifiedRows.some((r) => /reads 1, confirming the correction/i.test(r)),
+    'the 1/2" with 6 AWG history must survive verification');
 });
 
 // ─── The two gates are independent ───────────────────────────────────────────

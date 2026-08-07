@@ -105,13 +105,16 @@ export const DATASETS = Object.freeze({
     // photographed was not established. Clearing a dataset on a quarter of it
     // would be the same mistake as clearing it on a green test suite.
     verifiedRows: Object.freeze([
-      'EMT (Article 358) total area, 1/2"-2" — confirmed against printed Table 4',
+      'EMT (Article 358) total area, 1/2"-2" — confirmed against printed Table 4 (NEC 2023)',
+      'Corroborated a second, independent way: computing counts from these areas reproduces '
+      + 'all 36 printed Annex C Table C.1 cells for EMT/THHN. Thirty-six correct answers '
+      + 'cannot come from wrong areas unless the error is a pure scale factor, and the '
+      + 'direct reading of the EMT block rules that out.',
     ]),
     outstandingRows: Object.freeze([
       'IMC (Article 342) total areas — continuation page not seen',
       'RMC (Article 344) total areas — continuation page not seen',
       'PVC Schedule 40 (Article 352) total areas — continuation page not seen',
-      'Edition of the photographed copy not established',
     ]),
   }),
   'ch9-table-5': dataset({
@@ -120,16 +123,38 @@ export const DATASETS = Object.freeze({
     where: 'src/core/domain/conduitFill.js · WIRE_AREA',
     status: VerificationStatus.UNVERIFIED,
     transcribedFrom: 'memory',
-    checkInstructions: 'Compare THHN and XHHW areas, 14 AWG through 2/0, against printed Table 5.',
+    // Not read directly. What exists is corroboration, which is not the same
+    // thing — recorded as its own row so nobody later mistakes it for one.
+    verifiedRows: Object.freeze([
+      'THHN 14-4 AWG areas corroborated INDIRECTLY: they reproduce all 36 printed Annex C '
+      + 'Table C.1 cells for EMT. Strong, but not a reading of Table 5 itself.',
+    ]),
+    outstandingRows: Object.freeze([
+      'Table 5 has not been photographed. The pages seen were Table 5 continued (XHHW, KF) '
+      + 'and Table 5A (compact conductors) — neither carries the standard THHN rows.',
+      'XHHW areas and every size above 4 AWG are neither read nor corroborated.',
+    ]),
+    checkInstructions: 'Compare THHN and XHHW areas, 14 AWG through 2/0, against printed Table 5 (page ~70-725).',
   }),
   'annex-c-table-c1': dataset({
     id: 'annex-c-table-c1',
     label: 'NEC Annex C, Table C.1 — EMT conductor counts',
     where: 'tests/conduitFill.test.js · TABLE_C1_EMT_THHN',
-    status: VerificationStatus.UNVERIFIED,
-    transcribedFrom: 'memory',
-    note: 'Used as the cross-check on the fill engine. One cell (1/2" with #6) was already found wrong on first transcription, which is the strongest available argument that the rest need checking too.',
-    checkInstructions: 'Compare all 36 cells against printed Table C.1, THHN column.',
+    status: VerificationStatus.SOURCE_VERIFIED,
+    transcribedFrom: 'NEC 2023, Informative Annex C, Table C.1 continued, printed page 70-778',
+    sourceEdition: '2023',
+    reviewDate: '2026-08-07',
+    reviewer: 'App owner, against their printed NFPA 70 (2023). Edition confirmed from a photograph of the spine, not attestation alone.',
+    verifiedRows: Object.freeze([
+      'THHN/THWN/THWN-2 in EMT, all 36 cells. For 14/12/10/8/6/4 AWG — '
+      + '1/2": 12,9,5,3,1,1 · 3/4": 22,16,10,6,4,2 · 1": 35,26,16,9,7,4 · '
+      + '1-1/4": 61,45,28,16,12,7 · 1-1/2": 84,61,38,22,16,10 · 2": 138,101,63,36,26,16. '
+      + 'Every cell matches what the engine computes.',
+      'The 1/2" with 6 AWG cell reads 1, confirming the correction made when it was first '
+      + 'transcribed as 2 — the two-conductor column governs there.',
+    ]),
+    note: 'The cross-check on the fill engine, now read from print rather than memory.',
+    checkInstructions: 'Confirmed 2026-08-07. Covers EMT/THHN only; other raceways and insulations are separate pages.',
   }),
   'table-250-66': dataset({
     id: 'table-250-66',
@@ -173,7 +198,7 @@ export const DATASETS = Object.freeze({
     transcribedFrom: 'NEC 2023, Table 314.16(B)(1), printed page 70-198',
     sourceEdition: '2023',
     reviewDate: '2026-08-07',
-    reviewer: "App owner, against the printed 2023 NEC in their possession. The edition is the owner's attestation rather than a photographed title page — recorded that way on purpose so a later auditor knows which part was read and which part was stated.",
+    reviewer: "App owner, against their printed NFPA 70 (2023). Edition confirmed from a photograph of the spine, not attestation alone.",
     verifiedRows: Object.freeze([
       'Free space within box for each conductor, in cubic inches — 18 AWG 1.50, '
       + '16 AWG 1.75, 14 AWG 2.00, 12 AWG 2.25, 10 AWG 2.50, 8 AWG 3.00, 6 AWG 5.00. '
@@ -191,7 +216,7 @@ export const DATASETS = Object.freeze({
     transcribedFrom: 'NEC 2023, 240.4(D)(1) through (D)(8), printed page 70-124',
     sourceEdition: '2023',
     reviewDate: '2026-08-07',
-    reviewer: "App owner, against the printed 2023 NEC in their possession. The edition is the owner's attestation rather than a photographed title page — recorded that way on purpose so a later auditor knows which part was read and which part was stated.",
+    reviewer: "App owner, against their printed NFPA 70 (2023). Edition confirmed from a photograph of the spine, not attestation alone.",
     verifiedRows: Object.freeze([
       'Copper — 240.4(D)(4) 14 AWG 15 A, 240.4(D)(6) 12 AWG 20 A, 240.4(D)(8) 10 AWG 30 A. '
       + 'All three match the shipped values exactly.',
@@ -222,7 +247,7 @@ export const DATASETS = Object.freeze({
     transcribedFrom: 'NEC 2023, Chapter 9 Table 8 — Conductor Properties, printed page 70-728',
     sourceEdition: '2023',
     reviewDate: '2026-08-07',
-    reviewer: "App owner, against the printed 2023 NEC in their possession. The edition is the owner's attestation rather than a photographed title page — recorded that way on purpose so a later auditor knows which part was read and which part was stated.",
+    reviewer: "App owner, against their printed NFPA 70 (2023). Edition confirmed from a photograph of the spine, not attestation alone.",
     verifiedRows: Object.freeze([
       'Uncoated copper, STRANDED, ohm/kFT — 14 AWG 3.14, 12 AWG 1.98, 10 AWG 1.24, '
       + '8 AWG 0.778, 6 AWG 0.491, 4 AWG 0.308, 2 AWG 0.194, 1 AWG 0.154. '
