@@ -1,0 +1,304 @@
+// ─── RC1 TESTS ───────────────────────────────────────────────────────────────
+// Three guarantees:
+//
+//   · centralising entitlements did not tighten the free tier
+//   · Contractor Connect never promises a licensing or permit outcome
+//   · the health dashboard is derived, so it cannot flatter the build
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  Tier, TIER_LABEL, normalizeTier, REGISTRY, FEATURE_IDS, featureEntry,
+  resolveAccess, Decision, applyRemoteConfig, upgradePreview,
+  accessMatrix, matrixText, CREDITS_ENABLED, CREDIT_COST,
+} from '../src/core/paywall/registry.js';
+import { Feature, FREE_LIMITS, Grant } from '../src/core/paywall/entitlements.js';
+import { ProductId, PRODUCTS } from '../src/core/paywall/config.js';
+import {
+  connectHome, ENTRY, PATHS, PathId, EXPLAINERS, explainerById, networkStatus,
+  waitlistEntry, isSubmittable, InterestKind, Trade, ACTIVE_TRADES,
+  findOutcomePromise, assertNoOutcomePromise, CONNECT_DISCLAIMER, BETA_NOTICE,
+} from '../src/core/connect/index.js';
+import { productHealth, healthText, Status } from '../src/core/health.js';
+
+// ─── The free tier must not have moved ───────────────────────────────────────
+
+test('the registry inherits the shipped free limits rather than restating them', () => {
+  for (const id of FEATURE_IDS) {
+    assert.deepEqual(
+      REGISTRY[id].freeLimit, FREE_LIMITS[id],
+      `${id}: the registry disagrees with the limits the app already ships`,
+    );
+  }
+});
+
+test('everything that was free is still free', () => {
+  // The two that must never be metered, stated explicitly so a future edit to
+  // FREE_LIMITS trips this rather than shipping.
+  for (const id of [Feature.CALCULATOR, Feature.PERMIT]) {
+    assert.equal(REGISTRY[id].freeLimit.limit, null, `${id} must stay unlimited on free`);
+    const d = resolveAccess({ feature: id, tier: Tier.FREE, used: 9999 });
+    assert.equal(d.allowed, true, `${id} blocked a free user`);
+    assert.equal(d.decision, Decision.ALLOW_UNMETERED);
+  }
+});
+
+test('$7.99 monthly is what ships', () => {
+  assert.equal(PRODUCTS[ProductId.PRO_MONTHLY].priceCents, 799);
+});
+
+// ─── The access engine ───────────────────────────────────────────────────────
+
+test('an unknown feature fails closed', () => {
+  const d = resolveAccess({ feature: 'NOT_A_FEATURE', tier: Tier.PRO });
+  assert.equal(d.allowed, false);
+  assert.equal(d.decision, Decision.BLOCK_UNKNOWN);
+});
+
+test('free metering counts down and then blocks', () => {
+  const f = Feature.SPARK_AI;
+  const limit = FREE_LIMITS[f].limit;
+  const mid = resolveAccess({ feature: f, tier: Tier.FREE, used: limit - 1 });
+  assert.equal(mid.allowed, true);
+  assert.equal(mid.metered, true);
+  assert.equal(mid.remaining, 1);
+
+  const out = resolveAccess({ feature: f, tier: Tier.FREE, used: limit });
+  assert.equal(out.allowed, false);
+  assert.equal(out.decision, Decision.BLOCK_LIMIT);
+  assert.equal(out.upgradeTo, Tier.PRO);
+  assert.ok(out.copy, 'a gate must carry the copy that explains it');
+});
+
+test('Pro is unmetered, and Lifetime gets the tools without the AI allowance', () => {
+  const pro = resolveAccess({ feature: Feature.SPARK_AI, tier: Tier.PRO, used: 9999 });
+  assert.equal(pro.decision, Decision.ALLOW_UNMETERED);
+
+  const lifetimeTools = resolveAccess({ feature: Feature.CALCULATOR, tier: Tier.LIFETIME, used: 9999 });
+  assert.equal(lifetimeTools.allowed, true);
+
+  // Voice is Pro-only by tier, so Lifetime is refused on tier, not on count.
+  const voice = resolveAccess({ feature: Feature.VOICE_ASK, tier: Tier.LIFETIME });
+  assert.equal(voice.allowed, false);
+  assert.equal(voice.decision, Decision.BLOCK_TIER);
+});
+
+test('a job-site task skips the meter', () => {
+  const d = resolveAccess({ feature: Feature.SPARK_AI, tier: Tier.FREE, used: 9999, grant: Grant.GAME_TASK });
+  assert.equal(d.allowed, true);
+  assert.equal(d.decision, Decision.ALLOW_UNMETERED);
+  assert.match(d.reason, /job-site/i);
+});
+
+test('a disabled feature is off for everyone, including Pro', () => {
+  const registry = applyRemoteConfig({ [Feature.BLUEPRINT]: { disabled: true } });
+  const d = resolveAccess({ feature: Feature.BLUEPRINT, tier: Tier.PRO, registry });
+  assert.equal(d.allowed, false);
+  assert.equal(d.decision, Decision.BLOCK_DISABLED);
+});
+
+test('remote config can move a limit but cannot invent a feature or a tier', () => {
+  const registry = applyRemoteConfig({
+    [Feature.SPARK_AI]: { limit: 20 },
+    NOT_REAL: { limit: 999 },
+  });
+  assert.equal(registry[Feature.SPARK_AI].freeLimit.limit, 20);
+  assert.equal(registry.NOT_REAL, undefined, 'remote config cannot add features');
+  assert.deepEqual(registry[Feature.SPARK_AI].tiers, REGISTRY[Feature.SPARK_AI].tiers, 'tiers are not remote-editable');
+
+  // A nonsense limit is ignored rather than applied.
+  const bad = applyRemoteConfig({ [Feature.SPARK_AI]: { limit: -5 } });
+  assert.equal(bad[Feature.SPARK_AI].freeLimit.limit, FREE_LIMITS[Feature.SPARK_AI].limit);
+});
+
+test('credits are off, and the engine says so without pretending otherwise', () => {
+  assert.equal(CREDITS_ENABLED, false);
+  const d = resolveAccess({ feature: Feature.SPARK_AI, tier: Tier.FREE, used: 999, credits: 100 });
+  assert.equal(d.payableWithCredits, false, 'credits must not unlock anything while disabled');
+  assert.equal(d.creditCost, CREDIT_COST[Feature.SPARK_AI], 'the cost is still reported, so the matrix stays honest');
+});
+
+test('a cooldown never masks a real block', () => {
+  const registry = { ...REGISTRY, [Feature.SPARK_AI]: { ...REGISTRY[Feature.SPARK_AI], cooldownMs: 5000 } };
+  // Out of allowance AND inside the cooldown: the allowance is the real reason.
+  const d = resolveAccess({
+    feature: Feature.SPARK_AI, tier: Tier.FREE, used: 999,
+    registry, lastUsedAt: 1000, now: 1500,
+  });
+  assert.equal(d.decision, Decision.BLOCK_LIMIT);
+
+  const cooling = resolveAccess({
+    feature: Feature.SPARK_AI, tier: Tier.FREE, used: 0,
+    registry, lastUsedAt: 1000, now: 1500,
+  });
+  assert.equal(cooling.decision, Decision.BLOCK_COOLDOWN);
+  assert.equal(cooling.retryInMs, 4500);
+});
+
+test('tier strings from anywhere are made safe', () => {
+  assert.equal(normalizeTier('PRO'), Tier.PRO);
+  assert.equal(normalizeTier('pro'), Tier.FREE, 'unknown strings fall back to free, never up');
+  assert.equal(normalizeTier(null), Tier.FREE);
+  assert.equal(normalizeTier({}), Tier.FREE);
+});
+
+// ─── Upgrade preview ─────────────────────────────────────────────────────────
+
+test('the upgrade preview is computed from the gates, not written as copy', () => {
+  const p = upgradePreview(Tier.FREE, Tier.PRO);
+  assert.equal(p.worthwhile, true);
+  assert.ok(p.unlocked.some((u) => u.id === Feature.VOICE_ASK), 'voice is tier-locked, so it unlocks');
+  assert.ok(p.unmetered.some((u) => u.id === Feature.SPARK_AI), 'SparkAI was metered, so it becomes unmetered');
+  // Nothing unlimited on free should appear as an upgrade benefit.
+  assert.ok(!p.unmetered.some((u) => u.id === Feature.CALCULATOR));
+  assert.ok(!p.unlocked.some((u) => u.id === Feature.CALCULATOR));
+
+  const nothing = upgradePreview(Tier.PRO, Tier.PRO);
+  assert.equal(nothing.worthwhile, false, 'an upgrade that changes nothing must not be sold as one');
+});
+
+// ─── The access matrix ───────────────────────────────────────────────────────
+
+test('the matrix has a row per feature and is generated from the registry', () => {
+  const m = accessMatrix();
+  assert.equal(m.rows.length, FEATURE_IDS.length);
+  for (const row of m.rows) {
+    assert.ok(featureEntry(row.id), `${row.id} is not a real feature`);
+    assert.ok(row.free && row.lifetime && row.pro, `${row.id} incomplete`);
+    assert.equal(typeof row.tokenEligible, 'boolean');
+    assert.equal(typeof row.otaConfigurable, 'boolean');
+  }
+  assert.equal(m.creditsEnabled, false);
+  const text = matrixText(m);
+  assert.match(text, /Feature\s+Free\s+Lifetime\s+Pro/);
+  assert.match(text, /Spark Credits: disabled/);
+});
+
+// ─── Contractor Connect ──────────────────────────────────────────────────────
+
+test('the entry screen leads with the problem, not the jargon', () => {
+  assert.match(ENTRY.headline, /bigger jobs/i);
+  assert.doesNotMatch(ENTRY.headline, /qualifying agent/i,
+    'the hook must not be a term most users have never needed');
+  // It is still present — just not first.
+  assert.ok(ENTRY.bullets.some((b) => /qualifying agent/i.test(b)));
+  const qaPath = PATHS.findIndex((p) => p.id === PathId.BECOME_QA);
+  assert.ok(qaPath >= 2, 'qualifying agent should not be the first route offered');
+});
+
+test('nothing in Contractor Connect promises a licensing or permit outcome', () => {
+  const strings = [
+    ENTRY.headline, ENTRY.sub, ...ENTRY.bullets,
+    BETA_NOTICE, CONNECT_DISCLAIMER,
+    ...PATHS.flatMap((p) => [p.label, p.describe]),
+    ...EXPLAINERS.flatMap((e) => [e.title, e.body, e.thenWhat]),
+    networkStatus().headline, networkStatus().detail,
+  ];
+  for (const s of strings) {
+    assert.equal(findOutcomePromise(s), null, `promises an outcome: "${s}"`);
+  }
+  // The guard itself works.
+  assert.ok(findOutcomePromise("We'll get your permits sorted"));
+  assert.ok(findOutcomePromise('Guaranteed license approval'));
+  assert.throws(() => assertNoOutcomePromise("we'll handle the permit for you"));
+});
+
+test('the disclaimer says what SparkConnect is not', () => {
+  assert.match(CONNECT_DISCLAIMER, /not a licensing authority/i);
+  assert.match(CONNECT_DISCLAIMER, /(?:not|nothing here is) legal advice/i);
+  assert.match(CONNECT_DISCLAIMER, /law firm/i);
+  assert.match(CONNECT_DISCLAIMER, /does not obtain permits or licences/i);
+});
+
+test('there are no fake listings, contractors or availability', () => {
+  const s = networkStatus();
+  assert.equal(s.listings, 0);
+  assert.equal(s.matching, false);
+  assert.equal(s.beta, true);
+  assert.match(s.headline, /Nothing to browse/i);
+  // Nothing in the module returns a person.
+  const home = connectHome();
+  const json = JSON.stringify(home);
+  assert.doesNotMatch(json, /"contractors"\s*:\s*\[\s*\{/, 'no contractor list may be fabricated');
+  assert.ok(home.paths.length > 0);
+  assert.ok(home.comingSoon.every((p) => p.available === false));
+});
+
+test('the explainers point at the authority rather than answering for it', () => {
+  for (const e of EXPLAINERS) {
+    assert.ok(e.title && e.body && e.thenWhat, `${e.id} incomplete`);
+    assert.match(e.thenWhat, /board|department|authority|AHJ|source|them/i,
+      `${e.id} does not hand off to the authority`);
+  }
+  assert.equal(explainerById('what-is-qa').title, 'What a qualifying agent is');
+  assert.equal(explainerById('nope'), null);
+});
+
+test('a waitlist entry needs a state and an interest, and is local until sent', () => {
+  const blank = waitlistEntry();
+  assert.equal(blank.submitted, false, 'nothing is transmitted by building an entry');
+  assert.equal(isSubmittable(blank).ok, false);
+  assert.match(isSubmittable(blank).reason, /state/i);
+
+  const noInterest = waitlistEntry({ state: 'fl' });
+  assert.equal(noInterest.state, 'FL');
+  assert.equal(isSubmittable(noInterest).ok, false);
+
+  const good = waitlistEntry({
+    state: 'FL', interests: [InterestKind.NEED_QUALIFIER, 'NOT_REAL', InterestKind.NEED_QUALIFIER],
+    note: 'Starting a company',
+  });
+  assert.deepEqual(good.interests, [InterestKind.NEED_QUALIFIER], 'unknown interests are dropped, duplicates collapsed');
+  assert.equal(isSubmittable(good).ok, true);
+  assert.equal(good.trade, Trade.ELECTRICAL);
+});
+
+test('the trade list is the shape for TradeConnect, not a promise', () => {
+  assert.ok(Object.keys(Trade).length >= 9);
+  assert.deepEqual(ACTIVE_TRADES, [Trade.ELECTRICAL], 'only electrical is live');
+});
+
+// ─── Product health ──────────────────────────────────────────────────────────
+
+test('the dashboard reads real state rather than restating it', () => {
+  const h = productHealth({ flags: {} });
+  const byLabel = (l) => h.checks.find((c) => c.label === l);
+
+  const datasets = byLabel('NEC datasets verified');
+  assert.equal(datasets.status, Status.WARN, 'nothing is fully verified yet');
+  assert.match(datasets.detail, /0\/\d+ fully checked/);
+  assert.ok(datasets.outstanding.length > 0);
+  // The partially-checked table is credited without being counted as done.
+  assert.ok(datasets.partial.length >= 1, 'the EMT rows already confirmed should show as partial');
+  assert.match(datasets.detail, /partially/);
+
+  const graph = byLabel('Field Intelligence graph');
+  assert.equal(graph.status, Status.OK, 'the tool graph should validate');
+
+  assert.equal(byLabel('Spark Credits').status, Status.OFF);
+  assert.match(byLabel('Release override').detail, /ACTIVE/);
+});
+
+test('a failing check blocks tagging; warnings do not', () => {
+  const h = productHealth({ flags: {}, storeProductsFound: [] });
+  assert.equal(h.checks.find((c) => c.label === 'Store products').status, Status.FAIL,
+    'missing store products is a hard failure');
+  assert.equal(h.safeToTag, false);
+
+  const ok = productHealth({
+    flags: {},
+    storeProductsFound: [ProductId.PRO_MONTHLY, ProductId.PRO_ANNUAL, ProductId.LIFETIME_TOOLS],
+  });
+  assert.equal(ok.checks.find((c) => c.label === 'Store products').status, Status.OK);
+  assert.equal(ok.safeToTag, true, 'warnings alone are a judgement, not a block');
+  assert.ok(ok.counts.warn > 0, 'and there should still be warnings to judge');
+});
+
+test('the health report is pasteable', () => {
+  const text = healthText(productHealth({ flags: { blueprintEnabled: true } }));
+  assert.match(text, /PRODUCT HEALTH/);
+  assert.match(text, /TRUST/);
+  assert.match(text, /Safe to tag/);
+  assert.match(text, /blueprintEnabled/);
+});

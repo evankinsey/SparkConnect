@@ -11,7 +11,10 @@
     "audit:answers": "node scripts/audit-answers.mjs",
     "lessons:review": "node scripts/review-lessons.mjs",
     "lessons:approve": "node scripts/review-lessons.mjs --approve",
-    "config:check": "node scripts/check-config.mjs"
+    "config:check": "node scripts/check-config.mjs",
+    "rc:report": "node scripts/rc-report.mjs",
+    "access:matrix": "node -e \"import('./src/core/paywall/registry.js').then(m=>console.log(m.matrixText()))\"",
+    "health": "node -e \"import('./src/core/health.js').then(m=>console.log(m.healthText()))\""
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
