@@ -33,9 +33,16 @@ import {
 import { buildExport, renderExportText, exportSummary, Audience, AUDIENCE_LABEL } from '../core/domain/projectExport';
 import { lifecycle, timeline, timelineText, EventKind } from '../core/domain/lifecycle';
 import { intelligenceReport } from '../core/domain/fieldIntelligence';
+import { readScoped, LegacyAdapters } from '../core/domain/scopedStore';
 
 const KEY = '@sc_projects_v1';
 const LOGS_KEY = '@sc_daily_logs_v1';
+// Stores owned by other screens. The hub READS them by projectId; it never
+// writes them, so each tool keeps its own lifecycle and there is one copy of
+// every number.
+const MATERIALS_KEY = '@sc_material_lists_v1';
+const PANEL_KEY = '@sc_panel_v1';
+const ACTIVE_KEY = '@sc_active_project_v1';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -52,14 +59,23 @@ const loadPicker = async () => {
 export default function ProjectsScreen({ C, setTab }) {
   const [projects, setProjects] = useState(null);
   const [logs, setLogs] = useState([]);
+  const [linked, setLinked] = useState({ materialLists: [], panels: [] });
   const [openId, setOpenId] = useState(null);
   const [migrationNote, setMigrationNote] = useState(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const rawLogs = await AsyncStorage.getItem(LOGS_KEY);
+        const [rawLogs, rawMaterials, rawPanel] = await Promise.all([
+          AsyncStorage.getItem(LOGS_KEY),
+          AsyncStorage.getItem(MATERIALS_KEY),
+          AsyncStorage.getItem(PANEL_KEY),
+        ]);
         setLogs(rawLogs ? JSON.parse(rawLogs) : []);
+        setLinked({
+          materialLists: readScoped(rawMaterials, { legacyToRecord: LegacyAdapters.materials }).records,
+          panels: readScoped(rawPanel, { legacyToRecord: LegacyAdapters.panel }).records,
+        });
       } catch (e) { setLogs([]); }
     })();
   }, []);
@@ -137,7 +153,7 @@ export default function ProjectsScreen({ C, setTab }) {
   // Everything stored elsewhere that points back at a job. Estimates, invoices
   // and permits keep their own stores and their own lifecycles; the hub reads
   // them, it does not own them.
-  const world = { ...emptyWorld(), logs };
+  const world = { ...emptyWorld(), logs, materialLists: linked.materialLists };
 
   const open = projects.find((p) => p.id === openId);
   if (open) {
@@ -171,7 +187,13 @@ export default function ProjectsScreen({ C, setTab }) {
 
   return (
     <ProjectList
-      C={C} projects={projects} onOpen={setOpenId} onCreate={persist} setTab={setTab}
+      C={C} projects={projects} onCreate={persist} setTab={setTab}
+      onOpen={(id) => {
+        setOpenId(id);
+        // Opening a job makes it the active scope, so the material list and the
+        // panel schedule save into THIS job rather than into the unfiled one.
+        AsyncStorage.setItem(ACTIVE_KEY, String(id)).catch(() => {});
+      }}
       migrationNote={migrationNote}
       onDismissNote={() => setMigrationNote(null)}
     />

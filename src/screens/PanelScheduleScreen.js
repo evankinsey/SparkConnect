@@ -12,11 +12,18 @@ import {
   PANEL_SIZES, PanelType, emptyPanel, addCircuit, removeCircuit,
   phaseLoads, imbalancePercent, scheduleRows, spareCount, scheduleText,
 } from '../core/field/panelSchedule';
+import { analyzePanel, panelReport, Severity } from '../core/field/panelEngine';
+import { readScoped, writeScoped, recordFor, upsertRecord, UNFILED, LegacyAdapters } from '../core/domain/scopedStore';
 
 const KEY = '@sc_panel_v1';
+const ACTIVE_KEY = '@sc_active_project_v1';
 
 export default function PanelScheduleScreen({ C, setTab }) {
   const [panel, setPanel] = useState(() => emptyPanel());
+  // Which job this panel belongs to. null is the unfiled panel — whatever was
+  // saved before panels knew about projects, kept as it was.
+  const [projectId, setProjectId] = useState(UNFILED);
+  const [records, setRecords] = useState([]);
   const [start, setStart] = useState('');
   const [poles, setPoles] = useState(1);
   const [amps, setAmps] = useState('');
@@ -25,19 +32,37 @@ export default function PanelScheduleScreen({ C, setTab }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    AsyncStorage.getItem(KEY)
-      .then((raw) => { if (raw) setPanel({ ...emptyPanel(), ...JSON.parse(raw) }); })
-      .catch(() => { /* a corrupt save is just an empty panel */ });
+    (async () => {
+      try {
+        const [raw, activeRaw] = await Promise.all([
+          AsyncStorage.getItem(KEY), AsyncStorage.getItem(ACTIVE_KEY),
+        ]);
+        const { records: loaded } = readScoped(raw, { legacyToRecord: LegacyAdapters.panel });
+        const active = typeof activeRaw === 'string' && activeRaw ? activeRaw : UNFILED;
+        setRecords(loaded);
+        setProjectId(active);
+        const mine = recordFor(loaded, active);
+        if (mine) setPanel({ ...emptyPanel(), ...mine });
+      } catch (e) { /* a corrupt save is just an empty panel */ }
+    })();
   }, []);
 
   const save = (next) => {
     setPanel(next);
-    AsyncStorage.setItem(KEY, JSON.stringify(next)).catch(() => {});
+    const nextRecords = upsertRecord(records, projectId, next);
+    setRecords(nextRecords);
+    AsyncStorage.setItem(KEY, writeScoped(nextRecords)).catch(() => {
+      Alert.alert('Not saved', 'This panel schedule could not be written to the device — storage may be full.');
+    });
   };
 
   const rows = useMemo(() => scheduleRows(panel), [panel]);
   const loads = useMemo(() => phaseLoads(panel), [panel]);
   const imbalance = imbalancePercent(panel);
+  // What is wrong with this panel, worst first. The shared-neutral check is the
+  // one worth the screen space: a multiwire circuit with both hots on one phase
+  // puts the SUM of both loads on the neutral and never trips a breaker.
+  const findings = useMemo(() => analyzePanel(panel), [panel]);
 
   const add = () => {
     const r = addCircuit(panel, {
@@ -127,6 +152,32 @@ export default function PanelScheduleScreen({ C, setTab }) {
       </View>
 
       {/* Balance */}
+      {findings.length > 0 && (
+        <View style={{ marginBottom: 14 }}>
+          <Text style={{ fontSize: 10.5, fontWeight: '800', color: C.textTert, letterSpacing: 0.7, marginBottom: 8 }}>
+            WHAT THIS PANEL SAYS
+          </Text>
+          {findings.slice(0, 6).map((f, i) => {
+            const critical = f.severity === Severity.CRITICAL;
+            const warning = f.severity === Severity.WARNING;
+            const tone = critical ? C.danger : warning ? C.amber : C.textTert;
+            const bg = critical ? (C.dangerBg ?? C.amberBg) : warning ? C.amberBg : C.surface;
+            return (
+              <View key={`${f.code}-${i}`} style={{
+                backgroundColor: bg, borderRadius: 12, padding: 12, marginBottom: 7,
+                borderWidth: 1, borderColor: critical ? C.danger : warning ? C.amber : C.border,
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+                  <Ionicons name={critical ? 'warning' : warning ? 'alert-circle' : 'information-circle'} size={15} color={tone} />
+                  <Text style={{ flex: 1, fontSize: 12.5, fontWeight: '800', color: C.text }}>{f.title}</Text>
+                </View>
+                <Text style={{ fontSize: 11.5, color: C.textSec, lineHeight: 17 }}>{f.detail}</Text>
+              </View>
+            );
+          })}
+        </View>
+      )}
+
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
         {Object.entries(loads).map(([ph, va]) => (
           <View key={ph} style={{ flex: 1, backgroundColor: C.surface, borderRadius: 12, padding: 11, borderWidth: 1, borderColor: C.border, alignItems: 'center' }}>

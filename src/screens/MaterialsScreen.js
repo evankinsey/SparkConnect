@@ -13,8 +13,10 @@ import {
   materialListFromDocument, applyPackaging, togglePurchased, listProgress, toSupplierText,
 } from '../core/domain/materials';
 import { lineItem, LineItemKind, formatMoney, toCents } from '../core/domain/money';
+import { readScoped, writeScoped, recordFor, upsertRecord, UNFILED, LegacyAdapters } from '../core/domain/scopedStore';
 
 const KEY = '@sc_material_lists_v1';
+const ACTIVE_KEY = '@sc_active_project_v1';
 
 // Things electricians buy constantly, so a list can be built by tapping.
 const QUICK_ADD = [
@@ -25,6 +27,10 @@ const QUICK_ADD = [
 ];
 
 export default function MaterialsScreen({ C, setTab }) {
+  // Which job this list belongs to. null is the unfiled list — the one that
+  // existed before material lists knew about projects, kept exactly as it was.
+  const [projectId, setProjectId] = useState(UNFILED);
+  const [records, setRecords] = useState([]);
   const [items, setItems] = useState([]);
   const [name, setName] = useState('');
   const [qty, setQty] = useState('');
@@ -35,9 +41,17 @@ export default function MaterialsScreen({ C, setTab }) {
   useEffect(() => {
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(KEY);
-        const s = raw ? JSON.parse(raw) : null;
-        if (s?.items) { setItems(s.items); setWaste(s.waste ?? 0); }
+        const [raw, activeRaw] = await Promise.all([
+          AsyncStorage.getItem(KEY), AsyncStorage.getItem(ACTIVE_KEY),
+        ]);
+        // The old single-blob save becomes the unfiled record. Nothing is lost
+        // and nothing is filed under a job it may not belong to.
+        const { records: loaded } = readScoped(raw, { legacyToRecord: LegacyAdapters.materials });
+        const active = typeof activeRaw === 'string' && activeRaw ? activeRaw : UNFILED;
+        setRecords(loaded);
+        setProjectId(active);
+        const mine = recordFor(loaded, active);
+        if (mine?.items) { setItems(mine.items); setWaste(mine.waste ?? 0); }
       } catch (e) { /* start empty */ }
       setSaved(true);
     })();
@@ -45,7 +59,11 @@ export default function MaterialsScreen({ C, setTab }) {
 
   const persist = async (nextItems, nextWaste = waste) => {
     setItems(nextItems);
-    try { await AsyncStorage.setItem(KEY, JSON.stringify({ items: nextItems, waste: nextWaste })); } catch (e) { /* ignore */ }
+    const next = upsertRecord(records, projectId, { items: nextItems, waste: nextWaste });
+    setRecords(next);
+    try { await AsyncStorage.setItem(KEY, writeScoped(next)); } catch (e) {
+      Alert.alert('Not saved', 'This material list could not be written to the device — storage may be full.');
+    }
   };
 
   // The generator works from a document, so a hand-built list is wrapped in one.
