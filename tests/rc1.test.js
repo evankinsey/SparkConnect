@@ -488,5 +488,55 @@ test('the paywall can ask what is buyable before anyone taps', async () => {
   assert.match(src, /export const storeDiagnosis/);
   // The preflight must configure defensively — a paywall opened from a deep
   // link can beat the mount effect, and that reads as a missing product.
-  assert.match(src, /await initPurchases\(\);\s*\n\s*const prods/);
+  assert.match(src, /await initPurchases\(\);/);
+});
+
+test('subscriptions are never asked for by identifier', async () => {
+  const src = await import('node:fs').then((fs) => fs.readFileSync('src/purchases.js', 'utf8'));
+  // iOS 1.0 (26) has been selling subscriptions since launch and has NEVER
+  // passed a subscription identifier to getProducts -- subscriptions come from
+  // the current Offering. The branch asked getProducts for everything at once,
+  // including an identifier that does not exist in App Store Connect. That is
+  // the one difference between the build that sells and the build that does not.
+  const list = src.match(/const ONE_TIME_PRODUCT_IDS = \[[\s\S]*?\n\];/);
+  assert.ok(list, 'the one-time product list must exist');
+  assert.doesNotMatch(list[0], /PRO_ANNUAL|PRO_MONTHLY/,
+    'a subscription identifier must never go into getProducts');
+  assert.match(list[0], /PACK_15/);
+  assert.match(list[0], /LIFETIME_TOOLS/, 'lifetime genuinely is a one-time product');
+
+  // Every getProducts call uses that list and no other.
+  for (const m of src.matchAll(/getProducts\(([^)]*)\)/g)) {
+    assert.equal(m[1].trim(), 'ONE_TIME_PRODUCT_IDS', `getProducts called with ${m[1]}`);
+  }
+});
+
+test('an empty offering does not black out the packs, or the reverse', async () => {
+  const { diagnose, Cause } = await import('../src/core/paywall/storeDiagnosis.js');
+  // Two sources, two failure modes. Reporting one as the other turns a
+  // dashboard edit into a support ticket.
+  const offeringDown = diagnose({
+    requested: ['pack_a', 'pack_b'], returned: ['pack_a', 'pack_b'], offeringPackages: [],
+  });
+  assert.equal(offeringDown.cause, Cause.OFFERING_EMPTY);
+  assert.equal(offeringDown.subscriptionsSellable, false);
+  assert.equal(offeringDown.everythingFailed, false, 'the packs still sell');
+  assert.match(offeringDown.engineerAction, /RevenueCat/);
+  assert.match(offeringDown.engineerAction, /no build required/i);
+
+  const packsDown = diagnose({
+    requested: ['pack_a'], returned: [], offeringPackages: ['sparkconnect_pro_monthly'],
+  });
+  assert.equal(packsDown.subscriptionsSellable, true, 'subscriptions are unaffected');
+  assert.equal(packsDown.everythingFailed, false);
+
+  // Both empty IS the store-level problem.
+  const allDown = diagnose({ requested: ['pack_a'], returned: [], offeringPackages: [] });
+  assert.equal(allDown.cause, Cause.AGREEMENT_OR_BUNDLE);
+  assert.equal(allDown.everythingFailed, true);
+
+  // No offering check ran: never treated as empty.
+  const unknown = diagnose({ requested: ['a'], returned: ['a'], offeringPackages: null });
+  assert.equal(unknown.subscriptionsSellable, true);
+  assert.equal(unknown.healthy, true);
 });

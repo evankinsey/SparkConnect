@@ -27,13 +27,33 @@ try {
 
 const ENTITLEMENT = 'pro';
 
-// Every product we can buy directly by identifier, subscriptions included.
-// Subscriptions are listed here so the direct path below can serve them when
-// the Offerings system is not configured — see purchaseProduct().
-// Every identifier the store might answer to, including the older ones a live
-// product can still carry. Asking for all of them is what stops a renamed plan
-// from silently failing to load.
-const STORE_PRODUCT_IDS = ALL_STORE_IDS;
+/**
+ * ONE-TIME PRODUCTS ONLY. Subscriptions are deliberately absent.
+ *
+ * THIS IS THE SHIPPING BUILD'S SHAPE, and it is not a style preference. iOS 1.0
+ * (26) has been selling subscriptions since launch and it has NEVER passed a
+ * subscription identifier to getProducts — subscriptions come from the current
+ * Offering and consumables come from getProducts, two calls, two failure modes.
+ *
+ * The version on this branch asked getProducts for everything at once,
+ * including `sparkconnect_pro_annual`, which does not exist in App Store
+ * Connect. That is the one difference between the build that sells and the
+ * build that does not, so it goes back to the shape that works.
+ *
+ * Lifetime stays here because it genuinely is a one-time product. If it does
+ * not exist in App Store Connect, StoreKit drops that identifier and still
+ * returns the packs — which is exactly why the two must not be one list with
+ * the subscriptions in it.
+ */
+const ONE_TIME_PRODUCT_IDS = [
+  ...(PRODUCT_ALIASES[ProductId.PACK_15] ?? [ProductId.PACK_15]),
+  ...(PRODUCT_ALIASES[ProductId.PACK_50] ?? [ProductId.PACK_50]),
+  ...(PRODUCT_ALIASES[ProductId.PACK_150] ?? [ProductId.PACK_150]),
+  ...(PRODUCT_ALIASES[ProductId.LIFETIME_TOOLS] ?? [ProductId.LIFETIME_TOOLS]),
+];
+
+const isSubscription = (productId) =>
+  productId === ProductId.PRO_ANNUAL || productId === ProductId.PRO_MONTHLY;
 
 let configured = false;
 
@@ -89,28 +109,46 @@ const record = (facts) => {
  */
 export async function checkStore() {
   if (!Purchases) return record({ sdkPresent: false, configured: false });
+
+  // Configure defensively: the paywall can be opened from a deep link before
+  // the mount effect has finished, and a getProducts call on an unconfigured
+  // SDK returns nothing, which reads exactly like a missing product.
+  await initPurchases();
+
+  // Two independent calls, because they are two independent failure modes. One
+  // throwing must not blank the other — an offering misconfiguration should
+  // never stop the packs from selling.
+  let packages = [];
+  let returned = [];
+  let errorCode = null;
+
   try {
-    // Configure defensively: the paywall can be opened from a deep link before
-    // the mount effect has finished, and a getProducts call on an unconfigured
-    // SDK returns nothing, which reads exactly like a missing product.
-    await initPurchases();
-    const prods = await Purchases.getProducts(STORE_PRODUCT_IDS);
-    return record({
-      sdkPresent: true,
-      configured,
-      requested: STORE_PRODUCT_IDS,
-      returned: (prods || []).map((p) => p.productIdentifier),
-    });
+    const offerings = await Purchases.getOfferings();
+    packages = (offerings?.current?.availablePackages ?? [])
+      .map((p) => p.product?.identifier ?? p.identifier)
+      .filter(Boolean);
   } catch (e) {
-    return record({
-      sdkPresent: true,
-      configured,
-      requested: STORE_PRODUCT_IDS,
-      returned: [],
-      errorCode: typeof e?.code === 'number' ? e.code : Number(e?.code ?? NaN) || null,
-    });
+    errorCode = codeOf(e);
   }
+
+  try {
+    const prods = await Purchases.getProducts(ONE_TIME_PRODUCT_IDS);
+    returned = (prods || []).map((p) => p.productIdentifier);
+  } catch (e) {
+    errorCode = errorCode ?? codeOf(e);
+  }
+
+  return record({
+    sdkPresent: true,
+    configured,
+    requested: ONE_TIME_PRODUCT_IDS,
+    returned,
+    offeringPackages: packages,
+    errorCode,
+  });
 }
+
+const codeOf = (e) => (typeof e?.code === 'number' ? e.code : Number(e?.code ?? NaN) || null);
 
 /**
  * Is this specific plan buyable right now?
@@ -119,17 +157,22 @@ export async function checkStore() {
  * ask it once per row while rendering. Unknown means no check has run — treated
  * as buyable, because greying out a working button on no evidence is worse than
  * an occasional honest error.
+ *
+ * Subscriptions are answered from the Offering and one-time products from
+ * getProducts, matching how each is actually bought. Asking the wrong source is
+ * how a plan that sells fine gets rendered as unavailable.
  */
 export const isProductAvailable = (productId) => {
   if (!lastDiagnosis) return true;
   if (lastDiagnosis.cause === 'SDK_ABSENT') return false;
+  if (isSubscription(productId)) return lastDiagnosis.subscriptionsSellable;
   return lastDiagnosis.returned.some((id) => matchesProduct(productId, id));
 };
 
 /** Buy by product identifier. This path needs only the product to exist in
  *  App Store Connect — no Offering, no dashboard packages. */
 async function buyByIdentifier(productId) {
-  const prods = await Purchases.getProducts(STORE_PRODUCT_IDS);
+  const prods = await Purchases.getProducts(ONE_TIME_PRODUCT_IDS);
   const returned = (prods || []).map((p) => p.productIdentifier);
   // Match on any known alias, not on our internal id — the store returns
   // whatever identifier the product was actually created with.
@@ -144,8 +187,11 @@ async function buyByIdentifier(productId) {
     record({
       sdkPresent: true,
       configured,
-      requested: STORE_PRODUCT_IDS,
+      requested: ONE_TIME_PRODUCT_IDS,
       returned,
+      // The Offering is unaffected by a one-time product missing, so carry the
+      // last known packages forward rather than reporting subscriptions dead.
+      offeringPackages: lastDiagnosis?.offeringPackages ?? null,
       wanted: (PRODUCT_ALIASES[productId] ?? [productId])[0],
     });
     return null;
@@ -208,9 +254,10 @@ export async function purchaseProduct(productId) {
     const d = record({
       sdkPresent: true,
       configured,
-      requested: STORE_PRODUCT_IDS,
+      requested: ONE_TIME_PRODUCT_IDS,
       returned: lastDiagnosis?.returned ?? [],
-      errorCode: typeof e?.code === 'number' ? e.code : Number(e?.code ?? NaN) || null,
+      offeringPackages: lastDiagnosis?.offeringPackages ?? null,
+      errorCode: codeOf(e),
     });
     return {
       ok: false, isPro: false,

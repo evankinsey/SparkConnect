@@ -38,6 +38,13 @@ import {
 const buyable = (store, productId) => {
   if (!store) return true;
   if (store.healthy) return true;
+  // Subscriptions are sold from the Offering and one-time products from
+  // getProducts. Asking the wrong source is how a plan that sells perfectly
+  // well gets rendered as unavailable — which is worse than the bug it was
+  // meant to catch.
+  if (productId === ProductId.PRO_ANNUAL || productId === ProductId.PRO_MONTHLY) {
+    return store.subscriptionsSellable !== false;
+  }
   return store.returned.some((id) => matchesProduct(productId, id));
 };
 

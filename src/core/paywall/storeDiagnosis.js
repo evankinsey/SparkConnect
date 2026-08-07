@@ -78,6 +78,7 @@ export const Cause = Object.freeze({
   BAD_API_KEY: 'BAD_API_KEY',
   NO_STORE_CONNECTION: 'NO_STORE_CONNECTION',
   AGREEMENT_OR_BUNDLE: 'AGREEMENT_OR_BUNDLE',
+  OFFERING_EMPTY: 'OFFERING_EMPTY',
   IDENTIFIER_MISSING: 'IDENTIFIER_MISSING',
   PURCHASE_NOT_ALLOWED: 'PURCHASE_NOT_ALLOWED',
   ALREADY_OWNED: 'ALREADY_OWNED',
@@ -124,6 +125,17 @@ const DIAGNOSES = Object.freeze({
       + 'matches the app that owns the products; (3) the device is signed into a sandbox '
       + 'tester account under Settings → Developer; (4) the products are not all still in '
       + '"Missing Metadata" in App Store Connect.',
+    fixIsOutsideTheApp: true,
+  },
+  [Cause.OFFERING_EMPTY]: {
+    // Subscriptions and one-time products come from two different places, and
+    // this is the one that says WHICH is broken.
+    headline: 'The subscription offering is empty, but the store is answering.',
+    userMessage: 'Subscriptions are temporarily unavailable. One-time purchases on this screen '
+      + 'still work, and nothing has been charged.',
+    engineerAction: 'One-time products loaded, so the store connection and the agreement are '
+      + 'fine. The current Offering in the RevenueCat dashboard has no packages, or no Offering '
+      + 'is marked current for this app. Fix it in RevenueCat — no build required.',
     fixIsOutsideTheApp: true,
   },
   [Cause.IDENTIFIER_MISSING]: {
@@ -178,10 +190,18 @@ export const diagnose = (facts = {}) => {
   const {
     sdkPresent = true, configured = true,
     requested = [], returned = [], errorCode = null, wanted = null,
+    // Subscription products do not come from getProducts. They come from the
+    // current Offering, which is a separate call that fails for separate
+    // reasons — and the build that has been selling subscriptions since 1.0
+    // never asks getProducts about them at all. Keeping the two apart is what
+    // stops "the offering is misconfigured" being reported as "the App Store
+    // is down", which are a dashboard edit and a support ticket respectively.
+    offeringPackages = null,
   } = facts ?? {};
 
   const req = asArray(requested);
   const ret = asArray(returned);
+  const pkgs = offeringPackages === null ? null : asArray(offeringPackages);
 
   const cause = (() => {
     if (!sdkPresent) return Cause.SDK_ABSENT;
@@ -204,8 +224,14 @@ export const diagnose = (facts = {}) => {
       default: break;
     }
 
-    // No error code. Now the count is the evidence.
-    if (req.length > 0 && ret.length === 0) return Cause.AGREEMENT_OR_BUNDLE;
+    // No error code. Now the counts are the evidence, and there are two of
+    // them: nothing at all from EITHER source is a store-level problem, while
+    // one source empty and the other full localises it precisely.
+    const productsEmpty = req.length > 0 && ret.length === 0;
+    const offeringEmpty = pkgs !== null && pkgs.length === 0;
+
+    if (productsEmpty && (pkgs === null || offeringEmpty)) return Cause.AGREEMENT_OR_BUNDLE;
+    if (offeringEmpty && ret.length > 0) return Cause.OFFERING_EMPTY;
     if (wanted && !ret.includes(wanted)) return Cause.IDENTIFIER_MISSING;
     if (req.length > 0 && ret.length < req.length && !wanted) return Cause.IDENTIFIER_MISSING;
     return Cause.HEALTHY;
@@ -223,10 +249,14 @@ export const diagnose = (facts = {}) => {
     requested: Object.freeze([...req]),
     returned: Object.freeze([...ret]),
     missing: Object.freeze(missing),
+    offeringPackages: pkgs === null ? null : Object.freeze([...pkgs]),
+    // Subscriptions are sellable when the Offering has packages. Null means no
+    // offering check ran, which is treated as "do not block" — never as empty.
+    subscriptionsSellable: pkgs === null ? true : pkgs.length > 0,
     errorCode,
     // The distinction the whole module exists for, stated plainly enough that a
     // screen can render it without re-deriving it.
-    everythingFailed: req.length > 0 && ret.length === 0,
+    everythingFailed: req.length > 0 && ret.length === 0 && (pkgs === null || pkgs.length === 0),
     // Whether telling the user to try again is honest.
     retryWorthwhile: cause === Cause.NO_STORE_CONNECTION,
   });
