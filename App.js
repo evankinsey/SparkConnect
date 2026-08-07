@@ -3296,67 +3296,11 @@ const DisclaimerFooter = ({ C }) => (
 );
 
 // ─── FIRST-RUN ACKNOWLEDGMENT ─────────────────────────────────────────────────
-const OnboardingScreen = ({ onAccept, C }) => {
-  const [checked, setChecked] = useState({ terms: false, privacy: false, disc: false });
-  const points = [
-    'Verify all calculations before installation',
-    'Follow manufacturer instructions',
-    'Follow your locally adopted NEC edition',
-    'Follow local AHJ requirements',
-    'Obtain permits and inspections when required',
-    'Work safely and use proper PPE',
-  ];
-  return (
-    <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar barStyle={C.statusBar} backgroundColor={C.bg} />
-      <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 28, paddingTop: 60, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-        <View style={{ alignItems: 'center', marginBottom: 28 }}>
-          <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: C.blue, alignItems: 'center', justifyContent: 'center', shadowColor: C.blue, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 16, elevation: 10 }}>
-            <Ionicons name="flash" size={38} color="#fff" />
-          </View>
-        </View>
-        <Text style={{ fontSize: 24, fontWeight: '800', color: C.text, textAlign: 'center', letterSpacing: -0.5, marginBottom: 8 }}>Welcome to SparkConnect Tools</Text>
-        <Text style={{ fontSize: 14, color: C.textSec, textAlign: 'center', lineHeight: 21, marginBottom: 28 }}>A field reference app for electricians, apprentices, and contractors. Before you begin, please review the following.</Text>
-        <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 18, borderWidth: 1, borderColor: C.border, marginBottom: 24, gap: 12 }}>
-          {points.map((p, i) => (
-            <View key={i} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
-              <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center', marginTop: 1, flexShrink: 0 }}>
-                <Ionicons name="checkmark" size={12} color={C.blue} />
-              </View>
-              <Text style={{ flex: 1, fontSize: 13, color: C.text, lineHeight: 19 }}>{p}</Text>
-            </View>
-          ))}
-        </View>
-        <Text style={{ fontSize: 11, color: C.textTert, textAlign: 'center', lineHeight: 17, marginBottom: 24 }}>SparkConnect Tools is a reference and productivity app. It does not replace professional judgment, licensed supervision, engineering review, permits, or inspections.</Text>
-        {/* Legal checkboxes — required before continuing */}
-        {[
-          { key: 'terms',   label: 'I have read and agree to the ', link: 'Terms of Service' },
-          { key: 'privacy', label: 'I have read and agree to the ', link: 'Privacy Policy' },
-          { key: 'disc',    label: 'I understand this app is a reference tool only and does not replace licensed electrical supervision', link: null },
-        ].map(item => (
-          <TouchableOpacity key={item.key} onPress={() => setChecked(prev => ({ ...prev, [item.key]: !prev[item.key] }))}
-            style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
-            <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: checked[item.key] ? C.blue : C.border, backgroundColor: checked[item.key] ? C.blue : 'transparent', alignItems: 'center', justifyContent: 'center', marginTop: 1, flexShrink: 0 }}>
-              {checked[item.key] && <Ionicons name="checkmark" size={13} color="#fff" />}
-            </View>
-            <Text style={{ flex: 1, fontSize: 12, color: C.textSec, lineHeight: 18 }}>
-              {item.label}{item.link ? <Text style={{ color: C.blue, fontWeight: '600' }}>{item.link}</Text> : ''}
-            </Text>
-          </TouchableOpacity>
-        ))}
-
-        <TouchableOpacity
-          onPress={() => Object.values(checked).every(Boolean) && onAccept()}
-          activeOpacity={0.85}
-          style={{ backgroundColor: Object.values(checked).every(Boolean) ? C.blue : C.border, borderRadius: 14, paddingVertical: 16, alignItems: 'center', shadowColor: C.blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: Object.values(checked).every(Boolean) ? 0.3 : 0, shadowRadius: 12, elevation: Object.values(checked).every(Boolean) ? 6 : 0 }}>
-          <Text style={{ fontSize: 16, fontWeight: '700', color: Object.values(checked).every(Boolean) ? '#fff' : C.textTert }}>
-            {Object.values(checked).every(Boolean) ? 'Agree & Continue →' : 'Check all boxes to continue'}
-          </Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </View>
-  );
-};
+// The disclaimer-only onboarding that used to live here has been removed.
+// It was what actually rendered at launch, while src/OnboardingFlow.js sat
+// imported and unreachable — so the role it collected was never written and
+// every user ran the default Home layout. There is now one onboarding, and
+// it is the one that gets rendered.
 
 // ─── TERMS OF SERVICE ─────────────────────────────────────────────────────────
 const TermsScreen = ({ C, onBack }) => {
@@ -4753,12 +4697,33 @@ export default function App() {
   }
   if (onboardingChecked && !onboardingDone) {
     return (
-      <OnboardingScreen C={C} onAccept={async () => {
-        await safeStorageSet('@sc_onboarding_done', 'true');
+      <OnboardingFlow onComplete={async (result) => {
+        // Every field below is consumed. src/core/onboarding/flow.js declares
+        // what each answer changes and a test fails if one changes nothing —
+        // the previous flow collected a role and a tool list and wrote neither,
+        // so every user has been running the default Home layout since launch.
+        try {
+          await safeStorageSet('@sc_onboarding_done', 'true');
+          // HOME_LAYOUT. Written before the app renders Home, so the first
+          // Home a person sees is already theirs.
+          if (result?.role) await safeStorageSet('@sc_role', result.role);
+          if (result?.layout?.length) await safeStorageSet('@sc_home_layout_v1', JSON.stringify(result.layout));
+        } catch (e) { safeLog('onboarding.persist', e); }
+
         setOnboardingDone(true);
-        // Ask for notification permission once, right after onboarding. If the
-        // user declines, the Home opt-in card gives them a second chance.
-        try { Promise.resolve(enableDailyQuestionNotifications()).catch(e => safeLog('notif.enable', e)); } catch (e) { safeLog('notif.enable', e); }
+
+        // FIRST_SCREEN. What they said brought them here.
+        if (result?.openAt && result.openAt !== 'home') navigateTo(result.openAt);
+
+        // DAILY_NOTIFICATION — only if they said yes. Asking the OS anyway
+        // after somebody declined in-app is how an app gets denied forever.
+        if (result?.notifications) {
+          try { Promise.resolve(enableDailyQuestionNotifications()).catch(e => safeLog('notif.enable', e)); } catch (e) { safeLog('notif.enable', e); }
+        }
+
+        // ENTITLEMENT. The offer screen records intent; the purchase itself
+        // still goes through the one paywall, so there is exactly one buy path.
+        if (result?.startedTrial) setPaywall('pro');
       }} />
     );
   }

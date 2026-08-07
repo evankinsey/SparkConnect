@@ -1,253 +1,412 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, SafeAreaView, Dimensions } from 'react-native';
+// ─── ONBOARDING ──────────────────────────────────────────────────────────────
+// Renders src/core/onboarding/flow.js. All the ordering, the effects and the
+// copy rules live there and are tested; this file draws them.
+//
+// THIS FILE USED TO BE DEAD. It was imported at App.js:8 and never rendered —
+// the app showed a disclaimer screen instead — so the role it collected was
+// never written and every user has been running the default Home layout since
+// launch. It is now the onboarding, and App.js renders it.
+//
+// The value moment is a REAL daily question from the shipped content, answered
+// in place, with its reasoning and its citation. Not a screenshot of one.
 
-const { width } = Dimensions.get('window');
-const C = { bg:'#0A0A0F', card:'#16161E', orange:'#F97316', text:'#FFFFFF', muted:'#6B7280', sec:'#9CA3AF', green:'#22C55E', border:'#2A2A3A', sel:'#1C2340' };
+import React, { useMemo, useState } from 'react';
+import {
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, SafeAreaView, Linking,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
-const LEVELS = [
-  { id:'apprentice', label:'🎓 Apprentice',        sub:'1st–4th year' },
-  { id:'journeyman', label:'⚡ Journeyman',         sub:'Licensed & working' },
-  { id:'master',     label:'🏆 Master Electrician', sub:'Licensed master' },
-  { id:'contractor', label:'🏗️ Contractor',         sub:'Running jobs' },
-  { id:'student',    label:'📖 Student',            sub:'Learning the trade' },
-  { id:'diy',        label:'🔧 Homeowner / DIY',    sub:'Weekend projects' },
-];
+import {
+  StepId, STEPS, ROLES, FOCUS, TOTAL_STEPS,
+  beginOnboarding, answer, canAdvance, advance, back, stepAt,
+  previewFor, outcome, offerFor,
+} from './core/onboarding/flow';
+import { getDailyQuestion } from './core/content/dailyQuestions';
 
-const TOOLS = [
-  { id:'sparky',   label:'🤖 SparkAI',      sub:'NEC code answers in seconds' },
-  { id:'pipebend', label:'📐 Pipe Bending',    sub:'Stub-up, offset, 3-bend saddle' },
-  { id:'boxfill',  label:'📦 Box Fill',        sub:'NEC 314.16 fill calculator' },
-  { id:'conduit',  label:'🔵 Conduit Fill',    sub:'EMT, RMC, PVC fill %' },
-  { id:'voltage',  label:'⚡ Voltage Drop',    sub:'Wire size & drop %' },
-  { id:'ampacity', label:'🔌 Ampacity',        sub:'Wire sizing by load & temp' },
-  { id:'jobcam',   label:'📸 Job Cam',         sub:'Photo log by project phase' },
-  { id:'quiz',     label:'📝 Code Quiz',       sub:'Daily NEC question' },
-  { id:'examprep', label:'🎯 Exam Prep',       sub:'Journeyman & master prep' },
-  { id:'colors',   label:'🎨 Wire Colors',     sub:'Color code reference chart' },
-];
-
-const DETAILS = {
-  sparky:  'Ask any NEC question. Get cited answers backed by the 2023 NEC.',
-  pipebend:'Stub-up, back-to-back, offset, 3-bend saddle. Auto-calculates shrinkage.',
-  boxfill: 'NEC 314.16 compliant. Add conductors, clamps, devices. Instant pass/fail.',
-  conduit: 'EMT, RMC, IMC, PVC, ENT. Mix wire types. Shows fill % and max wires.',
-  voltage: 'Single-phase and 3-phase. Suggests next wire size up if drop exceeds 3%.',
-  ampacity:'Size wire by load, temp rating. Applies NEC 310.15 correction factors.',
-  jobcam:  'Tag photos: Rough-in, Panel, Before, After, Inspection, Material.',
-  quiz:    'One NEC question per day. Track your streak across 10 code categories.',
-  examprep:'150+ questions, Study + Test mode. Journeyman & master level.',
-  colors:  'Phase colors for 120/240V and 480V. IEC vs NEC quick reference.',
+const C = {
+  bg: '#080B11', card: '#101520', raised: '#161C29',
+  line: '#222A3A', lineSoft: '#1A2130',
+  text: '#E9EDF4', text2: '#AEB8CA', muted: '#7F8AA0',
+  blue: '#1D6FFF', blue2: '#5D9BFF', blueDim: 'rgba(29,111,255,0.10)', blueLine: 'rgba(29,111,255,0.32)',
+  hi: '#F5A524', hiDim: 'rgba(245,165,36,0.10)',
+  ok: '#3DBE7A', okDim: 'rgba(61,190,122,0.12)',
 };
 
 export default function OnboardingFlow({ onComplete }) {
-  const [screen, setScreen] = useState(0);
-  const [role, setRole] = useState(null);
-  const [tools, setTools] = useState([]);
+  const [state, setState] = useState(beginOnboarding);
+  const step = stepAt(state.index);
 
-  const toggleTool = (id) => setTools(p => p.includes(id) ? p.filter(t=>t!==id) : [...p,id]);
-  const next = () => setScreen(s => s + 1);
-  const finish = (trial=false) => onComplete?.({ role, tools, startedTrial:trial });
+  const set = (v) => setState((s) => answer(s, step.id, v));
+  const next = () => setState((s) => {
+    const n = advance(s);
+    if (n.done) onComplete?.(outcome(n));
+    return n;
+  });
+  const skip = () => next();
 
-  const SCREENS = [
-    <LevelScreen    key="l"  role={role}  onSelect={setRole}  onNext={next} />,
-    <ToolsScreen    key="t"  tools={tools} onToggle={toggleTool} onNext={next} />,
-    <ShowcaseScreen key="s"  tools={tools} onNext={next} />,
-    <DisclaimerScreen key="d" onNext={next} />,
-    <TrialScreen    key="tr" role={role}  onStart={()=>finish(true)} onSkip={()=>finish(false)} />,
-  ];
+  if (!step) return null;
 
   return (
     <View style={s.root}>
-      <SafeAreaView style={{flex:1}}>
-        <View style={s.dots}>
-          {SCREENS.map((_,i) => <View key={i} style={[s.dot, i===screen && s.dotActive]} />)}
+      <SafeAreaView style={{ flex: 1 }}>
+        {/* Progress, and a way back. A flow with no back button is a flow
+            people leave rather than correct. */}
+        <View style={s.topbar}>
+          {state.index > 0 ? (
+            <TouchableOpacity
+              onPress={() => setState(back)}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel="Back">
+              <Ionicons name="chevron-back" size={22} color={C.muted} />
+            </TouchableOpacity>
+          ) : <View style={{ width: 22 }} />}
+
+          <View style={s.rail}>
+            {STEPS.map((st, i) => (
+              <View key={st.id} style={[s.railSeg, i <= state.index && s.railSegOn]} />
+            ))}
+          </View>
+
+          {step.skippable
+            ? (
+              <TouchableOpacity onPress={skip} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} accessibilityRole="button">
+                <Text style={s.skip}>Skip</Text>
+              </TouchableOpacity>
+            )
+            : <View style={{ width: 30 }} />}
         </View>
-        {SCREENS[screen]}
+
+        <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+          <Text style={s.stepNo}>{state.index + 1} / {TOTAL_STEPS}</Text>
+          <Text style={s.h1}>{step.title}</Text>
+          <Text style={s.sub}>{step.sub}</Text>
+
+          {step.id === StepId.ROLE && <RoleStep value={state.answers[StepId.ROLE]} onPick={set} />}
+          {step.id === StepId.FOCUS && <FocusStep value={state.answers[StepId.FOCUS]} onPick={set} />}
+          {step.id === StepId.PROOF && <ProofStep />}
+          {step.id === StepId.LEGAL && <LegalStep value={state.answers[StepId.LEGAL]} onChange={set} />}
+          {step.id === StepId.NOTIFY && <NotifyStep />}
+          {step.id === StepId.TRIAL && <TrialStep roleId={state.answers[StepId.ROLE]} />}
+        </ScrollView>
+
+        <View style={s.footer}>
+          {step.id === StepId.TRIAL ? (
+            <>
+              <TouchableOpacity style={s.cta} onPress={() => { set(true); next(); }} accessibilityRole="button">
+                <Text style={s.ctaT}>Start free trial</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => { set(false); next(); }} style={s.ghost} accessibilityRole="button">
+                <Text style={s.ghostT}>{offerFor(state.answers[StepId.ROLE]).freeAlternative}</Text>
+              </TouchableOpacity>
+            </>
+          ) : step.id === StepId.NOTIFY ? (
+            <>
+              <TouchableOpacity style={s.cta} onPress={() => { set(true); next(); }} accessibilityRole="button">
+                <Text style={s.ctaT}>Send me one a day</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => { set(false); next(); }} style={s.ghost} accessibilityRole="button">
+                <Text style={s.ghostT}>Not now</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity
+              style={[s.cta, !canAdvance(state) && s.ctaOff]}
+              onPress={next}
+              disabled={!canAdvance(state)}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !canAdvance(state) }}>
+              <Text style={[s.ctaT, !canAdvance(state) && s.ctaTOff]}>
+                {step.id === StepId.LEGAL ? 'Agree and continue' : 'Continue'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </SafeAreaView>
     </View>
   );
 }
 
-function LevelScreen({ role, onSelect, onNext }) {
-  return (
-    <ScrollView contentContainerStyle={s.screen}>
-      <Text style={s.eyebrow}>Welcome to SparkConnect</Text>
-      <Text style={s.heading}>What's your level?</Text>
-      <Text style={s.subT}>We'll tune the app to where you are in the trade.</Text>
-      {LEVELS.map(l => (
-        <TouchableOpacity key={l.id} style={[s.optCard, role===l.id && s.optSel]} onPress={()=>onSelect(l.id)} activeOpacity={0.8}>
-          <Text style={s.optLabel}>{l.label}</Text>
-          <Text style={s.optSub}>{l.sub}</Text>
-        </TouchableOpacity>
-      ))}
-      <TouchableOpacity style={[s.cta, !role && s.ctaDis]} onPress={onNext} disabled={!role}>
-        <Text style={s.ctaT}>Continue →</Text>
-      </TouchableOpacity>
-    </ScrollView>
-  );
-}
+// ─── Steps ───────────────────────────────────────────────────────────────────
 
-function ToolsScreen({ tools, onToggle, onNext }) {
+/**
+ * The role picker, with the consequence shown the moment it is picked.
+ *
+ * Personalisation only converts when somebody watches it happen. A quiz whose
+ * result appears three screens later reads as a form.
+ */
+function RoleStep({ value, onPick }) {
+  const preview = value ? previewFor(value) : null;
   return (
-    <ScrollView contentContainerStyle={s.screen}>
-      <Text style={s.eyebrow}>Your Field Kit</Text>
-      <Text style={s.heading}>What will you use most?</Text>
-      <Text style={s.subT}>Select all that apply.</Text>
-      <View style={s.grid}>
-        {TOOLS.map(t => {
-          const sel = tools.includes(t.id);
-          return (
-            <TouchableOpacity key={t.id} style={[s.toolCard, sel && s.toolSel]} onPress={()=>onToggle(t.id)} activeOpacity={0.8}>
-              <Text style={s.toolIcon}>{t.label.split(' ')[0]}</Text>
-              <Text style={s.toolName}>{t.label.slice(t.label.indexOf(' ')+1)}</Text>
-              <Text style={s.toolSub}>{t.sub}</Text>
-              {sel && <View style={s.chkBadge}><Text style={s.chkBadgeT}>✓</Text></View>}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-      <TouchableOpacity style={s.cta} onPress={onNext}>
-        <Text style={s.ctaT}>{tools.length>0 ? `Continue with ${tools.length} tools →` : 'Skip →'}</Text>
-      </TouchableOpacity>
-    </ScrollView>
-  );
-}
-
-function ShowcaseScreen({ tools, onNext }) {
-  const ids = tools.length > 0 ? tools.slice(0,5) : Object.keys(DETAILS).slice(0,5);
-  return (
-    <ScrollView contentContainerStyle={s.screen}>
-      <Text style={s.eyebrow}>SparkConnect</Text>
-      <Text style={s.heading}>Your field kit is ready ⚡</Text>
-      <Text style={s.subT}>Here's what's waiting for you.</Text>
-      {ids.map(id => {
-        const t = TOOLS.find(x=>x.id===id);
+    <View style={{ gap: 9 }}>
+      {ROLES.map((r) => {
+        const on = value === r.id;
         return (
-          <View key={id} style={s.featCard}>
-            <Text style={s.featIcon}>{t?.label.split(' ')[0]||'⚡'}</Text>
-            <View style={{flex:1}}>
-              <Text style={s.featName}>{t?.label.slice(t.label.indexOf(' ')+1)||id}</Text>
-              <Text style={s.featDetail}>{DETAILS[id]||''}</Text>
+          <TouchableOpacity
+            key={r.id}
+            onPress={() => onPick(r.id)}
+            style={[s.opt, on && s.optOn]}
+            activeOpacity={0.85}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: on }}>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.optT, on && { color: C.text }]}>{r.label}</Text>
+              <Text style={s.optS}>{r.sub}</Text>
             </View>
-          </View>
+            <View style={[s.radio, on && s.radioOn]}>{on && <View style={s.radioDot} />}</View>
+          </TouchableOpacity>
         );
       })}
-      <TouchableOpacity style={s.cta} onPress={onNext}>
-        <Text style={s.ctaT}>Looks good →</Text>
-      </TouchableOpacity>
-    </ScrollView>
-  );
-}
 
-function DisclaimerScreen({ onNext }) {
-  return (
-    <View style={s.screen}>
-      <Text style={s.eyebrow}>Before You Start</Text>
-      <Text style={s.heading}>A word on safety</Text>
-      {[
-        { i:'⚡', t:'AI answers are a reference tool', d:'SparkAI provides NEC code guidance, not engineering advice. Always verify with a licensed electrician.' },
-        { i:'📋', t:'Check local amendments', d:'Local jurisdictions may adopt different NEC editions. Always check with your AHJ.' },
-        { i:'🔒', t:'Never work live', d:'SparkConnect helps you plan and document. Lockout/tagout before any electrical work.' },
-        { i:'📱', t:'Your data stays private', d:'Job photos and calculations stay on your device. Nothing is shared without your permission.' },
-      ].map((item,i) => (
-        <View key={i} style={s.discRow}>
-          <Text style={s.discIcon}>{item.i}</Text>
-          <View style={{flex:1}}>
-            <Text style={s.discTitle}>{item.t}</Text>
-            <Text style={s.discText}>{item.d}</Text>
-          </View>
+      {!!preview && (
+        <View style={s.payoff}>
+          <Ionicons name="checkmark-circle" size={16} color={C.ok} style={{ marginTop: 1 }} />
+          <Text style={s.payoffT}>{preview.promise}</Text>
         </View>
-      ))}
-      <TouchableOpacity style={s.cta} onPress={onNext}>
-        <Text style={s.ctaT}>I Understand →</Text>
-      </TouchableOpacity>
+      )}
     </View>
   );
 }
 
-function TrialScreen({ role, onStart, onSkip }) {
-  const student = role==='student'||role==='apprentice';
+function FocusStep({ value, onPick }) {
   return (
-    <ScrollView contentContainerStyle={s.screen}>
-      <Text style={s.eyebrow}>Try Pro Free</Text>
-      <Text style={s.heading}>3 days on us ⚡</Text>
-      <Text style={s.subT}>{student ? 'Perfect for exam prep and daily job use.' : 'Everything you need on the job.'} Cancel anytime.</Text>
-      {['🤖  20 SparkAI answers/day','🧰  All calculators, unlimited','📸  Unlimited Job Cam projects','🎯  Full Exam Prep library','⚡  Full NEC code lookup'].map((line,i) => (
-        <View key={i} style={s.trialRow}>
-          <Text style={s.trialRowT}>{line}</Text>
-          <Text style={s.trialChk}>✓</Text>
-        </View>
-      ))}
-      <View style={s.pricingRow}>
-        <View style={[s.priceBox, s.priceBoxHL]}>
-          <Text style={s.priceTag}>BEST VALUE</Text>
-          <Text style={s.priceLabel}>Annual</Text>
-          <Text style={s.priceAmt}>$49.99</Text>
-          <Text style={s.priceSub}>/year · Save 48%</Text>
-        </View>
-        <View style={s.priceBox}>
-          <Text style={[s.priceTag,{opacity:0}]}>-</Text>
-          <Text style={s.priceLabel}>Monthly</Text>
-          <Text style={s.priceAmt}>$7.99</Text>
-          <Text style={s.priceSub}>/month</Text>
-        </View>
-      </View>
-      <TouchableOpacity style={s.cta} onPress={onStart}>
-        <Text style={s.ctaT}>⚡ Start Free Trial</Text>
-        <Text style={s.ctaSubT}>3 days free · then $7.99/mo · cancel anytime</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={s.skipBtn} onPress={onSkip}>
-        <Text style={s.skipT}>Continue with Free Plan</Text>
-      </TouchableOpacity>
-      <Text style={s.legalT}>Payment charged after trial ends. Managed in App Store Settings.</Text>
-    </ScrollView>
+    <View style={{ gap: 9 }}>
+      {FOCUS.map((f) => {
+        const on = value === f.id;
+        return (
+          <TouchableOpacity
+            key={f.id}
+            onPress={() => onPick(f.id)}
+            style={[s.opt, on && s.optOn]}
+            activeOpacity={0.85}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: on }}>
+            <Text style={[s.optT, { flex: 1 }, on && { color: C.text }]}>{f.label}</Text>
+            <View style={[s.radio, on && s.radioOn]}>{on && <View style={s.radioDot} />}</View>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
   );
 }
 
+/**
+ * The value moment.
+ *
+ * A real question out of the shipped content, answerable here, with the
+ * reasoning and the code section revealed. Nothing is asked for on this screen
+ * — that is the point of it.
+ */
+function ProofStep() {
+  const q = useMemo(() => getDailyQuestion(), []);
+  const [picked, setPicked] = useState(null);
+  const revealed = picked !== null;
+
+  return (
+    <View style={{ gap: 9 }}>
+      <View style={s.qCard}>
+        <Text style={s.qLabel}>TODAY'S CODE QUESTION</Text>
+        <Text style={s.qText}>{q.question}</Text>
+      </View>
+
+      {q.choices.map((ch, i) => {
+        const right = i === q.correct;
+        const chosen = picked === i;
+        let border = C.line; let bg = C.card; let tint = C.text2;
+        if (revealed && right) { border = C.ok; bg = C.okDim; tint = C.ok; }
+        else if (revealed && chosen) { border = C.hi; bg = C.hiDim; tint = C.hi; }
+        return (
+          <TouchableOpacity
+            key={i}
+            disabled={revealed}
+            onPress={() => setPicked(i)}
+            style={[s.choice, { borderColor: border, backgroundColor: bg }]}
+            activeOpacity={0.85}
+            accessibilityRole="button">
+            <Text style={[s.choiceT, { color: tint }]}>{ch}</Text>
+            {revealed && right && <Ionicons name="checkmark-circle" size={17} color={C.ok} />}
+          </TouchableOpacity>
+        );
+      })}
+
+      {revealed && (
+        <View style={s.why}>
+          <Text style={s.whyRef}>{q.ref}</Text>
+          <Text style={s.whyT}>{q.explanation}</Text>
+          <Text style={s.whyNote}>
+            Every answer in the app comes with the reason and the section it rests on.
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** The compliance record. Unchanged in substance from what shipped. */
+function LegalStep({ value, onChange }) {
+  const [boxes, setBoxes] = useState({ terms: false, privacy: false, disc: false });
+  const toggle = (k) => {
+    const next = { ...boxes, [k]: !boxes[k] };
+    setBoxes(next);
+    onChange(next.terms && next.privacy && next.disc);
+  };
+
+  const points = [
+    'Verify every calculation before installation',
+    'Follow the manufacturer instructions',
+    'Follow the NEC edition your jurisdiction has adopted',
+    'Follow your local AHJ requirements',
+    'Obtain permits and inspections when required',
+    'Work safely and use proper PPE',
+  ];
+
+  const rows = [
+    { key: 'terms', label: 'I agree to the Terms of Service', url: 'https://sparkconnect.pro/terms' },
+    { key: 'privacy', label: 'I agree to the Privacy Policy', url: 'https://sparkconnect.pro/privacy' },
+    { key: 'disc', label: 'I understand this is a reference tool and does not replace licensed electrical supervision', url: null },
+  ];
+
+  return (
+    <View style={{ gap: 9 }}>
+      <View style={s.qCard}>
+        {points.map((p) => (
+          <View key={p} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start', marginBottom: 9 }}>
+            <Ionicons name="checkmark" size={14} color={C.blue2} style={{ marginTop: 3 }} />
+            <Text style={{ flex: 1, fontSize: 13.5, color: C.text2, lineHeight: 19 }}>{p}</Text>
+          </View>
+        ))}
+      </View>
+
+      {rows.map((r) => (
+        <TouchableOpacity
+          key={r.key}
+          onPress={() => toggle(r.key)}
+          style={s.checkRow}
+          activeOpacity={0.85}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: boxes[r.key] }}>
+          <View style={[s.box, boxes[r.key] && s.boxOn]}>
+            {boxes[r.key] && <Ionicons name="checkmark" size={13} color="#fff" />}
+          </View>
+          <Text style={s.checkT}>
+            {r.label}
+            {!!r.url && (
+              <Text style={{ color: C.blue2 }} onPress={() => Linking.openURL(r.url).catch(() => {})}> · read</Text>
+            )}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
+function NotifyStep() {
+  return (
+    <View style={s.qCard}>
+      <Text style={s.qLabel}>WHAT YOU WILL GET</Text>
+      <Text style={{ fontSize: 15, color: C.text, fontWeight: '650', marginBottom: 8, letterSpacing: -0.02 }}>
+        One question, once a day.
+      </Text>
+      <Text style={{ fontSize: 13.5, color: C.text2, lineHeight: 20 }}>
+        The same question you just answered, every morning, with the reasoning
+        and the section it comes from. Nothing else is ever sent — no offers, no
+        streak nagging, no "we miss you".
+      </Text>
+      <Text style={{ fontSize: 12, color: C.muted, marginTop: 12 }}>
+        You can turn it off in Settings at any time.
+      </Text>
+    </View>
+  );
+}
+
+function TrialStep({ roleId }) {
+  const offer = offerFor(roleId);
+  return (
+    <View style={{ gap: 12 }}>
+      <Text style={{ fontSize: 15, color: C.text2, lineHeight: 22 }}>{offer.sub}</Text>
+
+      <View style={s.qCard}>
+        {offer.benefits.map((b) => (
+          <View key={b} style={{ flexDirection: 'row', gap: 11, alignItems: 'flex-start', marginBottom: 11 }}>
+            <Ionicons name="checkmark-circle" size={17} color={C.ok} style={{ marginTop: 1 }} />
+            <Text style={{ flex: 1, fontSize: 14, color: C.text, lineHeight: 20 }}>{b}</Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={s.freeNote}>
+        <Ionicons name="information-circle-outline" size={16} color={C.muted} style={{ marginTop: 1 }} />
+        <Text style={{ flex: 1, fontSize: 13, color: C.text2, lineHeight: 19 }}>{offer.freeNote}</Text>
+      </View>
+
+      <Text style={{ fontSize: 11.5, color: C.muted, lineHeight: 17, textAlign: 'center' }}>{offer.terms}</Text>
+    </View>
+  );
+}
+
+// ─── Styles ──────────────────────────────────────────────────────────────────
+
 const s = StyleSheet.create({
-  root:       { flex:1, backgroundColor:C.bg },
-  dots:       { flexDirection:'row', justifyContent:'center', paddingVertical:16, gap:6 },
-  dot:        { width:6, height:6, borderRadius:3, backgroundColor:C.border },
-  dotActive:  { backgroundColor:C.orange, width:20 },
-  screen:     { padding:24, paddingBottom:40 },
-  eyebrow:    { color:C.orange, fontSize:13, fontWeight:'700', marginBottom:6 },
-  heading:    { color:C.text, fontSize:28, fontWeight:'800', marginBottom:8, lineHeight:34 },
-  subT:       { color:C.sec, fontSize:15, marginBottom:24, lineHeight:22 },
-  optCard:    { backgroundColor:C.card, borderRadius:14, padding:16, marginBottom:10, borderWidth:1.5, borderColor:C.border },
-  optSel:     { borderColor:C.orange, backgroundColor:C.sel },
-  optLabel:   { color:C.text, fontSize:16, fontWeight:'600' },
-  optSub:     { color:C.muted, fontSize:13, marginTop:3 },
-  grid:       { flexDirection:'row', flexWrap:'wrap', gap:10, marginBottom:20 },
-  toolCard:   { width:(width-58)/2, backgroundColor:C.card, borderRadius:14, padding:14, borderWidth:1.5, borderColor:C.border },
-  toolSel:    { borderColor:C.orange, backgroundColor:C.sel },
-  toolIcon:   { fontSize:24, marginBottom:6 },
-  toolName:   { color:C.text, fontSize:14, fontWeight:'700', marginBottom:3 },
-  toolSub:    { color:C.muted, fontSize:11, lineHeight:15 },
-  chkBadge:   { position:'absolute', top:8, right:8, backgroundColor:C.orange, borderRadius:10, width:20, height:20, justifyContent:'center', alignItems:'center' },
-  chkBadgeT:  { color:'#fff', fontSize:11, fontWeight:'800' },
-  featCard:   { flexDirection:'row', backgroundColor:C.card, borderRadius:14, padding:16, marginBottom:10, borderWidth:1, borderColor:C.border },
-  featIcon:   { fontSize:28, marginRight:14 },
-  featName:   { color:C.text, fontSize:15, fontWeight:'700', marginBottom:4 },
-  featDetail: { color:C.sec, fontSize:13, lineHeight:18 },
-  discRow:    { flexDirection:'row', marginBottom:16 },
-  discIcon:   { fontSize:22, marginRight:12, width:28 },
-  discTitle:  { color:C.text, fontSize:14, fontWeight:'700', marginBottom:3 },
-  discText:   { color:C.muted, fontSize:12, lineHeight:17 },
-  trialRow:   { flexDirection:'row', alignItems:'center', paddingVertical:10, borderBottomWidth:1, borderBottomColor:C.border },
-  trialRowT:  { color:C.text, fontSize:14, flex:1 },
-  trialChk:   { color:C.green, fontSize:16, fontWeight:'700' },
-  pricingRow: { flexDirection:'row', gap:10, marginVertical:20 },
-  priceBox:   { flex:1, backgroundColor:C.card, borderRadius:14, padding:14, alignItems:'center', borderWidth:1.5, borderColor:C.border },
-  priceBoxHL: { borderColor:C.orange, backgroundColor:'#1A1208' },
-  priceTag:   { color:C.orange, fontSize:9, fontWeight:'800', marginBottom:4 },
-  priceLabel: { color:C.sec, fontSize:12, fontWeight:'600' },
-  priceAmt:   { color:C.text, fontSize:24, fontWeight:'800', marginVertical:2 },
-  priceSub:   { color:C.muted, fontSize:11, textAlign:'center' },
-  cta:        { backgroundColor:C.orange, borderRadius:14, padding:16, alignItems:'center', marginTop:8, marginBottom:12 },
-  ctaDis:     { backgroundColor:'#3A3020', opacity:0.5 },
-  ctaT:       { color:'#fff', fontSize:16, fontWeight:'800' },
-  ctaSubT:    { color:'rgba(255,255,255,0.75)', fontSize:11, marginTop:3 },
-  skipBtn:    { backgroundColor:C.card, borderRadius:14, padding:14, alignItems:'center', marginBottom:16, borderWidth:1, borderColor:C.border },
-  skipT:      { color:C.sec, fontSize:14, fontWeight:'600' },
-  legalT:     { color:C.muted, fontSize:10, textAlign:'center', lineHeight:15 },
+  root: { flex: 1, backgroundColor: C.bg },
+
+  topbar: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 6 },
+  rail: { flex: 1, flexDirection: 'row', gap: 4 },
+  railSeg: { flex: 1, height: 3, borderRadius: 2, backgroundColor: C.line },
+  railSegOn: { backgroundColor: C.blue },
+  skip: { fontSize: 14, color: C.muted, fontWeight: '600' },
+
+  scroll: { paddingHorizontal: 20, paddingTop: 22, paddingBottom: 24 },
+  stepNo: { fontSize: 11.5, color: C.muted, letterSpacing: 1, marginBottom: 12, fontVariant: ['tabular-nums'] },
+  h1: { fontSize: 27, fontWeight: '800', color: C.text, letterSpacing: -0.7, lineHeight: 33, marginBottom: 9 },
+  sub: { fontSize: 14.5, color: C.text2, lineHeight: 21, marginBottom: 22 },
+
+  opt: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: C.card, borderWidth: 1.5, borderColor: C.line,
+    borderRadius: 14, padding: 15, minHeight: 62,
+  },
+  optOn: { borderColor: C.blue, backgroundColor: C.blueDim },
+  optT: { fontSize: 15.5, fontWeight: '700', color: C.text2, letterSpacing: -0.2 },
+  optS: { fontSize: 12.5, color: C.muted, marginTop: 2 },
+
+  radio: { width: 21, height: 21, borderRadius: 11, borderWidth: 2, borderColor: C.line, alignItems: 'center', justifyContent: 'center' },
+  radioOn: { borderColor: C.blue },
+  radioDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: C.blue },
+
+  payoff: {
+    flexDirection: 'row', gap: 9, alignItems: 'flex-start',
+    backgroundColor: C.okDim, borderWidth: 1, borderColor: 'rgba(61,190,122,0.28)',
+    borderRadius: 12, padding: 13, marginTop: 4,
+  },
+  payoffT: { flex: 1, fontSize: 13.5, color: C.text, lineHeight: 19 },
+
+  qCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 16, padding: 16 },
+  qLabel: { fontSize: 10, letterSpacing: 1.4, color: C.muted, fontWeight: '700', marginBottom: 9 },
+  qText: { fontSize: 15.5, color: C.text, fontWeight: '600', lineHeight: 22 },
+
+  choice: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1.5, borderRadius: 12, padding: 14, minHeight: 52,
+  },
+  choiceT: { flex: 1, fontSize: 14, fontWeight: '600', lineHeight: 19 },
+
+  why: { backgroundColor: C.raised, borderRadius: 14, padding: 15, borderLeftWidth: 3, borderLeftColor: C.ok, marginTop: 4 },
+  whyRef: { fontSize: 12, fontWeight: '800', color: C.ok, marginBottom: 6, letterSpacing: 0.3 },
+  whyT: { fontSize: 13.5, color: C.text, lineHeight: 20 },
+  whyNote: { fontSize: 12, color: C.muted, lineHeight: 18, marginTop: 11 },
+
+  checkRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', paddingVertical: 6, minHeight: 44 },
+  box: { width: 23, height: 23, borderRadius: 7, borderWidth: 2, borderColor: C.line, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  boxOn: { backgroundColor: C.blue, borderColor: C.blue },
+  checkT: { flex: 1, fontSize: 13.5, color: C.text2, lineHeight: 20 },
+
+  freeNote: { flexDirection: 'row', gap: 9, alignItems: 'flex-start', backgroundColor: C.raised, borderRadius: 12, padding: 13 },
+
+  footer: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 12, gap: 4, borderTopWidth: 1, borderTopColor: C.lineSoft },
+  cta: { backgroundColor: C.blue, borderRadius: 14, paddingVertical: 16, alignItems: 'center', minHeight: 54, justifyContent: 'center' },
+  ctaOff: { backgroundColor: C.line },
+  ctaT: { fontSize: 16, fontWeight: '750', color: '#fff', letterSpacing: -0.2 },
+  ctaTOff: { color: C.muted },
+  ghost: { paddingVertical: 13, alignItems: 'center', minHeight: 46, justifyContent: 'center' },
+  ghostT: { fontSize: 14.5, color: C.text2, fontWeight: '600' },
 });
