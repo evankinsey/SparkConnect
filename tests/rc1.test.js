@@ -405,21 +405,88 @@ test('the health dashboard counts verified datasets correctly', async () => {
 // ─── The purchase failure that shipped in build 27 ───────────────────────────
 
 test('a missing product does not tell the user to try again', async () => {
-  const src = await import('node:fs').then((fs) => fs.readFileSync('src/purchases.js', 'utf8'));
+  const { diagnose } = await import('../src/core/paywall/storeDiagnosis.js');
   // "Please try again" is wrong advice: retrying a purchase for an identifier
   // that does not exist fails identically every time, and it sends somebody
   // round a loop believing the fault is theirs.
-  assert.doesNotMatch(src, /could not be loaded from the App Store\. Please try again/,
-    'the retry advice must be gone');
-  assert.match(src, /not available from the App Store right now/);
-  assert.match(src, /nothing has been charged/, 'say the money is safe');
+  const d = diagnose({
+    requested: ['a', 'b'], returned: ['a'], wanted: 'b',
+  });
+  assert.equal(d.retryWorthwhile, false, 'retrying a missing identifier never works');
+  assert.doesNotMatch(d.userMessage, /try again/i);
+  assert.match(d.userMessage, /nothing has been charged/i, 'say the money is safe');
+
+  // The one case where "try again" IS honest.
+  assert.equal(diagnose({ requested: ['a'], returned: [], errorCode: 10 }).retryWorthwhile, true);
 });
 
-test('a product-lookup failure records which identifier was missing', async () => {
+test('every product failing is diagnosed differently from one product failing', async () => {
+  const { diagnose, Cause } = await import('../src/core/paywall/storeDiagnosis.js');
+  // This is the whole point of the module. Build 27 showed the same sentence
+  // for both, and they are opposite jobs: one is a typo in an identifier, the
+  // other cannot be fixed by shipping a build at all.
+  const one = diagnose({ requested: ['a', 'b', 'c'], returned: ['a', 'c'], wanted: 'b' });
+  const all = diagnose({ requested: ['a', 'b', 'c'], returned: [] });
+
+  assert.equal(one.cause, Cause.IDENTIFIER_MISSING);
+  assert.deepEqual([...one.missing], ['b']);
+  assert.equal(one.everythingFailed, false);
+
+  assert.equal(all.cause, Cause.AGREEMENT_OR_BUNDLE);
+  assert.equal(all.everythingFailed, true);
+  assert.equal(all.fixIsOutsideTheApp, true, 'no build fixes a lapsed agreement');
+  assert.match(all.engineerAction, /Paid Applications/);
+  assert.match(all.engineerAction, /bundle identifier/);
+  assert.notEqual(one.userMessage, all.userMessage, 'a user must not see the same sentence');
+  // When everything is down, point at restore — existing purchases still work.
+  assert.match(all.userMessage, /Restore/i);
+});
+
+test('an error code beats an inference from an empty list', async () => {
+  const { diagnose, Cause, RcErrorCode } = await import('../src/core/paywall/storeDiagnosis.js');
+  // Zero products came back in all three, but the SDK said why, and what it
+  // said is a better answer than what we noticed.
+  const base = { requested: ['a'], returned: [] };
+  assert.equal(diagnose({ ...base, errorCode: RcErrorCode.NETWORK }).cause, Cause.NO_STORE_CONNECTION);
+  assert.equal(diagnose({ ...base, errorCode: RcErrorCode.INVALID_CREDENTIALS }).cause, Cause.BAD_API_KEY);
+  assert.equal(diagnose({ ...base, errorCode: RcErrorCode.PURCHASE_NOT_ALLOWED }).cause, Cause.PURCHASE_NOT_ALLOWED);
+  assert.equal(diagnose({ ...base, errorCode: RcErrorCode.PRODUCT_ALREADY_PURCHASED }).cause, Cause.ALREADY_OWNED);
+  // Already owned routes to restore instead of showing a failure.
+  assert.match(diagnose({ ...base, errorCode: RcErrorCode.RECEIPT_ALREADY_IN_USE }).userMessage, /Restore/i);
+});
+
+test('an unconfigured SDK is never mistaken for a missing product', async () => {
+  const { diagnose, Cause } = await import('../src/core/paywall/storeDiagnosis.js');
+  // getProducts on an unconfigured SDK returns nothing, which looks exactly
+  // like a product that does not exist. Checking configure() first is what
+  // keeps somebody from editing App Store Connect to fix a race in App.js.
+  assert.equal(diagnose({ configured: false, requested: ['a'], returned: [] }).cause, Cause.NOT_CONFIGURED);
+  assert.equal(diagnose({ sdkPresent: false }).cause, Cause.SDK_ABSENT);
+});
+
+test('a healthy store says so, and the debug line carries the identifiers', async () => {
+  const { diagnose, diagnosisLine } = await import('../src/core/paywall/storeDiagnosis.js');
+  const ok = diagnose({ requested: ['a', 'b'], returned: ['a', 'b'] });
+  assert.equal(ok.healthy, true);
+  assert.equal(ok.userMessage, null, 'nothing to say when nothing is wrong');
+
+  // A support thread that names the identifiers costs no round trips.
+  const line = diagnosisLine(diagnose({ requested: ['a', 'b'], returned: ['a'], wanted: 'b' }));
+  assert.match(line, /missing: b/);
+  assert.match(line, /asked 2/);
+  assert.match(line, /got 1/);
+  assert.match(diagnosisLine(null), /No store check/);
+});
+
+test('the paywall can ask what is buyable before anyone taps', async () => {
   const src = await import('node:fs').then((fs) => fs.readFileSync('src/purchases.js', 'utf8'));
-  // Build 27 failed silently on sparkconnect_pro_annual with nothing on screen
-  // or in logs naming the identifier. That is a one-minute fix that took hours.
-  assert.match(src, /lastProductLookupFailure/);
-  assert.match(src, /storeReturned/, 'record what the store DID return, for comparison');
-  assert.match(src, /wanted/);
+  // The store already knew, at the moment the paywall opened, that nothing
+  // would load. Asking then turns an error after a decision into a disabled
+  // button before one.
+  assert.match(src, /export async function checkStore/);
+  assert.match(src, /export const isProductAvailable/);
+  assert.match(src, /export const storeDiagnosis/);
+  // The preflight must configure defensively — a paywall opened from a deep
+  // link can beat the mount effect, and that reads as a missing product.
+  assert.match(src, /await initPurchases\(\);\s*\n\s*const prods/);
 });

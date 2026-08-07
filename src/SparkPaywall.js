@@ -24,8 +24,22 @@ import { Ionicons } from '@expo/vector-icons';
 
 import {
   buildPaywall, PACKS, Placement, Variant, ProductId,
-  formatPrice, perAnswerCents, bestValuePack,
+  formatPrice, perAnswerCents, bestValuePack, matchesProduct,
 } from './core/paywall/config';
+
+/**
+ * Can this plan actually be bought right now?
+ *
+ * `store` is the preflight diagnosis from src/purchases.js, run when the sheet
+ * opened. Null means no check has finished — treated as available, because
+ * greying out a working button on no evidence is worse than the occasional
+ * honest error afterwards.
+ */
+const buyable = (store, productId) => {
+  if (!store) return true;
+  if (store.healthy) return true;
+  return store.returned.some((id) => matchesProduct(productId, id));
+};
 
 const C = {
   bg: '#0B0B12', card: '#15151F', cardSel: '#1E1608',
@@ -46,6 +60,7 @@ export default function SparkPaywall({
   variant = Variant.A_CURRENT,
   isPacks = false,
   reason,              // legacy prop, still honoured as the eyebrow
+  store = null,        // preflight diagnosis — see src/core/paywall/storeDiagnosis
 }) {
   const [selectedId, setSelectedId] = useState(ProductId.PRO_ANNUAL);
   const [busy, setBusy] = useState(false);
@@ -55,6 +70,15 @@ export default function SparkPaywall({
     () => buildPaywall({ placement, variant, selectedProductId: selectedId }),
     [placement, variant, selectedId],
   );
+
+  // If the store cannot sell the selected plan but can sell another, move the
+  // selection rather than leaving somebody staring at a dead primary button.
+  const selectedBuyable = buyable(store, selectedId);
+  React.useEffect(() => {
+    if (selectedBuyable || !store) return;
+    const alt = model.plans.map((p) => p.id).find((id) => buyable(store, id));
+    if (alt) setSelectedId(alt);
+  }, [selectedBuyable, store, model.plans]);
 
   const buy = onPurchase ?? onStartTrial;
 
@@ -79,11 +103,25 @@ export default function SparkPaywall({
               <Ionicons name="close" size={20} color={C.muted} />
             </TouchableOpacity>
 
+            {/* The store already knew, when this sheet opened, that nothing
+                would load. Saying so here is the difference between an
+                unavailable plan and an app that looks broken after a tap. */}
+            {!!store && store.everythingFailed && (
+              <View style={s.outage}>
+                <Ionicons name="cloud-offline-outline" size={18} color={C.sec} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.outageT}>Purchases are unavailable right now</Text>
+                  <Text style={s.outageS}>{store.userMessage}</Text>
+                </View>
+              </View>
+            )}
+
             {isPacks ? (
               <PacksView
                 sel={selPack}
                 onSel={setSelPack}
                 busy={busy}
+                store={store}
                 onBuy={() => run(() => onBuyPack?.(selPack))}
                 onClose={onClose}
               />
@@ -92,6 +130,7 @@ export default function SparkPaywall({
                 model={model}
                 reason={reason}
                 busy={busy}
+                store={store}
                 onSelect={setSelectedId}
                 onPurchase={() => run(() => buy?.(model.selectedProductId))}
                 onBuyLifetime={() => run(() => buy?.(ProductId.LIFETIME_TOOLS))}
@@ -124,8 +163,10 @@ export default function SparkPaywall({
 
 // ─── Pro ─────────────────────────────────────────────────────────────────────
 
-function ProView({ model, reason, busy, onSelect, onPurchase, onBuyLifetime, onViewComparison, onClose }) {
+function ProView({ model, reason, busy, store, onSelect, onPurchase, onBuyLifetime, onViewComparison, onClose }) {
   const { copy, plans, benefits, lifetime, cta } = model;
+  const canBuySelected = buyable(store, model.selectedProductId);
+  const canBuyLifetime = buyable(store, ProductId.LIFETIME_TOOLS);
 
   return (
     <>
@@ -137,48 +178,54 @@ function ProView({ model, reason, busy, onSelect, onPurchase, onBuyLifetime, onV
           seeing a number, which is the fastest way to lose someone who was
           already ready to buy. */}
       <View style={s.plans}>
-        {plans.map((p) => (
-          <TouchableOpacity
-            key={p.id}
-            style={[s.plan, p.selected && s.planSel]}
-            onPress={() => onSelect(p.id)}
-            activeOpacity={0.85}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: p.selected }}
-            accessibilityLabel={`${p.label}, ${p.priceLabel}${p.perMonthLabel ? `, ${p.perMonthLabel}` : ''}`}>
-            {p.savingPercent > 0 && (
-              <View style={s.saveTag}>
-                <Text style={s.saveTagT}>SAVE {p.savingPercent}%</Text>
+        {plans.map((p) => {
+          const off = !buyable(store, p.id);
+          return (
+            <TouchableOpacity
+              key={p.id}
+              style={[s.plan, p.selected && s.planSel, off && s.planOff]}
+              onPress={() => onSelect(p.id)}
+              disabled={off}
+              activeOpacity={0.85}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: p.selected, disabled: off }}
+              accessibilityLabel={`${p.label}, ${p.priceLabel}${p.perMonthLabel ? `, ${p.perMonthLabel}` : ''}${off ? ', unavailable' : ''}`}>
+              {p.savingPercent > 0 && !off && (
+                <View style={s.saveTag}>
+                  <Text style={s.saveTagT}>SAVE {p.savingPercent}%</Text>
+                </View>
+              )}
+              <View style={s.planHead}>
+                <View style={[s.radio, p.selected && s.radioSel]}>
+                  {p.selected && <View style={s.radioDot} />}
+                </View>
+                <Text style={[s.planLabel, p.selected && s.planLabelSel]}>{p.label}</Text>
               </View>
-            )}
-            <View style={s.planHead}>
-              <View style={[s.radio, p.selected && s.radioSel]}>
-                {p.selected && <View style={s.radioDot} />}
-              </View>
-              <Text style={[s.planLabel, p.selected && s.planLabelSel]}>{p.label}</Text>
-            </View>
-            <Text style={s.planPrice}>{p.priceLabel}</Text>
-            <Text style={s.planSub}>
-              {p.period === 'YEAR' ? 'per year' : 'per month'}
-              {p.perMonthLabel ? ` · ${p.perMonthLabel}` : ''}
-            </Text>
-          </TouchableOpacity>
-        ))}
+              <Text style={s.planPrice}>{p.priceLabel}</Text>
+              <Text style={s.planSub}>
+                {off
+                  ? 'Unavailable right now'
+                  : `${p.period === 'YEAR' ? 'per year' : 'per month'}${p.perMonthLabel ? ` · ${p.perMonthLabel}` : ''}`}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       <TouchableOpacity
-        style={[s.cta, busy && s.ctaBusy]}
+        style={[s.cta, (busy || !canBuySelected) && s.ctaBusy]}
         onPress={onPurchase}
-        disabled={busy}
+        disabled={busy || !canBuySelected}
         activeOpacity={0.88}
         accessibilityRole="button"
-        accessibilityLabel={cta.title}>
+        accessibilityState={{ disabled: busy || !canBuySelected }}
+        accessibilityLabel={canBuySelected ? cta.title : 'This plan is unavailable right now'}>
         {busy
           ? <ActivityIndicator color="#fff" />
           : (
             <>
-              <Text style={s.ctaT}>{cta.title}</Text>
-              {!!cta.sub && <Text style={s.ctaS}>{cta.sub}</Text>}
+              <Text style={s.ctaT}>{canBuySelected ? cta.title : 'Unavailable right now'}</Text>
+              {!!cta.sub && canBuySelected && <Text style={s.ctaS}>{cta.sub}</Text>}
             </>
           )}
       </TouchableOpacity>
@@ -204,7 +251,10 @@ function ProView({ model, reason, busy, onSelect, onPurchase, onBuyLifetime, onV
 
       {/* UI-04 — Lifetime stays visually secondary. Given equal weight it
           cannibalises the subscription and stalls the user in a comparison. */}
-      {!!lifetime && (
+      {/* Hidden rather than greyed when the store will not sell it. A
+          secondary offer nobody can take is noise; a disabled plan card at
+          least keeps the comparison legible. */}
+      {!!lifetime && canBuyLifetime && (
         <TouchableOpacity
           style={s.lifetime}
           onPress={onBuyLifetime}
@@ -231,8 +281,9 @@ function ProView({ model, reason, busy, onSelect, onPurchase, onBuyLifetime, onV
 
 // ─── Answer packs ────────────────────────────────────────────────────────────
 
-function PacksView({ sel, onSel, busy, onBuy, onClose }) {
+function PacksView({ sel, onSel, busy, store, onBuy, onClose }) {
   const best = bestValuePack();
+  const canBuy = buyable(store, sel);
   return (
     <>
       <Text style={s.eyebrow}>SparkAI</Text>
@@ -242,27 +293,39 @@ function PacksView({ sel, onSel, busy, onBuy, onClose }) {
       {PACKS.map((p) => {
         const selected = sel === p.id;
         const isBest = p.id === best.id;
+        const off = !buyable(store, p.id);
         return (
           <TouchableOpacity
             key={p.id}
-            style={[s.packRow, selected && s.packSel]}
+            style={[s.packRow, selected && s.packSel, off && s.planOff]}
             onPress={() => onSel(p.id)}
+            disabled={off}
             activeOpacity={0.85}
             accessibilityRole="radio"
-            accessibilityState={{ selected }}>
+            accessibilityState={{ selected, disabled: off }}>
             <View style={[s.radio, selected && s.radioSel]}>{selected && <View style={s.radioDot} />}</View>
             <View style={{ flex: 1 }}>
               <Text style={s.packLabel}>{p.label}</Text>
-              <Text style={s.packUnit}>{(perAnswerCents(p) / 100).toFixed(2)} each</Text>
+              <Text style={s.packUnit}>
+                {off ? 'Unavailable right now' : `${(perAnswerCents(p) / 100).toFixed(2)} each`}
+              </Text>
             </View>
-            {isBest && <View style={s.packTag}><Text style={s.packTagT}>BEST VALUE</Text></View>}
+            {isBest && !off && <View style={s.packTag}><Text style={s.packTagT}>BEST VALUE</Text></View>}
             <Text style={s.packPrice}>{formatPrice(p.priceCents)}</Text>
           </TouchableOpacity>
         );
       })}
 
-      <TouchableOpacity style={[s.cta, busy && s.ctaBusy]} onPress={onBuy} disabled={busy} activeOpacity={0.88}>
-        {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.ctaT}>Buy Answers</Text>}
+      <TouchableOpacity
+        style={[s.cta, (busy || !canBuy) && s.ctaBusy]}
+        onPress={onBuy}
+        disabled={busy || !canBuy}
+        activeOpacity={0.88}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: busy || !canBuy }}>
+        {busy
+          ? <ActivityIndicator color="#fff" />
+          : <Text style={s.ctaT}>{canBuy ? 'Buy Answers' : 'Unavailable right now'}</Text>}
       </TouchableOpacity>
       <TouchableOpacity style={s.free} onPress={onClose} activeOpacity={0.8}>
         <Text style={s.freeT}>Maybe later</Text>
@@ -285,6 +348,12 @@ const s = StyleSheet.create({
   plans: { flexDirection: 'row', gap: 11, marginBottom: 16 },
   plan: { flex: 1, backgroundColor: C.card, borderRadius: 16, padding: 15, borderWidth: 2, borderColor: C.border, minHeight: 108 },
   planSel: { borderColor: C.borderSel, backgroundColor: C.cardSel },
+  planOff: { opacity: 0.42 },
+
+  outage: { flexDirection: 'row', gap: 11, alignItems: 'flex-start', backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 14, marginTop: 8, marginBottom: 4 },
+  outageT: { color: C.text, fontSize: 14, fontWeight: '700', marginBottom: 3 },
+  outageS: { color: C.sec, fontSize: 12.5, lineHeight: 18 },
+
   planHead: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 8 },
   planLabel: { color: C.sec, fontSize: 13, fontWeight: '700' },
   planLabelSel: { color: C.text },

@@ -15,17 +15,7 @@
 import { Platform } from 'react-native';
 import { REVENUECAT_IOS_KEY, REVENUECAT_ANDROID_KEY } from './config/keys';
 import { ProductId, ALL_STORE_IDS, matchesProduct, PRODUCT_ALIASES } from './core/paywall/config';
-
-/**
- * What to tell a person when the store has no such product.
- *
- * NOT "please try again". Retrying a purchase for an identifier that does not
- * exist fails identically every time, and telling somebody to retry sends them
- * round a loop while believing the fault is theirs or their connection's.
- */
-const productMissingMessage = (productId) =>
-  'This plan is not available from the App Store right now. '
-  + 'Other plans on this screen may still work, and nothing has been charged.';
+import { diagnose } from './core/paywall/storeDiagnosis';
 
 let Purchases = null;
 let PACKAGE_TYPE = { ANNUAL: 'ANNUAL', MONTHLY: 'MONTHLY' };
@@ -70,42 +60,98 @@ export async function initPurchases() {
   }
 }
 
+// ─── Store diagnosis ─────────────────────────────────────────────────────────
+// Facts recorded on every store call, so a failure names itself instead of
+// costing two days of guessing. See core/paywall/storeDiagnosis.js.
+
+let lastDiagnosis = null;
+
+/** The last store check, for the paywall and the Product Health screen. */
+export const storeDiagnosis = () => lastDiagnosis;
+
+const record = (facts) => {
+  lastDiagnosis = Object.freeze({ ...diagnose(facts), at: new Date().toISOString() });
+  return lastDiagnosis;
+};
+
+/**
+ * Ask the store what it will actually sell, before anyone taps Buy.
+ *
+ * THE POINT: build 27 let a person choose a plan, tap it, wait, and only then
+ * be told the product could not be loaded — for every plan on the screen. The
+ * store already knew that at the moment the paywall opened. Asking then turns
+ * an error after a decision into a disabled button before one, which is the
+ * difference between a broken app and an unavailable plan.
+ *
+ * Never throws. A preflight that crashes the paywall is worse than no
+ * preflight, so a failure here degrades to "we could not check", and the buy
+ * path still runs as it always did.
+ */
+export async function checkStore() {
+  if (!Purchases) return record({ sdkPresent: false, configured: false });
+  try {
+    // Configure defensively: the paywall can be opened from a deep link before
+    // the mount effect has finished, and a getProducts call on an unconfigured
+    // SDK returns nothing, which reads exactly like a missing product.
+    await initPurchases();
+    const prods = await Purchases.getProducts(STORE_PRODUCT_IDS);
+    return record({
+      sdkPresent: true,
+      configured,
+      requested: STORE_PRODUCT_IDS,
+      returned: (prods || []).map((p) => p.productIdentifier),
+    });
+  } catch (e) {
+    return record({
+      sdkPresent: true,
+      configured,
+      requested: STORE_PRODUCT_IDS,
+      returned: [],
+      errorCode: typeof e?.code === 'number' ? e.code : Number(e?.code ?? NaN) || null,
+    });
+  }
+}
+
+/**
+ * Is this specific plan buyable right now?
+ *
+ * Answers from the last preflight rather than making a call, so a paywall can
+ * ask it once per row while rendering. Unknown means no check has run — treated
+ * as buyable, because greying out a working button on no evidence is worse than
+ * an occasional honest error.
+ */
+export const isProductAvailable = (productId) => {
+  if (!lastDiagnosis) return true;
+  if (lastDiagnosis.cause === 'SDK_ABSENT') return false;
+  return lastDiagnosis.returned.some((id) => matchesProduct(productId, id));
+};
+
 /** Buy by product identifier. This path needs only the product to exist in
  *  App Store Connect — no Offering, no dashboard packages. */
 async function buyByIdentifier(productId) {
   const prods = await Purchases.getProducts(STORE_PRODUCT_IDS);
+  const returned = (prods || []).map((p) => p.productIdentifier);
   // Match on any known alias, not on our internal id — the store returns
   // whatever identifier the product was actually created with.
   const prod = (prods || []).find(p => matchesProduct(productId, p.productIdentifier));
   if (!prod) {
-    // Say WHICH identifier the store did not return, and what it did return.
+    // Record which identifier the store did not return, and what it did.
     //
-    // Build 27 asked for `sparkconnect_pro_annual`, a product that does not
-    // exist in App Store Connect, and the user saw "this product could not be
-    // loaded — please try again". Trying again could never have worked, and
-    // nothing on screen pointed at the identifier. One line of detail turns
-    // this from a mystery into a one-minute fix.
-    lastProductError = {
-      wanted: productId,
-      accepted: PRODUCT_ALIASES[productId] ?? [productId],
-      storeReturned: (prods || []).map(p => p.productIdentifier),
-      at: new Date().toISOString(),
-    };
+    // The count is the diagnosis. Some products back means this identifier is
+    // wrong; none back means the request never reached a working store, which
+    // is an agreement or bundle problem and cannot be fixed by shipping a
+    // build. Those two look identical to a user and are opposite jobs.
+    record({
+      sdkPresent: true,
+      configured,
+      requested: STORE_PRODUCT_IDS,
+      returned,
+      wanted: (PRODUCT_ALIASES[productId] ?? [productId])[0],
+    });
     return null;
   }
   return (await Purchases.purchaseStoreProduct(prod)).customerInfo;
 }
-
-/**
- * The last product-lookup failure, for the Product Health screen.
- *
- * A purchase that fails because a product is missing from App Store Connect is
- * a configuration problem, not a code problem, and it is invisible from the
- * outside. Keeping the last one lets the debug screen say exactly which
- * identifier to create rather than leaving somebody to guess.
- */
-let lastProductError = null;
-export const lastProductLookupFailure = () => lastProductError;
 
 /**
  * Buy anything by our internal ProductId. Returns { ok, isPro, cancelled, error }.
@@ -146,24 +192,53 @@ export async function purchaseProduct(productId) {
 
       // Fallback: buy the subscription by identifier, exactly like a pack.
       const customerInfo = await buyByIdentifier(productId);
-      if (!customerInfo) {
-        return { ok: false, isPro: false, error: productMissingMessage(productId), productMissing: true };
-      }
+      if (!customerInfo) return unavailable();
       return { ok: proFrom(customerInfo), isPro: proFrom(customerInfo) };
     }
 
     // One-time store products: answer packs and Lifetime Tools.
     const customerInfo = await buyByIdentifier(productId);
-    if (!customerInfo) {
-      return { ok: false, isPro: false, error: productMissingMessage(productId), productMissing: true };
-    }
+    if (!customerInfo) return unavailable();
     // Packs are consumables — they do not flip the entitlement; ok means paid.
     return { ok: true, isPro: proFrom(customerInfo) };
   } catch (e) {
     if (e?.userCancelled) return { ok: false, isPro: false, cancelled: true };
-    return { ok: false, isPro: false, error: e?.message || 'Purchase failed.' };
+    // An error code is a diagnosis; a message is prose. Record the code, then
+    // show the sentence that matches what actually went wrong.
+    const d = record({
+      sdkPresent: true,
+      configured,
+      requested: STORE_PRODUCT_IDS,
+      returned: lastDiagnosis?.returned ?? [],
+      errorCode: typeof e?.code === 'number' ? e.code : Number(e?.code ?? NaN) || null,
+    });
+    return {
+      ok: false, isPro: false,
+      error: d.userMessage || e?.message || 'Purchase failed.',
+      cause: d.cause,
+      retryWorthwhile: d.retryWorthwhile,
+    };
   }
 }
+
+/**
+ * The result for a purchase that could not be attempted.
+ *
+ * NOT "please try again". Retrying an identifier the store does not return
+ * fails identically every time, and telling somebody to retry sends them round
+ * a loop while believing the fault is theirs or their connection's. The
+ * sentence comes from the diagnosis, so "this plan is unavailable" and
+ * "purchases are down, your existing ones are safe" are different sentences.
+ */
+const unavailable = () => ({
+  ok: false,
+  isPro: false,
+  error: lastDiagnosis?.userMessage
+    || 'This plan is not available from the App Store right now. Nothing has been charged.',
+  cause: lastDiagnosis?.cause ?? null,
+  productMissing: true,
+  retryWorthwhile: !!lastDiagnosis?.retryWorthwhile,
+});
 
 /** Restore. Returns { ok, isPro, error } — ok means the call worked, isPro the result. */
 export async function restorePurchases() {

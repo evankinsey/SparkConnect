@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 // its very first render. Keep it a real statement.
 const SC_LOGO = null; // set to require('./assets/SparkConnectLogo.png') to show the logo PNG on the splash
 import SparkPaywall from './src/SparkPaywall';
-import { initPurchases, purchaseProduct, restorePurchases as rcRestorePurchases } from './src/purchases';
+import { initPurchases, purchaseProduct, restorePurchases as rcRestorePurchases, checkStore } from './src/purchases';
 import OnboardingFlow from './src/OnboardingFlow';
 import { useGating } from './src/useGating';
 import { analytics } from './src/analytics';
@@ -4535,12 +4535,25 @@ export default function App() {
   // paywall: null | 'pro' | 'packs' — which sheet is open.
   const [paywall, setPaywall] = useState(null);
   const [isPro, setIsPro] = useState(false);
+  const [store, setStore] = useState(null);
   React.useEffect(() => {
     // initPurchases never throws; a billing SDK problem must never block launch.
     Promise.resolve(initPurchases())
       .then(({ isPro: pro }) => { if (pro) setIsPro(true); })
       .catch(e => safeLog('purchases.init', e));
   }, []);
+
+  // Ask the store what it will sell the moment the sheet opens, so a plan that
+  // cannot be bought is a disabled card rather than an alert after the tap.
+  // Never throws, and a null result simply means every button behaves as before.
+  React.useEffect(() => {
+    if (paywall === null) return;
+    let live = true;
+    Promise.resolve(checkStore())
+      .then(d => { if (live) setStore(d); })
+      .catch(e => safeLog('purchases.checkStore', e));
+    return () => { live = false; };
+  }, [paywall]);
 
   const handlePurchase = React.useCallback(async (productId) => {
     const res = await purchaseProduct(productId);
@@ -4553,7 +4566,15 @@ export default function App() {
         res.isPro ? 'Everything is unlocked. Get after it.' : 'Your SparkAI answers have been added.',
       );
     } else if (res.error) {
-      Alert.alert('Purchase failed', res.error);
+      // A failure taught us something about the store. Fold it back in so the
+      // plan that just failed is greyed out instead of inviting a second tap.
+      Promise.resolve(checkStore())
+        .then(d => setStore(d))
+        .catch(e => safeLog('purchases.checkStore', e));
+      Alert.alert(
+        res.cause === 'ALREADY_OWNED' ? 'You already own this' : 'Purchase failed',
+        res.error,
+      );
     }
   }, []);
 
@@ -4847,6 +4868,7 @@ export default function App() {
       <SparkPaywall
         visible={paywall !== null}
         isPacks={paywall === 'packs'}
+        store={store}
         onClose={() => setPaywall(null)}
         onPurchase={handlePurchase}
         onBuyPack={handlePurchase}
