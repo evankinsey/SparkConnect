@@ -23,9 +23,19 @@ import {
 import {
   mergeJobCamIntoProjects, migrationMessage, legacyStoreIsFullyMigrated,
 } from '../core/domain/projectMerge';
-import { projectOverview } from '../core/domain/projectArtifacts';
+import {
+  hydrate, hubOverview, completeness, deletionImpact, setCustomer, setAddress, emptyWorld,
+} from '../core/domain/projectHub';
+import {
+  dailyLog, crewEntry, upsertLog, logsForProject, logForDate, logOverview,
+  parseMinutes, renderLogText, Weather, WEATHER_LABEL,
+} from '../core/domain/dailyLog';
+import { buildExport, renderExportText, exportSummary, Audience, AUDIENCE_LABEL } from '../core/domain/projectExport';
 
 const KEY = '@sc_projects_v1';
+const LOGS_KEY = '@sc_daily_logs_v1';
+
+const today = () => new Date().toISOString().slice(0, 10);
 
 // The old Job Cam store. Read on load and folded in; never written to again.
 const LEGACY_PROJECTS_KEY = '@sc_cam_projects';
@@ -39,14 +49,27 @@ const loadPicker = async () => {
 
 export default function ProjectsScreen({ C, setTab }) {
   const [projects, setProjects] = useState(null);
+  const [logs, setLogs] = useState([]);
   const [openId, setOpenId] = useState(null);
   const [migrationNote, setMigrationNote] = useState(null);
 
   useEffect(() => {
     (async () => {
       try {
+        const rawLogs = await AsyncStorage.getItem(LOGS_KEY);
+        setLogs(rawLogs ? JSON.parse(rawLogs) : []);
+      } catch (e) { setLogs([]); }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
         const raw = await AsyncStorage.getItem(KEY);
-        const current = raw ? JSON.parse(raw) : [];
+        // Every project is brought up to the hub shape on read. `hydrate` only
+        // adds absent fields, so a record that predates the hub keeps everything
+        // it had — and running it on every load stays safe.
+        const current = (raw ? JSON.parse(raw) : []).map(hydrate).filter(Boolean);
 
         // Job Cam used to keep its own project list and its own photos, in a
         // separate store this screen never read. A user with photos there could
@@ -83,7 +106,17 @@ export default function ProjectsScreen({ C, setTab }) {
     try { await AsyncStorage.setItem(KEY, JSON.stringify(next)); } catch (e) { /* ignore */ }
   };
 
+  const persistLogs = async (next) => {
+    setLogs(next);
+    try { await AsyncStorage.setItem(LOGS_KEY, JSON.stringify(next)); } catch (e) { /* ignore */ }
+  };
+
   if (!projects) return null;
+
+  // Everything stored elsewhere that points back at a job. Estimates, invoices
+  // and permits keep their own stores and their own lifecycles; the hub reads
+  // them, it does not own them.
+  const world = { ...emptyWorld(), logs };
 
   const open = projects.find((p) => p.id === openId);
   if (open) {
@@ -91,13 +124,25 @@ export default function ProjectsScreen({ C, setTab }) {
       <ProjectDetail
         C={C}
         proj={open}
+        world={world}
+        setTab={setTab}
         onChange={(next) => persist(projects.map((p) => (p.id === next.id ? next : p)))}
+        onLogsChange={persistLogs}
+        allLogs={logs}
         onExit={() => setOpenId(null)}
         onDelete={() => {
-          Alert.alert('Delete project?', `"${open.name}" and its ${open.photos.length} photo reference(s) will be removed from SparkConnect. The photos themselves stay on your device.`, [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Delete', style: 'destructive', onPress: () => { persist(projects.filter((p) => p.id !== open.id)); setOpenId(null); } },
-          ]);
+          // Say what actually dies and what merely gets orphaned. The old copy
+          // promised only that the photo files survive and stayed silent about
+          // the invoice, which is the thing a user most wants to know about.
+          const impact = deletionImpact(open, world);
+          Alert.alert(
+            'Delete project?',
+            [impact.summary, impact.orphanSummary, impact.note].filter(Boolean).join('\n\n'),
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Delete', style: 'destructive', onPress: () => { persist(projects.filter((p) => p.id !== open.id)); setOpenId(null); } },
+            ],
+          );
         }}
       />
     );
@@ -249,12 +294,22 @@ const TAG_CHOICES = [
   PhotoTag.UNDERGROUND, PhotoTag.CONCEALED, PhotoTag.INSPECTION, PhotoTag.LABEL, PhotoTag.DAMAGE,
 ];
 
-function ProjectDetail({ C, proj, onChange, onExit, onDelete }) {
+const VIEWS = [
+  { id: 'hub', label: 'Job', icon: 'grid' },
+  { id: 'photos', label: 'Photos', icon: 'camera' },
+  { id: 'log', label: 'Daily log', icon: 'today' },
+  { id: 'export', label: 'Export', icon: 'share' },
+];
+
+function ProjectDetail({ C, proj, world, setTab, onChange, onLogsChange, allLogs, onExit, onDelete }) {
+  const [view, setView] = useState('hub');
   const [folderId, setFolderId] = useState(proj.folders[0]?.id ?? null);
   const [selected, setSelected] = useState(null);
   const stats = useMemo(() => projectStats(proj), [proj]);
   const pairs = useMemo(() => beforeAfterPairs(proj), [proj]);
   const missing = useMemo(() => missingShots(proj), [proj]);
+  const overview = useMemo(() => hubOverview(proj, world, { today: today() }), [proj, world]);
+  const done = useMemo(() => completeness(proj, world, { today: today() }), [proj, world]);
 
   const capture = async (fromLibrary) => {
     const picker = await loadPicker();
@@ -280,17 +335,6 @@ function ProjectDetail({ C, proj, onChange, onExit, onDelete }) {
     }
   };
 
-  const shareSummary = async () => {
-    const lines = [
-      proj.name,
-      `${TEMPLATES[proj.template]?.label ?? 'Custom'} · ${stats.photoCount} photos`,
-      '',
-      ...proj.folders.map((f) => `${f.label}: ${photosInFolder(proj, f.id).length}`),
-    ];
-    // Only counts and folder names — never the address, customer or image data.
-    try { await Share.share({ message: lines.join('\n') }); } catch (e) { /* user cancelled */ }
-  };
-
   const inFolder = photosInFolder(proj, folderId);
 
   return (
@@ -302,14 +346,51 @@ function ProjectDetail({ C, proj, onChange, onExit, onDelete }) {
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.text }}>{proj.name}</Text>
           <Text style={{ fontSize: 11, color: C.textTert }}>
-            {stats.photoCount} photos · {pairs.length} before/after
+            {proj.address || TEMPLATES[proj.template]?.label || 'Custom'} · {done.done}/{done.total} recorded
           </Text>
         </View>
-        <TouchableOpacity onPress={shareSummary} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="share-outline" size={20} color={C.textSec} />
-        </TouchableOpacity>
       </View>
 
+      {/* One job, four ways of working on it. Photos were the whole screen
+          before; now they are one drawer of the filing cabinet. */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+        <View style={{ flexDirection: 'row', gap: 7 }}>
+          {VIEWS.map((v) => {
+            const active = view === v.id;
+            return (
+              <TouchableOpacity key={v.id} onPress={() => setView(v.id)}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 6,
+                  paddingHorizontal: 13, paddingVertical: 10, borderRadius: 18, minHeight: 42,
+                  backgroundColor: active ? C.blue : C.surface, borderWidth: 1.5, borderColor: active ? C.blue : C.border,
+                }}>
+                <Ionicons name={v.icon} size={14} color={active ? '#fff' : C.textSec} />
+                <Text style={{ fontSize: 12.5, fontWeight: '700', color: active ? '#fff' : C.textSec }}>{v.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </ScrollView>
+
+      {view === 'hub' && (
+        <HubView
+          C={C} proj={proj} overview={overview} done={done} setTab={setTab}
+          onChange={onChange} onOpenView={setView} onDelete={onDelete}
+        />
+      )}
+
+      {view === 'log' && (
+        <DailyLogView
+          C={C} proj={proj} allLogs={allLogs} onLogsChange={onLogsChange}
+        />
+      )}
+
+      {view === 'export' && (
+        <ExportView C={C} proj={proj} world={world} />
+      )}
+
+      {view !== 'photos' ? null : (
+      <>
       {missing.length > 0 && (
         <View style={{ backgroundColor: C.amberBg, borderRadius: 12, padding: 13, marginBottom: 12 }}>
           <Text style={{ fontSize: 11, fontWeight: '800', color: C.amber, marginBottom: 5 }}>SHOTS STILL TO TAKE</Text>
@@ -390,9 +471,292 @@ function ProjectDetail({ C, proj, onChange, onExit, onDelete }) {
         </View>
       ))}
 
-      <TouchableOpacity onPress={onDelete} style={{ padding: 14, alignItems: 'center', marginTop: 12 }}>
+      </>
+      )}
+    </ScrollView>
+  );
+}
+
+// ─── The hub ─────────────────────────────────────────────────────────────────
+// Every part of the job, whether it lives on the project or points back at it.
+
+function HubView({ C, proj, overview, done, setTab, onChange, onOpenView, onDelete }) {
+  const [editing, setEditing] = useState(null);
+  const [name, setName] = useState(proj.customer?.name ?? '');
+  const [phone, setPhone] = useState(proj.customer?.phone ?? '');
+  // Named `addressDraft`, not `address`: a `setAddress` local would shadow the
+  // imported one and the Save button would quietly set React state instead of
+  // writing to the project.
+  const [addressDraft, setAddressDraft] = useState(proj.address ?? '');
+
+  const openSection = (s) => {
+    if (s.id === 'customer' || s.id === 'address') { setEditing(s.id); return; }
+    if (s.id === 'dailyLogs' || s.id === 'labor') { onOpenView('log'); return; }
+    if (s.id === 'photos') { onOpenView('photos'); return; }
+    if (s.id === 'export') { onOpenView('export'); return; }
+    if (s.tab && setTab) setTab(s.tab);
+  };
+
+  return (
+    <>
+      {/* Not a compliance score. It counts what has been written down. */}
+      <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: C.border }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 9 }}>
+          <Text style={{ flex: 1, fontSize: 13, fontWeight: '800', color: C.text }}>Recorded so far</Text>
+          <Text style={{ fontSize: 13, fontWeight: '800', color: done.readyToClose ? (C.success ?? C.teal) : C.textSec }}>
+            {done.done}/{done.total}
+          </Text>
+        </View>
+        <View style={{ height: 6, borderRadius: 3, backgroundColor: C.border, overflow: 'hidden' }}>
+          <View style={{ width: `${done.percent}%`, height: 6, backgroundColor: done.readyToClose ? (C.success ?? C.teal) : C.blue }} />
+        </View>
+        {done.outstanding.length > 0 && (
+          <Text style={{ fontSize: 11.5, color: C.textTert, marginTop: 8, lineHeight: 17 }}>
+            Still to record: {done.outstanding.join(' · ')}
+          </Text>
+        )}
+        <Text style={{ fontSize: 10.5, color: C.textTert, marginTop: 8, lineHeight: 15, fontStyle: 'italic' }}>
+          {done.disclaimer}
+        </Text>
+      </View>
+
+      {overview.warnings.length > 0 && (
+        <View style={{ backgroundColor: C.amberBg, borderRadius: 12, padding: 12, marginBottom: 14 }}>
+          {overview.warnings.map((w) => (
+            <Text key={w.id} style={{ fontSize: 12, color: C.text, lineHeight: 18 }}>
+              <Text style={{ fontWeight: '800', color: C.amber }}>{w.label}: </Text>{w.warn}
+            </Text>
+          ))}
+        </View>
+      )}
+
+      {editing && (
+        <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: C.blue }}>
+          {editing === 'customer' ? (
+            <>
+              <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5, marginBottom: 8 }}>CUSTOMER</Text>
+              <TextInput value={name} onChangeText={setName} placeholder="Name" placeholderTextColor={C.placeholder}
+                style={{ backgroundColor: C.inputBg, borderRadius: 10, padding: 12, color: C.inputText, fontSize: 14, borderWidth: 1, borderColor: C.inputBorder, marginBottom: 9 }} />
+              <TextInput value={phone} onChangeText={setPhone} placeholder="Phone" placeholderTextColor={C.placeholder} keyboardType="phone-pad"
+                style={{ backgroundColor: C.inputBg, borderRadius: 10, padding: 12, color: C.inputText, fontSize: 14, borderWidth: 1, borderColor: C.inputBorder, marginBottom: 12 }} />
+            </>
+          ) : (
+            <>
+              <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5, marginBottom: 8 }}>SITE ADDRESS</Text>
+              <TextInput value={addressDraft} onChangeText={setAddressDraft} placeholder="14 Mill Road" placeholderTextColor={C.placeholder}
+                style={{ backgroundColor: C.inputBg, borderRadius: 10, padding: 12, color: C.inputText, fontSize: 14, borderWidth: 1, borderColor: C.inputBorder, marginBottom: 12 }} />
+            </>
+          )}
+          <View style={{ flexDirection: 'row', gap: 9 }}>
+            <TouchableOpacity
+              onPress={() => {
+                onChange(editing === 'customer'
+                  ? setCustomer(proj, { ...(proj.customer ?? {}), name, phone })
+                  : setAddress(proj, addressDraft));
+                setEditing(null);
+              }}
+              style={{ flex: 1, backgroundColor: C.blue, borderRadius: 10, paddingVertical: 13, alignItems: 'center', minHeight: 46, justifyContent: 'center' }}>
+              <Text style={{ fontSize: 14, fontWeight: '800', color: '#fff' }}>Save</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setEditing(null)}
+              style={{ paddingHorizontal: 18, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border }}>
+              <Text style={{ fontSize: 13, color: C.textSec }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {overview.groups.map((g) => (
+        <View key={g.group} style={{ marginBottom: 16 }}>
+          <Text style={{ fontSize: 10.5, fontWeight: '800', color: C.textTert, letterSpacing: 0.7, marginBottom: 8 }}>
+            {g.group.toUpperCase()}
+          </Text>
+          {g.sections.map((s) => (
+            <TouchableOpacity
+              key={s.id}
+              onPress={() => openSection(s)}
+              activeOpacity={0.85}
+              style={{
+                flexDirection: 'row', alignItems: 'center', gap: 11,
+                backgroundColor: C.surface, borderRadius: 12, padding: 13, marginBottom: 7,
+                borderWidth: 1, borderColor: s.warn ? C.amber : C.border, minHeight: 56,
+              }}>
+              <View style={{
+                width: 32, height: 32, borderRadius: 9, alignItems: 'center', justifyContent: 'center',
+                backgroundColor: s.present ? C.tealBg : C.inputBg,
+              }}>
+                <Ionicons name={s.icon} size={16} color={s.present ? C.teal : C.textTert} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13.5, fontWeight: '700', color: C.text }}>{s.label}</Text>
+                {/* The count is the useful part; the warning is extra. Showing
+                    the warning INSTEAD would hide "2 days logged" behind
+                    "nothing logged today". */}
+                <Text style={{ fontSize: 11.5, color: C.textTert, marginTop: 2 }}>{s.detail}</Text>
+                {!!s.warn && (
+                  <Text style={{ fontSize: 11, color: C.amber, marginTop: 2, fontWeight: '600' }}>{s.warn}</Text>
+                )}
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={C.textTert} />
+            </TouchableOpacity>
+          ))}
+        </View>
+      ))}
+
+      <TouchableOpacity onPress={onDelete} style={{ padding: 14, alignItems: 'center', marginTop: 4 }}>
         <Text style={{ color: C.danger, fontSize: 13, fontWeight: '600' }}>Delete Project</Text>
       </TouchableOpacity>
-    </ScrollView>
+    </>
+  );
+}
+
+// ─── Daily log ───────────────────────────────────────────────────────────────
+
+function DailyLogView({ C, proj, allLogs, onLogsChange }) {
+  const date = today();
+  const existing = logForDate(allLogs, proj.id, date);
+  const mine = logsForProject(allLogs, proj.id);
+  const summary = useMemo(() => logOverview(allLogs, proj.id, { today: date }), [allLogs, proj.id, date]);
+
+  const [crewName, setCrewName] = useState('');
+  const [hours, setHours] = useState('');
+  const [work, setWork] = useState(existing?.workPerformed ?? '');
+  const [weather, setWeather] = useState(existing?.weather ?? null);
+
+  const save = () => {
+    const minutes = parseMinutes(hours);
+    // Editing today's log replaces it. There is no path that appends a second
+    // log for the same date, because that would double the billable hours.
+    const crew = [
+      ...(existing?.crew ?? []),
+      ...(crewName.trim() ? [crewEntry({ name: crewName, minutes })] : []),
+    ];
+    const log = dailyLog({
+      projectId: proj.id, date, crew, weather,
+      workPerformed: work,
+      delays: existing?.delays ?? [],
+      deliveries: existing?.deliveries ?? '',
+      visitors: existing?.visitors ?? '',
+    });
+    onLogsChange(upsertLog(allLogs, log));
+    setCrewName(''); setHours('');
+  };
+
+  return (
+    <>
+      <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: C.border }}>
+        <Text style={{ fontSize: 13, fontWeight: '800', color: C.text, marginBottom: 3 }}>Today · {date}</Text>
+        <Text style={{ fontSize: 11.5, color: C.textTert, marginBottom: 12 }}>
+          {summary.count} day{summary.count === 1 ? '' : 's'} logged · {summary.labor.totalHoursLabel} on site
+          {summary.labor.priced ? ` · ${summary.labor.costLabel}` : ''}
+        </Text>
+
+        <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5, marginBottom: 8 }}>ADD CREW TIME</Text>
+        <View style={{ flexDirection: 'row', gap: 9, marginBottom: 10 }}>
+          <TextInput value={crewName} onChangeText={setCrewName} placeholder="Name" placeholderTextColor={C.placeholder}
+            style={{ flex: 2, backgroundColor: C.inputBg, borderRadius: 10, padding: 12, color: C.inputText, fontSize: 14, borderWidth: 1, borderColor: C.inputBorder }} />
+          <TextInput value={hours} onChangeText={setHours} placeholder="8 or 7:30" placeholderTextColor={C.placeholder}
+            style={{ flex: 1, backgroundColor: C.inputBg, borderRadius: 10, padding: 12, color: C.inputText, fontSize: 14, borderWidth: 1, borderColor: C.inputBorder }} />
+        </View>
+
+        <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5, marginBottom: 8 }}>WEATHER</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+          {Object.keys(Weather).map((w) => {
+            const on = weather === w;
+            return (
+              <TouchableOpacity key={w} onPress={() => setWeather(on ? null : w)}
+                style={{
+                  paddingHorizontal: 11, paddingVertical: 9, borderRadius: 9, minHeight: 38, justifyContent: 'center',
+                  backgroundColor: on ? C.teal : C.inputBg, borderWidth: 1, borderColor: on ? C.teal : C.border,
+                }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: on ? '#fff' : C.textSec }}>{WEATHER_LABEL[w]}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5, marginBottom: 8 }}>WORK PERFORMED</Text>
+        <TextInput value={work} onChangeText={setWork} multiline placeholder="What got done today"
+          placeholderTextColor={C.placeholder}
+          style={{ backgroundColor: C.inputBg, borderRadius: 10, padding: 12, color: C.inputText, fontSize: 14, borderWidth: 1, borderColor: C.inputBorder, minHeight: 76, textAlignVertical: 'top', marginBottom: 12 }} />
+
+        <TouchableOpacity onPress={save}
+          style={{ backgroundColor: C.blue, borderRadius: 10, paddingVertical: 14, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}>
+          <Text style={{ fontSize: 14, fontWeight: '800', color: '#fff' }}>
+            {existing ? 'Update today’s log' : 'Save today’s log'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {!summary.labor.priced && summary.labor.pricingNote && (
+        <Text style={{ fontSize: 11.5, color: C.textTert, marginBottom: 14, lineHeight: 17 }}>
+          {summary.labor.pricingNote}
+        </Text>
+      )}
+
+      {mine.map((l) => (
+        <View key={l.id} style={{ backgroundColor: C.surface, borderRadius: 12, padding: 13, marginBottom: 8, borderWidth: 1, borderColor: C.border }}>
+          <Text style={{ fontSize: 12, color: C.text, lineHeight: 18 }}>{renderLogText(l)}</Text>
+        </View>
+      ))}
+
+      {mine.length === 0 && (
+        <Text style={{ fontSize: 12.5, color: C.textTert, lineHeight: 19 }}>
+          No days logged yet. A log written on the day is what settles an argument six months later —
+          who was here, how long, and what stopped the work.
+        </Text>
+      )}
+    </>
+  );
+}
+
+// ─── Export ──────────────────────────────────────────────────────────────────
+
+function ExportView({ C, proj, world }) {
+  const [audience, setAudience] = useState(Audience.CUSTOMER);
+  const pkg = useMemo(
+    () => buildExport(proj, world, { audience, today: today() }),
+    [proj, world, audience],
+  );
+  const text = useMemo(() => renderExportText(pkg), [pkg]);
+
+  const send = async () => {
+    try { await Share.share({ message: text }); } catch (e) { /* user cancelled */ }
+  };
+
+  return (
+    <>
+      <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5, marginBottom: 8 }}>WHO IS THIS FOR</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 12 }}>
+        {Object.keys(Audience).map((a) => {
+          const on = audience === a;
+          return (
+            <TouchableOpacity key={a} onPress={() => setAudience(a)}
+              style={{
+                paddingHorizontal: 13, paddingVertical: 10, borderRadius: 10, minHeight: 42, justifyContent: 'center',
+                backgroundColor: on ? C.blue : C.inputBg, borderWidth: 1.5, borderColor: on ? C.blue : C.border,
+              }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: on ? '#fff' : C.textSec }}>{AUDIENCE_LABEL[a]}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* The reader decides what is in the document, so say what is being held
+          back before it is sent, not after. */}
+      <Text style={{ fontSize: 11.5, color: C.textTert, marginBottom: 12, lineHeight: 17 }}>
+        {exportSummary(pkg)}
+        {pkg?.omitted?.length ? ` — withheld: ${pkg.omitted.join(', ')}` : ''}
+      </Text>
+
+      <View style={{ backgroundColor: C.surface, borderRadius: 12, padding: 13, marginBottom: 14, borderWidth: 1, borderColor: C.border }}>
+        <Text style={{ fontSize: 11.5, color: C.text, lineHeight: 17, fontFamily: undefined }}>{text}</Text>
+      </View>
+
+      <TouchableOpacity onPress={send}
+        style={{ backgroundColor: C.blue, borderRadius: 12, paddingVertical: 15, alignItems: 'center', minHeight: 50, justifyContent: 'center' }}>
+        <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff' }}>Share this copy</Text>
+      </TouchableOpacity>
+    </>
   );
 }
