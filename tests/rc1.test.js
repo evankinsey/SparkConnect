@@ -401,3 +401,25 @@ test('the health dashboard counts verified datasets correctly', async () => {
   // Partial means rows read but the table not cleared — never a verified one.
   for (const id of check.partial) assert.equal(isVerified(id), false);
 });
+
+// ─── The purchase failure that shipped in build 27 ───────────────────────────
+
+test('a missing product does not tell the user to try again', async () => {
+  const src = await import('node:fs').then((fs) => fs.readFileSync('src/purchases.js', 'utf8'));
+  // "Please try again" is wrong advice: retrying a purchase for an identifier
+  // that does not exist fails identically every time, and it sends somebody
+  // round a loop believing the fault is theirs.
+  assert.doesNotMatch(src, /could not be loaded from the App Store\. Please try again/,
+    'the retry advice must be gone');
+  assert.match(src, /not available from the App Store right now/);
+  assert.match(src, /nothing has been charged/, 'say the money is safe');
+});
+
+test('a product-lookup failure records which identifier was missing', async () => {
+  const src = await import('node:fs').then((fs) => fs.readFileSync('src/purchases.js', 'utf8'));
+  // Build 27 failed silently on sparkconnect_pro_annual with nothing on screen
+  // or in logs naming the identifier. That is a one-minute fix that took hours.
+  assert.match(src, /lastProductLookupFailure/);
+  assert.match(src, /storeReturned/, 'record what the store DID return, for comparison');
+  assert.match(src, /wanted/);
+});

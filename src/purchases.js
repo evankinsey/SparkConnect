@@ -14,7 +14,18 @@
 
 import { Platform } from 'react-native';
 import { REVENUECAT_IOS_KEY, REVENUECAT_ANDROID_KEY } from './config/keys';
-import { ProductId, ALL_STORE_IDS, matchesProduct } from './core/paywall/config';
+import { ProductId, ALL_STORE_IDS, matchesProduct, PRODUCT_ALIASES } from './core/paywall/config';
+
+/**
+ * What to tell a person when the store has no such product.
+ *
+ * NOT "please try again". Retrying a purchase for an identifier that does not
+ * exist fails identically every time, and telling somebody to retry sends them
+ * round a loop while believing the fault is theirs or their connection's.
+ */
+const productMissingMessage = (productId) =>
+  'This plan is not available from the App Store right now. '
+  + 'Other plans on this screen may still work, and nothing has been charged.';
 
 let Purchases = null;
 let PACKAGE_TYPE = { ANNUAL: 'ANNUAL', MONTHLY: 'MONTHLY' };
@@ -66,10 +77,35 @@ async function buyByIdentifier(productId) {
   // Match on any known alias, not on our internal id — the store returns
   // whatever identifier the product was actually created with.
   const prod = (prods || []).find(p => matchesProduct(productId, p.productIdentifier));
-  if (!prod) return null;
-  const { customerInfo } = await Purchases.purchaseStoreProduct(prod);
-  return customerInfo;
+  if (!prod) {
+    // Say WHICH identifier the store did not return, and what it did return.
+    //
+    // Build 27 asked for `sparkconnect_pro_annual`, a product that does not
+    // exist in App Store Connect, and the user saw "this product could not be
+    // loaded — please try again". Trying again could never have worked, and
+    // nothing on screen pointed at the identifier. One line of detail turns
+    // this from a mystery into a one-minute fix.
+    lastProductError = {
+      wanted: productId,
+      accepted: PRODUCT_ALIASES[productId] ?? [productId],
+      storeReturned: (prods || []).map(p => p.productIdentifier),
+      at: new Date().toISOString(),
+    };
+    return null;
+  }
+  return (await Purchases.purchaseStoreProduct(prod)).customerInfo;
 }
+
+/**
+ * The last product-lookup failure, for the Product Health screen.
+ *
+ * A purchase that fails because a product is missing from App Store Connect is
+ * a configuration problem, not a code problem, and it is invisible from the
+ * outside. Keeping the last one lets the debug screen say exactly which
+ * identifier to create rather than leaving somebody to guess.
+ */
+let lastProductError = null;
+export const lastProductLookupFailure = () => lastProductError;
 
 /**
  * Buy anything by our internal ProductId. Returns { ok, isPro, cancelled, error }.
@@ -111,7 +147,7 @@ export async function purchaseProduct(productId) {
       // Fallback: buy the subscription by identifier, exactly like a pack.
       const customerInfo = await buyByIdentifier(productId);
       if (!customerInfo) {
-        return { ok: false, isPro: false, error: 'This product could not be loaded from the App Store. Please try again.' };
+        return { ok: false, isPro: false, error: productMissingMessage(productId), productMissing: true };
       }
       return { ok: proFrom(customerInfo), isPro: proFrom(customerInfo) };
     }
@@ -119,7 +155,7 @@ export async function purchaseProduct(productId) {
     // One-time store products: answer packs and Lifetime Tools.
     const customerInfo = await buyByIdentifier(productId);
     if (!customerInfo) {
-      return { ok: false, isPro: false, error: 'This product could not be loaded from the App Store. Please try again.' };
+      return { ok: false, isPro: false, error: productMissingMessage(productId), productMissing: true };
     }
     // Packs are consumables — they do not flip the entitlement; ok means paid.
     return { ok: true, isPro: proFrom(customerInfo) };

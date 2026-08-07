@@ -578,3 +578,70 @@ test('the bubble shows provenance and the unverified-data warning', async () => 
     'an answer from an unchecked table has to say so where the user is');
   assert.ok(src.includes('msg.showVerifyPrompt'));
 });
+
+// ─── A refusal should be a route, not a dead end ─────────────────────────────
+
+test('a jurisdiction question routes to the authority instead of shrugging', async () => {
+  const { nextActions, refusalWithActions, ActionKind } =
+    await import('../src/core/ai/nextActions.js');
+
+  const acts = nextActions('what NEC edition does Tampa use');
+  assert.ok(acts.length > 0, 'refusing without offering anything leaves the user where they started');
+  assert.equal(acts[0].kind, ActionKind.AUTHORITY);
+  assert.equal(acts[0].tab, 'permit');
+
+  const r = refusalWithActions(
+    { reason: 'Adopted edition is jurisdictional.', text: 'x' },
+    'what NEC edition does Tampa use',
+  );
+  assert.equal(r.hasRoute, true);
+  assert.match(r.headline, /depends on the jurisdiction/i);
+  assert.ok(r.reason, 'the reason survives — why is what makes a refusal trustworthy');
+});
+
+test('a computable question routes to the calculator that computes it', async () => {
+  const { nextActions, ActionKind } = await import('../src/core/ai/nextActions.js');
+  const cases = [
+    ['voltage drop on a long run', 'volt'],
+    ['how many conductors fit in 3/4 EMT', 'conduitfill'],
+    ['box fill for six 12 AWG', 'boxfill'],
+    ['derating for eight current-carrying conductors', 'ampacity'],
+    ['offset around a beam', 'bend'],
+  ];
+  for (const [q, tab] of cases) {
+    const acts = nextActions(q);
+    assert.ok(acts.some((a) => a.tab === tab && a.kind === ActionKind.TOOL),
+      `"${q}" should offer the ${tab} tool`);
+  }
+});
+
+test('a wiring question offers to show it rather than describe it', async () => {
+  const { nextActions, ActionKind } = await import('../src/core/ai/nextActions.js');
+  const acts = nextActions('how does a three-way switch work');
+  assert.ok(acts.some((a) => a.kind === ActionKind.LEARN && a.tab === 'wiringlab'));
+});
+
+test('an action never smuggles the refused answer back in', async () => {
+  const { nextActions } = await import('../src/core/ai/nextActions.js');
+  // Every action routes to a TOOL or an AUTHORITY. An action that stated the
+  // answer would be the hallucination wearing a button.
+  const questions = [
+    'what NEC edition does Tampa use',
+    'what size wire for a 60 amp subpanel',
+    'does this need a permit in Hillsborough County',
+  ];
+  const FORBIDDEN = /\b(?:use|is|requires?)\s+(?:NEC\s+)?20\d\d\b|#\s?\d+\s*AWG|\b\d+\s*amp\b/i;
+  for (const q of questions) {
+    for (const a of nextActions(q)) {
+      assert.doesNotMatch(a.label, FORBIDDEN, `"${a.label}" states an answer`);
+      assert.doesNotMatch(a.detail, FORBIDDEN, `"${a.detail}" states an answer`);
+    }
+  }
+});
+
+test('at most three actions, so a refusal is not a menu', async () => {
+  const { nextActions } = await import('../src/core/ai/nextActions.js');
+  const busy = 'voltage drop three-way permit conduit fill box fill bending ampacity Tampa';
+  assert.ok(nextActions(busy).length <= 3);
+  assert.equal(nextActions('').length, 0, 'no question, no invented route');
+});
