@@ -387,12 +387,12 @@ function AhjLookup({ C, onAskAi, onAdopt }) {
           <View style={{ flexDirection: 'row', gap: 7 }}>
             <TouchableOpacity
               onPress={() => setRecord(confirmField(record, f.key, { at: Date.now() }))}
-              style={{ flex: 1, backgroundColor: C.blue, borderRadius: 9, paddingVertical: 9, alignItems: 'center', minHeight: 40, justifyContent: 'center' }}>
+              style={{ flex: 1, backgroundColor: C.blue, borderRadius: 9, paddingVertical: 9, alignItems: 'center', minHeight: 44, justifyContent: 'center' }}>
               <Text style={{ fontSize: 12.5, fontWeight: '800', color: '#fff' }}>Confirm</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => setRecord(rejectField(record, f.key))}
-              style={{ paddingHorizontal: 14, borderRadius: 9, borderWidth: 1, borderColor: C.border, justifyContent: 'center', minHeight: 40 }}>
+              style={{ paddingHorizontal: 14, borderRadius: 9, borderWidth: 1, borderColor: C.border, justifyContent: 'center', minHeight: 44 }}>
               <Text style={{ fontSize: 12.5, fontWeight: '700', color: C.textSec }}>Discard</Text>
             </TouchableOpacity>
           </View>

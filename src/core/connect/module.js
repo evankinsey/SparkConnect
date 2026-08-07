@@ -28,7 +28,7 @@
 //
 // Pure module: no React, no network, no storage.
 
-import { AdapterStatus, ATTRIBUTION_NOTICE } from './sources.js';
+import { AdapterStatus, SourceKind, ATTRIBUTION_NOTICE } from './sources.js';
 import { CONNECT_DISCLAIMER, Trade, ACTIVE_TRADES } from './index.js';
 import { PATHWAY_DISCLAIMER } from './pathways.js';
 
@@ -63,6 +63,9 @@ export const SECTIONS = Object.freeze([
     blurb: 'Check a contractor licence against the state board that issued it.',
     availability: Availability.OFFICIAL_PORTAL,
     requiresAdapter: true,
+    // A licence board satisfies this. A county permit portal does not — and
+    // without saying so, registering ANY adapter lit up every data-backed tile.
+    satisfiedBy: Object.freeze([SourceKind.STATE_LICENSE_BOARD]),
     order: 1,
     emptyState: 'Enter a licence number and this opens the issuing board’s own record for it. '
       + 'We do not keep a copy — the board’s page is the one that is current.',
@@ -89,6 +92,10 @@ export const SECTIONS = Object.freeze([
     blurb: 'Search licensed contractors by name, licence number or trade.',
     availability: Availability.NOT_YET,
     requiresAdapter: true,
+    // Needs a searchable index of contractors. A deep link to a board's own
+    // search page is not that: it cannot answer "who works near me".
+    satisfiedBy: Object.freeze([SourceKind.OPEN_DATA_PORTAL]),
+    requiresLive: true,
     order: 3,
     emptyState: 'There is no contractor index yet. When there is, every record will carry the '
       + 'authority it came from and the date it was read.',
@@ -103,6 +110,8 @@ export const SECTIONS = Object.freeze([
     blurb: 'Licensed contractors working near a job.',
     availability: Availability.NOT_YET,
     requiresAdapter: true,
+    satisfiedBy: Object.freeze([SourceKind.OPEN_DATA_PORTAL]),
+    requiresLive: true,
     order: 4,
     emptyState: 'Needs the contractor index first.',
     whyNoData: 'Proximity is only meaningful over a real index. A map with three seeded pins '
@@ -149,14 +158,20 @@ export const sections = (registry = null, { jurisdictionId = null } = {}) => {
     let adapters = [];
 
     if (s.requiresAdapter) {
-      adapters = registry
-        ? registry.all().filter((a) => !jurisdictionId || a.jurisdictionId === jurisdictionId)
-        : [];
+      const kinds = s.satisfiedBy ?? [];
+      adapters = (registry ? registry.all() : [])
+        .filter((a) => !jurisdictionId || a.jurisdictionId === jurisdictionId)
+        // Only adapters of a kind that actually answers this section's question.
+        .filter((a) => kinds.includes(a.kind));
+
       const live = adapters.filter((a) => a.status === AdapterStatus.LIVE);
       const linkable = adapters.filter((a) => a.status === AdapterStatus.DEEP_LINK_ONLY);
 
       if (live.length) availability = Availability.SEARCHABLE;
-      else if (linkable.length) availability = Availability.OFFICIAL_PORTAL;
+      // A section that needs a real index is not satisfied by a deep link.
+      // "Search contractors near me" cannot be answered by handing somebody a
+      // board's own search page, so requiresLive holds it back.
+      else if (linkable.length && !s.requiresLive) availability = Availability.OFFICIAL_PORTAL;
       else availability = Availability.NOT_YET;
     }
 

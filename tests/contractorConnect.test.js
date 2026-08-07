@@ -316,3 +316,69 @@ test('the split plan is recorded where an engineer will read it', () => {
   assert.ok(SPLIT_PLAN.tradesReady.includes(Trade.PLUMBING));
   assert.ok(SPLIT_PLAN.tradesReady.length >= 9);
 });
+
+// ─── Florida ships tonight, as deep links ────────────────────────────────────
+
+test('registering Florida makes Verify a Licence live', async () => {
+  const { registerFlorida, floridaAdapters } = await import('../src/core/connect/adapters/florida.js');
+  const r = createRegistry();
+  const out = registerFlorida(r);
+  assert.equal(out.failed.length, 0, 'every Florida adapter must be constructible');
+  assert.ok(out.registered >= 5);
+
+  // The tile that was NOT_YET is now usable — because an adapter exists, not
+  // because anybody changed a label.
+  const rows = sections(r);
+  const verify = rows.find((s) => s.id === 'verify_license');
+  assert.equal(verify.availability, Availability.OFFICIAL_PORTAL);
+  assert.equal(verify.usable, true);
+  assert.ok(verify.portals.length >= 1);
+
+  // Find/nearby stay dark. A licence lookup and a contractor index are
+  // different problems and only one of them is solved.
+  assert.equal(rows.find((s) => s.id === 'find_contractor').usable, false);
+  assert.equal(rows.find((s) => s.id === 'nearby_contractors').usable, false);
+
+  const tab = contractorsTab(r);
+  assert.match(tab.honestSummary, /4 of 6 are live/);
+  assert.ok(floridaAdapters().every((a) => a !== null));
+});
+
+test('a licence deep link is https and carries the number', async () => {
+  const { dbprLicenseAdapter, normalizeLicenseNumber, looksLikeLicenseNumber } =
+    await import('../src/core/connect/adapters/florida.js');
+  const a = dbprLicenseAdapter();
+  const url = a.deepLink('ec 13-001234');
+  assert.ok(isHttps(url));
+  assert.match(url, /EC13001234/, 'the tidied number travels with the link');
+  assert.ok(isHttps(a.deepLink('')), 'an empty query still lands on the search page');
+
+  assert.equal(normalizeLicenseNumber('  ec13001234 '), 'EC13001234');
+  assert.equal(normalizeLicenseNumber(null), '');
+  assert.equal(looksLikeLicenseNumber('EC13001234'), true);
+  assert.equal(looksLikeLicenseNumber('hello'), false, 'letters alone are not a licence');
+  assert.equal(looksLikeLicenseNumber('123'), false);
+});
+
+test('county permit portals ship as roots, never as guessed deep paths', async () => {
+  const { countyPermitAdapters } = await import('../src/core/connect/adapters/florida.js');
+  for (const a of countyPermitAdapters()) {
+    assert.equal(a.status, AdapterStatus.PLANNED);
+    assert.ok(isHttps(a.portalUrl));
+    // A root, not a guessed search path that would 404 with our name on it.
+    assert.ok(a.portalUrl.split('/').filter(Boolean).length <= 2, `${a.id} guesses a deep path`);
+    assert.equal(a.deepLink(), a.portalUrl);
+  }
+});
+
+test('an unconfirmed link says so rather than pretending', async () => {
+  const { linkStatus } = await import('../src/core/connect/adapters/florida.js');
+  const unconfirmed = linkStatus('fl-dbpr-license', {});
+  assert.equal(unconfirmed.confirmed, false);
+  assert.match(unconfirmed.label, /not yet confirmed/);
+  assert.match(unconfirmed.note, /fails loudly/);
+
+  const confirmed = linkStatus('fl-dbpr-license', { 'fl-dbpr-license': true });
+  assert.equal(confirmed.confirmed, true);
+  assert.equal(confirmed.note, null);
+});

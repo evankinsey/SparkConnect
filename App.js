@@ -2807,7 +2807,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
         {/* Text input */}
         <TextInput
           ref={inputRef}
-          style={{ flex: 1, backgroundColor: C.inputBg, borderRadius: 20, paddingHorizontal: 14, paddingVertical: Platform.OS === 'ios' ? 9 : 7, fontSize: 14, color: C.inputText, borderWidth: 1.5, borderColor: C.inputBorder, maxHeight: 100, minHeight: 36 }}
+          style={{ flex: 1, backgroundColor: C.inputBg, borderRadius: 20, paddingHorizontal: 14, paddingVertical: Platform.OS === 'ios' ? 9 : 7, fontSize: 14, color: C.inputText, borderWidth: 1.5, borderColor: C.inputBorder, maxHeight: 100, minHeight: 44 }}
           value={inputText}
           onChangeText={setInputText}
           placeholder="Ask anything electrical..."

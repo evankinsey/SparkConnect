@@ -405,7 +405,7 @@ function ProjectDetail({ C, proj, world, setTab, onChange, onLogsChange, allLogs
               <TouchableOpacity key={v.id} onPress={() => setView(v.id)}
                 style={{
                   flexDirection: 'row', alignItems: 'center', gap: 6,
-                  paddingHorizontal: 13, paddingVertical: 10, borderRadius: 18, minHeight: 42,
+                  paddingHorizontal: 13, paddingVertical: 10, borderRadius: 18, minHeight: 44,
                   backgroundColor: active ? C.blue : C.surface, borderWidth: 1.5, borderColor: active ? C.blue : C.border,
                 }}>
                 <Ionicons name={v.icon} size={14} color={active ? '#fff' : C.textSec} />
@@ -465,7 +465,7 @@ function ProjectDetail({ C, proj, world, setTab, onChange, onLogsChange, allLogs
             return (
               <TouchableOpacity key={f.id} onPress={() => setFolderId(f.id)}
                 style={{
-                  paddingHorizontal: 13, paddingVertical: 9, borderRadius: 18, minHeight: 40, justifyContent: 'center',
+                  paddingHorizontal: 13, paddingVertical: 9, borderRadius: 18, minHeight: 44, justifyContent: 'center',
                   backgroundColor: active ? C.teal : C.surface, borderWidth: 1.5, borderColor: active ? C.teal : C.border,
                 }}>
                 <Text style={{ fontSize: 12, fontWeight: '700', color: active ? '#fff' : C.textSec }}>
@@ -505,7 +505,7 @@ function ProjectDetail({ C, proj, world, setTab, onChange, onLogsChange, allLogs
                 return (
                   <TouchableOpacity key={t} onPress={() => onChange(tagPhoto(proj, p.id, [t]))} disabled={on}
                     style={{
-                      paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, minHeight: 36, justifyContent: 'center',
+                      paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, minHeight: 44, justifyContent: 'center',
                       backgroundColor: on ? C.successBg : C.inputBg, borderWidth: 1, borderColor: on ? C.success : C.border,
                     }}>
                     <Text style={{ fontSize: 10.5, fontWeight: '700', color: on ? C.success : C.textSec }}>
@@ -862,7 +862,7 @@ function DailyLogView({ C, proj, allLogs, onLogsChange }) {
             return (
               <TouchableOpacity key={w} onPress={() => setWeather(on ? null : w)}
                 style={{
-                  paddingHorizontal: 11, paddingVertical: 9, borderRadius: 9, minHeight: 38, justifyContent: 'center',
+                  paddingHorizontal: 11, paddingVertical: 9, borderRadius: 9, minHeight: 44, justifyContent: 'center',
                   backgroundColor: on ? C.teal : C.inputBg, borderWidth: 1, borderColor: on ? C.teal : C.border,
                 }}>
                 <Text style={{ fontSize: 11, fontWeight: '700', color: on ? '#fff' : C.textSec }}>{WEATHER_LABEL[w]}</Text>
@@ -929,7 +929,7 @@ function ExportView({ C, proj, world }) {
           return (
             <TouchableOpacity key={a} onPress={() => setAudience(a)}
               style={{
-                paddingHorizontal: 13, paddingVertical: 10, borderRadius: 10, minHeight: 42, justifyContent: 'center',
+                paddingHorizontal: 13, paddingVertical: 10, borderRadius: 10, minHeight: 44, justifyContent: 'center',
                 backgroundColor: on ? C.blue : C.inputBg, borderWidth: 1.5, borderColor: on ? C.blue : C.border,
               }}>
               <Text style={{ fontSize: 12, fontWeight: '700', color: on ? '#fff' : C.textSec }}>{AUDIENCE_LABEL[a]}</Text>

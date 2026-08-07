@@ -147,7 +147,7 @@ export default function MaterialsScreen({ C, setTab }) {
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
         {QUICK_ADD.map((q) => (
           <TouchableOpacity key={q} onPress={() => add(q, 1)}
-            style={{ paddingHorizontal: 11, paddingVertical: 9, borderRadius: 9, backgroundColor: C.inputBg, borderWidth: 1, borderColor: C.border, minHeight: 38, justifyContent: 'center' }}>
+            style={{ paddingHorizontal: 11, paddingVertical: 9, borderRadius: 9, backgroundColor: C.inputBg, borderWidth: 1, borderColor: C.border, minHeight: 44, justifyContent: 'center' }}>
             <Text style={{ fontSize: 11.5, fontWeight: '600', color: C.textSec }}>{q}</Text>
           </TouchableOpacity>
         ))}

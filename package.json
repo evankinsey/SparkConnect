@@ -14,7 +14,8 @@
     "config:check": "node scripts/check-config.mjs",
     "rc:report": "node scripts/rc-report.mjs",
     "access:matrix": "node -e \"import('./src/core/paywall/registry.js').then(m=>console.log(m.matrixText()))\"",
-    "health": "node -e \"import('./src/core/health.js').then(m=>console.log(m.healthText()))\""
+    "health": "node -e \"import('./src/core/health.js').then(m=>console.log(m.healthText()))\"",
+    "audit:ui": "node scripts/audit-ui.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
