@@ -97,7 +97,7 @@ export const deriveSymptom = (circuit) => {
   } else if (live.length && dead.length) {
     summary = live.length === 1
       ? 'The light is only controlled from one location. The other switches do nothing on their own.'
-      : `The light is controlled from ${live.length} locations. ${dead.length} of them do nothing on their own.`;
+      : `The light is controlled from ${live.length} locations. ${dead.length} of them ${dead.length === 1 ? 'does' : 'do'} nothing on their own.`;
   } else if (!live.length) {
     // No single switch reliably toggles the load, yet some combination lights
     // it. This is the classic "only works if the other switch is just right".
