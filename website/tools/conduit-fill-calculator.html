@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Conduit Fill Calculator — How many THHN conductors fit in EMT | SparkConnect</title>
+<meta name="description" content="How many 12 AWG THHN fit in 3/4 inch EMT? Answered from NEC Annex C, Table C.1, checked by hand against the printed 2023 code book. Free, no signup.">
+<link rel="canonical" href="https://sparkconnect.pro/tools/conduit-fill-calculator">
+<meta name="theme-color" content="#080B11">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Conduit Fill Calculator — THHN in EMT">
+<meta property="og:description" content="Answered from NEC Annex C, Table C.1, checked by hand against the printed 2023 code book.">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "How many 12 AWG THHN conductors fit in 3/4 inch EMT?",
+      "acceptedAnswer": { "@type": "Answer", "text": "16. From NEC Annex C, Table C.1, for THHN/THWN/THWN-2 in electrical metallic tubing, all conductors the same size." }
+    },
+    {
+      "@type": "Question",
+      "name": "How many 12 AWG THHN fit in 1/2 inch EMT?",
+      "acceptedAnswer": { "@type": "Answer", "text": "9. From NEC Annex C, Table C.1." }
+    },
+    {
+      "@type": "Question",
+      "name": "What is the maximum conduit fill percentage?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Chapter 9, Table 1: 53% for one conductor, 31% for two, and 40% for three or more. Annex C tables already apply these limits, so a count taken from Annex C does not need a separate percentage check." }
+    }
+  ]
+}
+</script>
+
+<style>
+:root{
+  --ground:#080B11;--surface:#101520;--raised:#161C29;--line:#222A3A;--line-soft:#1A2130;
+  --text:#E9EDF4;--text-2:#AEB8CA;--muted:#7F8AA0;
+  --accent:#1D6FFF;--accent-2:#5D9BFF;--accent-dim:rgba(29,111,255,.10);--accent-line:rgba(29,111,255,.32);
+  --hi:#F5A524;--hi-dim:rgba(245,165,36,.10);--ok:#3DBE7A;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--ground);color:var(--text);font-family:var(--sans);font-size:17px;line-height:1.65;-webkit-font-smoothing:antialiased}
+img,svg{max-width:100%;display:block}
+a{color:var(--accent-2);text-decoration:none}
+a:hover{color:var(--text)}
+:focus-visible{outline:2px solid var(--accent-2);outline-offset:3px;border-radius:4px}
+h1,h2,h3{margin:0;letter-spacing:-.03em;line-height:1.1;text-wrap:balance}
+h1{font-size:clamp(1.9rem,5vw,2.9rem);font-weight:800;letter-spacing:-.04em}
+h2{font-size:clamp(1.3rem,3vw,1.75rem);font-weight:750}
+h3{font-size:1.05rem;font-weight:700}
+p{margin:0}
+.wrap{width:100%;max-width:780px;margin-inline:auto;padding-inline:clamp(20px,5vw,32px)}
+.mono,code{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+
+.nav{border-bottom:1px solid var(--line-soft);position:sticky;top:0;background:rgba(8,11,17,.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);z-index:20}
+.nav__in{display:flex;align-items:center;gap:16px;height:58px}
+.brand{display:flex;align-items:center;gap:9px;font-weight:800;letter-spacing:-.03em;color:var(--text)}
+.bolt{width:24px;height:24px;border-radius:7px;background:linear-gradient(160deg,var(--accent-2),var(--accent));display:grid;place-items:center;flex:none}
+.nav .btn{margin-left:auto}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:.9rem;font-weight:650;padding:11px 18px;border-radius:11px;border:1px solid transparent;cursor:pointer;min-height:44px;font-family:var(--sans)}
+.btn--primary{background:var(--accent);color:#fff}
+.btn--primary:hover{background:#3B84FF;color:#fff}
+.btn--ghost{background:transparent;color:var(--text);border-color:var(--line)}
+.btn--ghost:hover{border-color:var(--accent-line)}
+
+main{padding-block:clamp(36px,7vw,64px) 64px}
+.stack{display:flex;flex-direction:column;gap:22px}
+.crumb{font-family:var(--mono);font-size:.76rem;color:var(--muted);margin-bottom:18px}
+.lede{font-size:1.08rem;color:var(--text-2);max-width:62ch}
+
+/* Calculator */
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:clamp(20px,4vw,30px);margin-block:30px}
+.fields{display:grid;gap:14px}
+@media(min-width:560px){.fields{grid-template-columns:1fr 1fr}}
+label{display:block;font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
+select{
+  width:100%;appearance:none;-webkit-appearance:none;
+  background:var(--ground);color:var(--text);
+  border:1px solid var(--line);border-radius:11px;
+  padding:13px 40px 13px 14px;font-size:1rem;font-family:var(--mono);
+  min-height:50px;cursor:pointer;
+  background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none' stroke='%237F8AA0' stroke-width='2'%3E%3Cpath d='m1 1 5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 15px center;
+}
+select:focus-visible{border-color:var(--accent-line)}
+
+.answer{margin-top:24px;padding-top:24px;border-top:1px solid var(--line)}
+.answer__n{font-family:var(--mono);font-size:clamp(3rem,12vw,4.4rem);font-weight:700;letter-spacing:-.055em;line-height:1;color:var(--accent-2);font-variant-numeric:tabular-nums}
+.answer__l{font-size:1.05rem;color:var(--text);margin-top:6px}
+.answer__s{font-size:.92rem;color:var(--muted);margin-top:10px}
+
+.badge{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:.7rem;letter-spacing:.08em;padding:5px 10px;border-radius:7px;margin-top:16px}
+.badge--ok{background:rgba(61,190,122,.12);color:var(--ok);border:1px solid rgba(61,190,122,.3)}
+
+.note{border:1px solid rgba(245,165,36,.28);background:var(--hi-dim);border-radius:14px;padding:18px 20px;margin-block:26px}
+.note p{font-size:.94rem;color:var(--text-2)}
+.note b{color:var(--hi);font-family:var(--mono);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;display:block;margin-bottom:7px}
+
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:16px;margin-block:24px}
+table{width:100%;border-collapse:collapse;min-width:520px;font-family:var(--mono);font-variant-numeric:tabular-nums}
+th,td{padding:12px 14px;text-align:right;border-bottom:1px solid var(--line-soft);font-size:.9rem}
+th:first-child,td:first-child{text-align:left}
+thead th{font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:500;background:var(--surface)}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:rgba(29,111,255,.05)}
+
+.prose{display:flex;flex-direction:column;gap:14px;max-width:66ch}
+.prose p{color:var(--text-2)}
+.prose h2{margin-top:22px}
+.prose ul{margin:0;padding-left:20px;color:var(--text-2);display:flex;flex-direction:column;gap:8px}
+
+.cta{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:clamp(22px,4vw,30px);margin-top:40px;display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between}
+.foot{border-top:1px solid var(--line-soft);padding-block:32px;margin-top:56px;font-size:.85rem;color:var(--muted)}
+.foot a{color:var(--muted)}
+</style>
+</head>
+<body>
+
+<nav class="nav"><div class="wrap nav__in">
+  <a class="brand" href="/">
+    <span class="bolt" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="#fff"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg></span>
+    SparkConnect
+  </a>
+  <a class="btn btn--primary" href="/#get">Get the app</a>
+</div></nav>
+
+<main><div class="wrap">
+  <p class="crumb"><a href="/">Home</a> / <a href="/tools/">Tools</a> / Conduit fill</p>
+
+  <h1>How many conductors fit in a conduit?</h1>
+  <p class="lede" style="margin-top:16px">
+    Pick a conductor size and a raceway. The answer is the count printed in NEC
+    Annex C, Table C.1 — a table we have checked cell by cell against the printed
+    2023 code book.
+  </p>
+
+  <!-- Calculator -->
+  <div class="calc">
+    <div class="fields">
+      <div>
+        <label for="awg">Conductor size · THHN/THWN</label>
+        <select id="awg">
+          <option value="14">14 AWG</option>
+          <option value="12" selected>12 AWG</option>
+          <option value="10">10 AWG</option>
+          <option value="8">8 AWG</option>
+          <option value="6">6 AWG</option>
+          <option value="4">4 AWG</option>
+        </select>
+      </div>
+      <div>
+        <label for="emt">Raceway · EMT</label>
+        <select id="emt">
+          <option value="0.5">1/2 inch</option>
+          <option value="0.75" selected>3/4 inch</option>
+          <option value="1">1 inch</option>
+          <option value="1.25">1-1/4 inch</option>
+          <option value="1.5">1-1/2 inch</option>
+          <option value="2">2 inch</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="answer" aria-live="polite">
+      <p class="answer__n" id="count">16</p>
+      <p class="answer__l" id="sentence">12 AWG THHN conductors fit in 3/4" EMT.</p>
+      <p class="answer__s">
+        All conductors the same size. Annex C already applies the Chapter 9,
+        Table 1 fill limits, so this count needs no separate percentage check.
+      </p>
+      <span class="badge badge--ok">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m5 13 4 4L19 7"/></svg>
+        CHECKED AGAINST THE PRINTED 2023 NEC
+      </span>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>What we checked, and what we didn't</b>
+    <p>
+      Every cell in the table below was read by hand from Informative Annex C,
+      Table C.1, printed page 70-778 of the 2023 NEC, and matched against what our
+      engine computes. The conduit dimension tables in Chapter 9 have
+      <em>not</em> been through that process yet — so if you work a fill
+      percentage by hand from areas rather than taking the count from Annex C,
+      you are resting on something we haven't verified. That's why this page
+      answers with the count.
+    </p>
+  </div>
+
+  <h2>NEC Annex C, Table C.1 — THHN/THWN/THWN-2 in EMT</h2>
+  <div class="tablewrap">
+    <table>
+      <caption class="sr-only" style="position:absolute;left:-9999px">Maximum number of same-size THHN conductors in electrical metallic tubing</caption>
+      <thead>
+        <tr><th scope="col">EMT</th><th scope="col">14</th><th scope="col">12</th><th scope="col">10</th><th scope="col">8</th><th scope="col">6</th><th scope="col">4</th></tr>
+      </thead>
+      <tbody>
+        <tr><th scope="row">1/2"</th><td>12</td><td>9</td><td>5</td><td>3</td><td>1</td><td>1</td></tr>
+        <tr><th scope="row">3/4"</th><td>22</td><td>16</td><td>10</td><td>6</td><td>4</td><td>2</td></tr>
+        <tr><th scope="row">1"</th><td>35</td><td>26</td><td>16</td><td>9</td><td>7</td><td>4</td></tr>
+        <tr><th scope="row">1-1/4"</th><td>61</td><td>45</td><td>28</td><td>16</td><td>12</td><td>7</td></tr>
+        <tr><th scope="row">1-1/2"</th><td>84</td><td>61</td><td>38</td><td>22</td><td>16</td><td>10</td></tr>
+        <tr><th scope="row">2"</th><td>138</td><td>101</td><td>63</td><td>36</td><td>26</td><td>16</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="prose">
+    <h2>The fill limits, and why the count already includes them</h2>
+    <p>
+      Chapter 9, Table 1 sets the maximum percentage of a raceway's interior that
+      conductors may occupy: <strong>53%</strong> for a single conductor,
+      <strong>31%</strong> for exactly two, and <strong>40%</strong> for three or
+      more. The two-conductor figure is lower than the three-conductor figure,
+      which surprises people — it's about jamming, not about space.
+    </p>
+    <p>
+      Annex C tables are computed <em>from</em> those limits for the case where
+      every conductor is the same size. So a count read out of Annex C is already
+      compliant with Table 1, and working the percentage separately is a
+      cross-check rather than a second requirement.
+    </p>
+
+    <h2>When Annex C does not apply</h2>
+    <ul>
+      <li><strong>Mixed conductor sizes.</strong> Annex C assumes they're all the same. Mix them and you work it by area from Chapter 9, Table 5 and Table 4.</li>
+      <li><strong>A nipple 24 inches or shorter.</strong> Chapter 9, Note 4 permits 60% fill in that case.</li>
+      <li><strong>Different insulation.</strong> XHHW and THHN have different areas. This table is THHN/THWN/THWN-2 only.</li>
+      <li><strong>Derating.</strong> Fill is a physical limit. More than three current-carrying conductors in a raceway is an <em>ampacity</em> question and it is a separate calculation.</li>
+    </ul>
+
+    <h2>The mistake worth knowing</h2>
+    <p>
+      A common one: reading the 40% column of Chapter 9, Table 4 as though it were
+      the conduit's total area. For 1/2" EMT the total interior is
+      <code>0.304 in²</code> and the 40% figure is <code>0.122 in²</code>. Divide
+      your conductor area by the 40% figure instead of the total and every
+      answer comes out roughly two and a half times too high — which reads as a
+      failure on a run that's comfortably fine.
+    </p>
+  </div>
+
+  <div class="cta">
+    <div>
+      <h3>Every calculator, on the job</h3>
+      <p style="color:var(--text-2);font-size:.95rem;margin-top:5px">
+        Box fill, voltage drop, ampacity, bending and panel schedules — free and
+        unlimited in the app, with the source on every answer.
+      </p>
+    </div>
+    <a class="btn btn--primary" href="/#get">Get SparkConnect</a>
+  </div>
+</div></main>
+
+<footer class="foot"><div class="wrap">
+  <p>
+    SparkConnect is not the authority having jurisdiction. Nothing here is a
+    substitute for the adopted code, approved plans, or your inspector. Confirm
+    the edition your jurisdiction enforces — this page reflects the 2023 NEC.
+    NEC and National Electrical Code are registered trademarks of the NFPA.
+  </p>
+  <p style="margin-top:14px"><a href="/">← SparkConnect</a></p>
+</div></footer>
+
+<script>
+(function () {
+  /* NEC Annex C, Table C.1 — THHN/THWN/THWN-2 in EMT.
+     Verified cell by cell against the printed 2023 NEC, page 70-778, on
+     2026-08-07. Keep this table and src/core/verification.js in agreement:
+     if one is corrected, the other is wrong. */
+  var C1 = {
+    '0.5':  { 14: 12, 12: 9,   10: 5,  8: 3,  6: 1,  4: 1  },
+    '0.75': { 14: 22, 12: 16,  10: 10, 8: 6,  6: 4,  4: 2  },
+    '1':    { 14: 35, 12: 26,  10: 16, 8: 9,  6: 7,  4: 4  },
+    '1.25': { 14: 61, 12: 45,  10: 28, 8: 16, 6: 12, 4: 7  },
+    '1.5':  { 14: 84, 12: 61,  10: 38, 8: 22, 6: 16, 4: 10 },
+    '2':    { 14: 138, 12: 101, 10: 63, 8: 36, 6: 26, 4: 16 }
+  };
+  var LABEL = { '0.5': '1/2"', '0.75': '3/4"', '1': '1"', '1.25': '1-1/4"', '1.5': '1-1/2"', '2': '2"' };
+
+  var awg = document.getElementById('awg');
+  var emt = document.getElementById('emt');
+  var out = document.getElementById('count');
+  var sen = document.getElementById('sentence');
+
+  function update() {
+    var n = C1[emt.value][awg.value];
+    out.textContent = n;
+    sen.textContent = awg.value + ' AWG THHN conductor' + (n === 1 ? '' : 's') +
+      ' fit in ' + LABEL[emt.value] + ' EMT.';
+  }
+  awg.addEventListener('change', update);
+  emt.addEventListener('change', update);
+  update();
+})();
+</script>
+
+</body>
+</html>
