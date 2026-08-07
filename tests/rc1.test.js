@@ -266,12 +266,13 @@ test('the dashboard reads real state rather than restating it', () => {
   const byLabel = (l) => h.checks.find((c) => c.label === l);
 
   const datasets = byLabel('NEC datasets verified');
-  assert.equal(datasets.status, Status.WARN, 'nothing is fully verified yet');
-  assert.match(datasets.detail, /0\/\d+ fully checked/);
-  assert.ok(datasets.outstanding.length > 0);
+  assert.equal(datasets.status, Status.WARN, 'not every table has been checked yet');
+  assert.ok(datasets.outstanding.length > 0, 'the unchecked ones must stay listed');
   // The partially-checked table is credited without being counted as done.
   assert.ok(datasets.partial.length >= 1, 'the EMT rows already confirmed should show as partial');
   assert.match(datasets.detail, /partially/);
+  assert.ok(!datasets.outstanding.includes('conductor-resistance'),
+    'a table checked against the book must leave the outstanding list');
 
   const graph = byLabel('Field Intelligence graph');
   assert.equal(graph.status, Status.OK, 'the tool graph should validate');
@@ -386,4 +387,17 @@ test('the three tables checked against the printed 2023 book are verified', asyn
   assert.match(datasetById('conductor-resistance').verifiedRows[0], /3\.14/);
   // 240.4(D) records the aluminium rows as present in print but absent here.
   assert.ok(datasetById('table-240-4-d').outstandingRows.some((r) => /alumini/i.test(r)));
+});
+
+test('the health dashboard counts verified datasets correctly', async () => {
+  const { productHealth, Status } = await import('../src/core/health.js');
+  const { DATASETS, isVerified } = await import('../src/core/verification.js');
+  const expected = Object.values(DATASETS).filter((d) => isVerified(d.id)).length;
+  assert.ok(expected >= 3, 'three tables have been checked against the 2023 book');
+
+  const check = productHealth({ flags: {} }).checks.find((c) => c.label === 'NEC datasets verified');
+  assert.match(check.detail, new RegExp(`^${expected}/`),
+    'the dashboard must report the same number the register does');
+  // Partial means rows read but the table not cleared — never a verified one.
+  for (const id of check.partial) assert.equal(isVerified(id), false);
 });

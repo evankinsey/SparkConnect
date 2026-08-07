@@ -36,11 +36,15 @@ export const productHealth = (live = {}) => {
 
   // ── Electrical trust ──
   const datasets = Object.values(DATASETS ?? {});
-  const verified = datasets.filter(isVerified);
+  // isVerified takes an ID, not a dataset. Passing the object made
+  // datasetById() return undefined and the count read 0/12 no matter how many
+  // tables had been checked — a health dashboard that could only ever report
+  // bad news, which is the same as reporting none.
+  const verified = datasets.filter((d) => isVerified(d.id));
   // A table with SOME rows confirmed is not a verified table, and rounding it up
   // to one would be the exact failure this register exists to prevent. It is
   // reported separately so the work already done is still visible.
-  const partial = datasets.filter((d) => !isVerified(d) && (d.verifiedRows?.length ?? 0) > 0);
+  const partial = datasets.filter((d) => !isVerified(d.id) && (d.verifiedRows?.length ?? 0) > 0);
   checks.push(check(
     'NEC datasets verified',
     verified.length === datasets.length ? Status.OK : Status.WARN,
@@ -49,7 +53,7 @@ export const productHealth = (live = {}) => {
     {
       partial: partial.map((d) => d.id),
       group: 'Trust',
-      outstanding: datasets.filter((d) => !isVerified(d)).map((d) => d.id),
+      outstanding: datasets.filter((d) => !isVerified(d.id)).map((d) => d.id),
       // The release gate, stated separately from the count.
       blocking: (productionBlockers?.() ?? []).length,
     },
