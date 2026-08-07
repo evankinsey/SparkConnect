@@ -16,27 +16,85 @@ So:
 
 ---
 
+## Why this path cannot take SparkAI down
+
+The app calls `sparkconnect-website.vercel.app` — **the `*.vercel.app` URL, not
+the custom domain.** So moving `sparkconnect.pro` to a different project does not
+touch what the app talks to. That is the entire safety argument, and it is why
+this is the path rather than deploying over the existing project.
+
+The one rule that keeps it true: **never deploy anything to the
+`sparkconnect-website` project.** Leave it running exactly as it is.
+
+---
+
 ## The safe path
 
-1. **Create a new Vercel project** — call it `sparkconnect-site`.
-2. Set the root to this `website/` directory. There is no build step: it's
-   static HTML with inline CSS and JS, so **Framework Preset: Other**, no build
-   command, output directory `website`.
-3. Deploy. Check the preview URL.
-4. **Move the custom domain** `sparkconnect.pro` from the old project to the new
-   one in Vercel → Domains.
-5. **Leave `sparkconnect-website` running, untouched, forever.** It keeps serving
-   `*.vercel.app/api/*`, which is what the app calls. It does not need a custom
-   domain.
-
-After step 5, verify from a terminal — not from a browser tab that might be
-cached:
+Run the verifier at every step. It lives next to this file.
 
 ```
-curl -s -o /dev/null -w "%{http_code}\n" https://sparkconnect-website.vercel.app/api/ask-nec
+cd website
+./verify-api.sh                 # baseline, BEFORE you touch anything
 ```
 
-Anything other than a normal response means stop and roll the domain back.
+Green means SparkAI is up right now. Write down that it passed — that is the
+thing you compare against later.
+
+1. **Create a NEW Vercel project.** Call it `sparkconnect-site`.
+   - Root directory: `website`
+   - Framework Preset: **Other**
+   - Build command: **none** (leave empty)
+   - Output directory: **leave empty** — `vercel.json` sets it
+   There is no build step. It is static HTML with inline CSS and JS.
+
+2. **Deploy to preview.** Open the preview URL and click through the page.
+
+3. **Confirm the API is still fine.** Nothing you did should have touched it,
+   and this proves it:
+   ```
+   ./verify-api.sh
+   ```
+
+4. **Move the domain.** Vercel → `sparkconnect-website` → Settings → Domains →
+   remove `sparkconnect.pro`. Then `sparkconnect-site` → Domains → add it.
+   DNS is already pointed at Vercel, so this is a reassignment, not a DNS change.
+
+5. **Verify both.**
+   ```
+   ./verify-api.sh                                    # the app's backend
+   curl -sI https://sparkconnect.pro | head -1        # the new site
+   ```
+
+6. **Leave `sparkconnect-website` running, untouched, forever.** It has no custom
+   domain now and it does not need one. It serves `*.vercel.app/api/*`, which is
+   what every shipped build calls.
+
+---
+
+## Rollback
+
+If step 5 fails, you have about a minute of work:
+
+1. Vercel → `sparkconnect-site` → Domains → remove `sparkconnect.pro`
+2. Vercel → `sparkconnect-website` → Domains → add it back
+3. `./verify-api.sh`
+
+If the API itself is failing — which should be impossible on this path, since
+you never deployed to that project — restore its last good deployment:
+Deployments → the one live before today → **Promote to Production**.
+
+---
+
+## I could not run the baseline for you
+
+The sandbox this was built in blocks outbound requests to that host — a proxy
+403 on CONNECT, while other hosts resolve fine. So **the API has not been
+verified from here.** Everything above is written from the code
+(`App.js:626`, `App.js:2266`), not from a live check.
+
+Run `./verify-api.sh` yourself before you start. If it fails on the very first
+run, that is information about your connection or about a problem that already
+exists — not something the deploy caused.
 
 ---
 

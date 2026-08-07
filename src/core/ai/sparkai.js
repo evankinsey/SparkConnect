@@ -130,6 +130,33 @@ export const inheritParams = (params, context, toolId) => {
 
 // ─── The system context handed to the model ──────────────────────────────────
 
+// ─── When the model cannot be reached ────────────────────────────────────────
+// The app talks to one hosted endpoint for SparkAI. Everything else — every
+// calculator, the simulator, troubleshooting, projects — is computed on the
+// device and does not care whether that endpoint is up.
+//
+// So an outage should cost a user ONE ROUTE, not the app. The previous copy
+// said "SparkAI could not be reached: no answer", which is true, tells somebody
+// standing on a roof nothing, and makes a temporary outage read as a product
+// that broke. Naming what still works is the difference between "they're having
+// a moment" and "this thing is unreliable" — and the second one is what gets
+// uninstalled.
+
+export const OFFLINE_CAPABLE = Object.freeze([
+  'Every calculator',
+  'The wiring simulator',
+  'Troubleshooting',
+  'Your projects and photos',
+  'The daily code question',
+]);
+
+export const UNREACHABLE_REASON =
+  'SparkAI is unreachable right now. Everything computed on your device still works.';
+
+export const UNREACHABLE_SUGGESTION =
+  'The calculators, the simulator, troubleshooting and your projects do not need a '
+  + 'connection — they are worked out on the phone. Try SparkAI again in a few minutes.';
+
 export const SYSTEM_RULES = Object.freeze([
   'You are SparkAI, inside SparkConnect, talking to a working electrician.',
   'You may explain concepts, restate a question, and describe what a tool does.',
@@ -360,9 +387,21 @@ export const ask = async (question, {
     raw = await askModel({ question, context: modelContext(context) });
   } catch (err) {
     return Object.freeze({
-      ...refuse(`SparkAI could not be reached: ${err?.message ?? 'unknown error'}.`, { question }),
+      ...refuse(UNREACHABLE_REASON, {
+        // The internal message is kept for logs, never shown. "Backend 502" and
+        // "no answer" are true and they tell a person on a roof nothing, while
+        // making a temporary outage read as a broken app.
+        suggestion: UNREACHABLE_SUGGESTION,
+        question,
+      }),
       route: Route.MODEL,
       routeReason: decision.reason,
+      // The whole point of the deterministic-first architecture, stated where a
+      // screen can act on it: the model being unreachable takes away one route,
+      // not the app.
+      backendUnreachable: true,
+      stillWorks: OFFLINE_CAPABLE,
+      internalError: err?.message ?? 'unknown error',
     });
   }
 

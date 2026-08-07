@@ -198,7 +198,11 @@ test('a model that throws produces a refusal, not a crash', async () => {
   const broken = async () => { throw new Error('network down'); };
   const r = await ask('explain something open ended please', { askModel: broken });
   assert.equal(r.provenance, Provenance.REFUSED);
-  assert.match(r.reason, /network down/);
+  // The raw error is kept where a log can reach it and kept OUT of what the
+  // user reads — it used to be rendered straight onto the screen.
+  assert.equal(r.internalError, 'network down');
+  assert.doesNotMatch(r.reason, /network down/);
+  assert.equal(r.backendUnreachable, true);
 });
 
 // ─── Parameter extraction ────────────────────────────────────────────────────
@@ -675,4 +679,42 @@ test('at most three actions, so a refusal is not a menu', async () => {
   const busy = 'voltage drop three-way permit conduit fill box fill bending ampacity Tampa';
   assert.ok(nextActions(busy).length <= 3);
   assert.equal(nextActions('').length, 0, 'no question, no invented route');
+});
+
+// ─── When the backend is unreachable ─────────────────────────────────────────
+// The app talks to one hosted endpoint. Everything else is computed on the
+// device. An outage must cost one route, not the app.
+
+test('an unreachable backend names what still works', async () => {
+  const { UNREACHABLE_REASON, OFFLINE_CAPABLE } = await import('../src/core/ai/sparkai.js');
+  const dead = async () => { throw new Error('Backend 502'); };
+  const r = await ask('explain what a switch loop is for', { askModel: dead });
+
+  assert.equal(r.provenance, Provenance.REFUSED);
+  assert.equal(r.backendUnreachable, true);
+
+  // The internal message is kept for logs and NEVER shown. "Backend 502" is
+  // true and it tells somebody on a roof nothing, while making a temporary
+  // outage read as a product that broke.
+  assert.equal(r.internalError, 'Backend 502');
+  assert.doesNotMatch(r.reason, /502|Backend \d|no answer|unknown error/);
+  assert.doesNotMatch(r.suggestion, /502|Backend \d/);
+
+  // Naming what survives is the difference between "they're having a moment"
+  // and "this thing is unreliable".
+  assert.match(r.reason, /still works/i);
+  assert.match(r.suggestion, /do not need a connection|calculators/i);
+  assert.ok(r.stillWorks.length >= 4);
+  assert.deepEqual([...r.stillWorks], [...OFFLINE_CAPABLE]);
+  assert.equal(r.reason, UNREACHABLE_REASON);
+});
+
+test('an outage does not stop a question the app can compute itself', async () => {
+  // The deterministic-first architecture earning its keep: with the model
+  // completely dead, anything the engine can work out is still answered.
+  const dead = async () => { throw new Error('ENOTFOUND'); };
+  const r = await ask('voltage drop on 100 feet of 12 AWG at 20 amps', { askModel: dead });
+  assert.notEqual(r.provenance, Provenance.REFUSED,
+    'a computable question must not depend on a hosted endpoint');
+  assert.equal(r.backendUnreachable, undefined, 'nothing was reached, because nothing needed to be');
 });
