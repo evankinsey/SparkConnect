@@ -28,11 +28,47 @@ The one rule that keeps it true: **never deploy anything to the
 
 ---
 
-## The safe path — no terminal required
+## How it is actually wired (as of the merge to main)
 
-Everything below is done in a browser. It works on a phone. There is no CLI
-step, because the site is already committed to GitHub and Vercel can deploy
-straight from the repo.
+**Nothing to configure. It deploys itself.**
+
+The `spark-connect` Vercel project is git-connected to `evankinsey/SparkConnect`
+and builds from `main` at the repo root. The root `vercel.json` does the rest:
+
+```json
+{ "framework": null, "buildCommand": null,
+  "installCommand": null, "outputDirectory": "website", "cleanUrls": true }
+```
+
+Vercel runs no build, installs nothing, and serves `website/` as static output.
+So **Root Directory does not need setting and Production Branch stays `main`** —
+the two dashboard settings that were the whole problem. Push to `main` and the
+site updates.
+
+`website/` therefore contains ONLY publishable files. This runbook and
+`verify-api.sh` were moved out of it (to `docs/v2/` and `scripts/`) because
+anything left in that folder is served to the public — the runbook names the API
+endpoint and the open pricing discrepancies.
+
+### The one remaining manual step
+
+Moving `sparkconnect.pro` from the `sparkconnect-website` project to
+`spark-connect`, in Settings → Domains on each. There is no API for it.
+
+---
+
+## Why this is safe
+
+`sparkconnect-website` — the project serving `/api/ask-nec` — **is not
+git-connected.** All twenty of its deployments were direct uploads with no git
+metadata. Pushing to `main` cannot trigger a deploy there, which is what makes
+merging safe.
+
+---
+
+## The older browser-only path (kept for reference)
+
+Only needed if the root `vercel.json` is ever removed.
 
 ### 1. Import the repo as a NEW project
 
