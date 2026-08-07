@@ -253,3 +253,19 @@ test('the source-data gate cannot be satisfied by turning a flag on', async () =
     assert.equal(r.allowed, false);
   }
 });
+
+test('a partial source check is recorded but does not clear the gate', () => {
+  const d = datasetById('ch9-table-4');
+  assert.ok(d.verifiedRows?.length, 'the EMT rows really were checked against the printed book');
+  assert.ok(d.outstandingRows?.length, 'and what is left is named');
+  assert.equal(isVerified('ch9-table-4'), false,
+    'clearing a dataset on a quarter of it is the same mistake as clearing it on a green test suite');
+  assert.equal(isProductionReady('conduitFillCalculator'), false);
+});
+
+test('the report surfaces partial progress without moving the gate', () => {
+  const row = verificationReport().datasets.find((d) => d.id === 'ch9-table-4');
+  assert.ok(row.verifiedRows?.length);
+  assert.ok(row.outstandingRows?.length);
+  assert.equal(row.verified, false);
+});

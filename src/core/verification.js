@@ -91,6 +91,28 @@ export const DATASETS = Object.freeze({
     transcribedFrom: 'memory',
     note: 'Total internal areas for EMT, IMC, RMC and PVC-40, half-inch through two-inch. Previously held the 40% column by mistake, which is exactly the class of error a source check catches.',
     checkInstructions: 'Compare all 24 values against the printed Table 4, total-area column, for the adopted edition.',
+    // Partial check, recorded because it is real and because it is NOT enough.
+    //
+    // A photograph of the printed Article 358 block confirmed all six EMT total
+    // areas exactly. The same page also showed the 40% column carrying
+    // 0.122 / 0.213 / 0.346 / 0.598 / 0.814 / 1.342 — precisely the values this
+    // table used to hold as "conduit area", which independently confirms the
+    // original defect rather than relying on the diagnosis being remembered
+    // correctly.
+    //
+    // The status stays UNVERIFIED. Three of the four conduit types are on the
+    // continuation page and were not seen, and the edition of the copy
+    // photographed was not established. Clearing a dataset on a quarter of it
+    // would be the same mistake as clearing it on a green test suite.
+    verifiedRows: Object.freeze([
+      'EMT (Article 358) total area, 1/2"-2" — confirmed against printed Table 4',
+    ]),
+    outstandingRows: Object.freeze([
+      'IMC (Article 342) total areas — continuation page not seen',
+      'RMC (Article 344) total areas — continuation page not seen',
+      'PVC Schedule 40 (Article 352) total areas — continuation page not seen',
+      'Edition of the photographed copy not established',
+    ]),
   }),
   'ch9-table-5': dataset({
     id: 'ch9-table-5',
@@ -257,6 +279,10 @@ export const verificationReport = () => Object.freeze({
       id: d.id, label: d.label, where: d.where,
       status: d.status, statusLabel: STATUS_LABEL[d.status],
       verified: isVerified(id),
+      // Partial checks are recorded and reported, but never count as clearing
+      // the dataset. Progress is visible; the gate does not move.
+      verifiedRows: d.verifiedRows ?? null,
+      outstandingRows: d.outstandingRows ?? null,
       reviewer: d.reviewer, reviewDate: d.reviewDate, sourceEdition: d.sourceEdition,
       checkInstructions: d.checkInstructions ?? null,
     });
