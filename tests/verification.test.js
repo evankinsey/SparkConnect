@@ -19,6 +19,7 @@ import {
   isVerified, unverifiedDatasets, FEATURE_DEPENDENCIES, FEATURE_IDS,
   productionBlockers, isProductionReady, gateNotice, verificationReport,
   BANNED_STATUS_WORDING, PERMITTED_STATUS_WORDING, isPermittedStatusWording,
+  RELEASE_OVERRIDE, unverifiedDependencies,
 } from '../src/core/verification.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -54,15 +55,48 @@ test('every unverified dataset says how to check it', () => {
   }
 });
 
-test('features depending on unverified tables are NOT production ready', () => {
-  // The release blocker, asserted directly. If someone marks a dataset verified
-  // without doing the work, this test goes green — which is why the test above
-  // requires a named reviewer to make that claim at all.
+test('the release override ships features WITHOUT marking anything verified', () => {
+  // This replaces an assertion that unverified tables block a release. The owner
+  // has now accepted that risk explicitly for TestFlight. What the override must
+  // never do is let the codebase forget that it did — so this asserts both the
+  // shipping and the remembering.
+  assert.equal(RELEASE_OVERRIDE.active, true);
+  assert.ok(RELEASE_OVERRIDE.authorizedBy && RELEASE_OVERRIDE.date && RELEASE_OVERRIDE.reason,
+    'an override with no author, date or reason is indistinguishable from a bug');
+
   for (const feature of ['conduitFillCalculator', 'voltageDropCalculator', 'boxFillCalculator', 'ampacityCalculator', 'sparkAiCalculationTools', 'dayOneLevel']) {
-    assert.equal(isProductionReady(feature), false,
-      `${feature} reads a table nobody has checked against the printed source`);
-    assert.ok(productionBlockers(feature).length > 0);
+    assert.equal(isProductionReady(feature), true, `${feature} should ship under the override`);
+    assert.deepEqual(productionBlockers(feature), []);
+    assert.ok(unverifiedDependencies(feature).length > 0,
+      `${feature} still reads tables nobody has checked, and that must stay reportable`);
   }
+});
+
+test('the override does not verify a single dataset', () => {
+  assert.equal(unverifiedDatasets().length, 11,
+    'shipping is a decision about risk, not a statement about the data');
+  for (const id of ['ch9-table-4', 'table-250-66', 'table-240-4-d', 'conductor-resistance']) {
+    assert.equal(isVerified(id), false);
+  }
+});
+
+test('the in-app notice SURVIVES the override', () => {
+  // Shipping unverified numbers is a risk the owner can accept on their own
+  // behalf. Hiding it from an electrician standing at a panel is a different
+  // thing, and the override deliberately does not do it.
+  for (const feature of ['conduitFillCalculator', 'ampacityCalculator', 'sparkAiCalculationTools']) {
+    const notice = gateNotice(feature);
+    assert.ok(notice, `${feature} ships with no notice at all`);
+    assert.equal(notice.shippedUnderOverride, true);
+    assert.match(notice.body, /have not yet been checked against a printed source/);
+  }
+});
+
+test('turning the override off restores the gate exactly', () => {
+  // "One line to reverse" has to be a fact, not a comment.
+  const wouldBlock = FEATURE_DEPENDENCIES.conduitFillCalculator.filter((id) => !isVerified(id));
+  assert.ok(wouldBlock.length > 0, 'with the override off, conduit fill is blocked by its two tables');
+  assert.deepEqual(wouldBlock, unverifiedDependencies('conduitFillCalculator'));
 });
 
 test('a feature with no unverified dependency is clear to ship', () => {
@@ -211,7 +245,13 @@ test('the report is complete enough to run a release from', () => {
   assert.equal(r.datasets.length, DATASET_IDS.length);
   assert.equal(r.features.length, FEATURE_IDS.length);
   assert.ok(r.unverifiedCount > 0, 'nothing has been source-checked yet, and the report should say so');
-  assert.ok(r.blockedFeatures > 0);
+  // The override is on the face of the report, and what each feature is
+  // shipping over is still listed against it.
+  assert.ok(r.override, 'an active override must not be invisible in the report');
+  const cf = r.features.find((f) => f.id === 'conduitFillCalculator');
+  assert.equal(cf.ready, true);
+  assert.deepEqual(cf.blockers, []);
+  assert.ok(cf.unverified.length > 0);
   for (const d of r.datasets) {
     assert.ok(d.label && d.where && d.statusLabel);
     assert.equal(typeof d.verified, 'boolean');
@@ -228,39 +268,32 @@ test('the Annex C cross-check is registered as unverified, not treated as proof'
 
 // ─── The two gates are independent ───────────────────────────────────────────
 
-test('a feature flag being ON does not clear the source-data gate', async () => {
+test('the feature flag remains an independent gate under the override', async () => {
+  // The source-data gate is open by owner decision. The FLAG gate is untouched,
+  // so the two remain separate questions rather than collapsing into one.
   const { canRenderInProduction } = await import('../src/flags/core.js');
   const verification = await import('../src/core/verification.js');
 
-  // Flag deliberately forced on, the way a product decision would.
-  const context = { remote: { wiringSimulationsEnabled: true } };
+  const flagOn = canRenderInProduction(
+    'wiringSimulationsEnabled', 'conduitFillCalculator',
+    { remote: { wiringSimulationsEnabled: true } }, verification);
+  assert.equal(flagOn.allowed, true, 'under the override the source gate no longer blocks');
 
-  const clear = canRenderInProduction('wiringSimulationsEnabled', 'wiringSimulator', context, verification);
-  assert.equal(clear.allowed, true, 'the solver reads no transcribed table');
-
-  const gated = canRenderInProduction('wiringSimulationsEnabled', 'conduitFillCalculator', context, verification);
-  assert.equal(gated.allowed, false,
-    'a product decision that the feature is finished cannot answer whether the numbers are right');
-  assert.ok(gated.blockers.length > 0);
-  assert.match(gated.reason, /not been checked against a printed source/);
+  const flagOff = canRenderInProduction(
+    'wiringSimulationsEnabled', 'conduitFillCalculator',
+    { remote: { wiringSimulationsEnabled: false } }, verification);
+  assert.equal(flagOff.allowed, false, 'the flag still holds it back on its own');
+  assert.match(flagOff.reason, /is off/);
 });
 
-test('the source-data gate cannot be satisfied by turning a flag on', async () => {
-  const { canRenderInProduction } = await import('../src/flags/core.js');
-  const verification = await import('../src/core/verification.js');
-  for (const remote of [{}, { conduitFillEnabled: true }, { everything: true }]) {
-    const r = canRenderInProduction('wiringSimulationsEnabled', 'ampacityCalculator', { remote: { wiringSimulationsEnabled: true, ...remote } }, verification);
-    assert.equal(r.allowed, false);
-  }
-});
-
-test('a partial source check is recorded but does not clear the gate', () => {
+test('a partial source check is recorded and does not verify the dataset', () => {
   const d = datasetById('ch9-table-4');
   assert.ok(d.verifiedRows?.length, 'the EMT rows really were checked against the printed book');
   assert.ok(d.outstandingRows?.length, 'and what is left is named');
   assert.equal(isVerified('ch9-table-4'), false,
     'clearing a dataset on a quarter of it is the same mistake as clearing it on a green test suite');
-  assert.equal(isProductionReady('conduitFillCalculator'), false);
+  assert.ok(unverifiedDependencies('conduitFillCalculator').includes('ch9-table-4'),
+    'and the feature still reports reading it');
 });
 
 test('the report surfaces partial progress without moving the gate', () => {

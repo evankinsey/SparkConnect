@@ -244,8 +244,53 @@ export const FEATURE_DEPENDENCIES = Object.freeze({
 
 export const FEATURE_IDS = Object.freeze(Object.keys(FEATURE_DEPENDENCIES));
 
-/** Datasets holding a feature back. Empty means it is clear to ship. */
-export const productionBlockers = (featureId) =>
+/**
+ * RELEASE OVERRIDE.
+ *
+ * Ships features whose source tables have not been checked against print. A
+ * deliberate, recorded decision by the app owner — not a bug, not a default,
+ * and one line to reverse.
+ *
+ * What it DOES: unblocks feature rendering, so the calculators and the SparkAI
+ * tools are usable.
+ *
+ * What it deliberately does NOT do:
+ *   · mark anything verified. `isVerified` is untouched, the register still
+ *     records exactly what has and has not been checked, and the evidence
+ *     contract on every answer still reports UNVERIFIED.
+ *   · remove the in-app notice. Shipping unverified numbers is a risk the owner
+ *     can accept on their own behalf. Hiding that from an electrician standing
+ *     at a panel is a different thing, and this does not do it.
+ *
+ * Set `active: false` to restore the gate.
+ */
+export const RELEASE_OVERRIDE = Object.freeze({
+  active: true,
+  authorizedBy: 'App owner',
+  date: '2026-08-07',
+  reason: 'TestFlight distribution. Source-table review is under way — the EMT '
+    + 'rows of Chapter 9 Table 4 are confirmed against print; the remaining ten '
+    + 'datasets are not.',
+  scope: 'Unblocks feature rendering only. Verification status, the evidence '
+    + 'contract and the in-app notice are unchanged.',
+});
+
+/**
+ * Datasets holding a feature back. Empty means it is clear to ship.
+ *
+ * Under an active override this returns empty for a REGISTERED feature, while
+ * `unverifiedDependencies` keeps reporting the truth. The two are separate on
+ * purpose so nothing downstream loses sight of what is still unchecked.
+ */
+export const productionBlockers = (featureId) => {
+  if (RELEASE_OVERRIDE.active && Object.prototype.hasOwnProperty.call(FEATURE_DEPENDENCIES, featureId)) {
+    return [];
+  }
+  return (FEATURE_DEPENDENCIES[featureId] ?? []).filter((id) => !isVerified(id));
+};
+
+/** What a feature actually reads that is still unchecked — override or not. */
+export const unverifiedDependencies = (featureId) =>
   (FEATURE_DEPENDENCIES[featureId] ?? []).filter((id) => !isVerified(id));
 
 export const isProductionReady = (featureId) =>
@@ -258,7 +303,10 @@ export const isProductionReady = (featureId) =>
  * are wrong or that anyone has approved them.
  */
 export const gateNotice = (featureId) => {
-  const blockers = productionBlockers(featureId);
+  // Keyed off what is actually unchecked, NOT off the blockers. Under a release
+  // override the feature ships and this notice still appears — the whole reason
+  // the two are separate functions.
+  const blockers = unverifiedDependencies(featureId);
   if (blockers.length === 0) return null;
   const labels = blockers.map((id) => datasetById(id)?.label ?? id);
   return Object.freeze({
@@ -268,6 +316,7 @@ export const gateNotice = (featureId) => {
     headline: 'Technical review pending',
     body: 'The arithmetic here is tested, but the code table values it reads have not yet been checked against a printed source by a qualified reviewer. Verify any result against the NEC edition adopted by your AHJ before relying on it.',
     datasets: Object.freeze(labels),
+    shippedUnderOverride: RELEASE_OVERRIDE.active,
   });
 };
 
@@ -287,8 +336,13 @@ export const verificationReport = () => Object.freeze({
       checkInstructions: d.checkInstructions ?? null,
     });
   })),
+  override: RELEASE_OVERRIDE.active ? RELEASE_OVERRIDE : null,
   features: Object.freeze(FEATURE_IDS.map((id) => Object.freeze({
-    id, ready: isProductionReady(id), blockers: Object.freeze(productionBlockers(id)),
+    id,
+    ready: isProductionReady(id),
+    blockers: Object.freeze(productionBlockers(id)),
+    // Always the truth, override or not.
+    unverified: Object.freeze(unverifiedDependencies(id)),
   }))),
   unverifiedCount: unverifiedDatasets().length,
   blockedFeatures: FEATURE_IDS.filter((id) => !isProductionReady(id)).length,

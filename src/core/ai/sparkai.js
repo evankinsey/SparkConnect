@@ -25,7 +25,7 @@ import { answer as answerFromTakeoff, groundingContext, breakdown } from '../blu
 import { assertNarrativeOnly, CANNOT_VERIFY } from '../content/authority.js';
 import { resolveCitation } from '../../nec/citations.js';
 import { classify, Intent, Risk, criticalRefusal, requiredDisclosures } from './risk.js';
-import { productionBlockers, gateNotice, isProductionReady } from '../verification.js';
+import { unverifiedDependencies, gateNotice, isProductionReady } from '../verification.js';
 
 /** How many turns of history the model is given. Enough for "and for #10?". */
 export const MEMORY_TURNS = 6;
@@ -182,15 +182,26 @@ export const evidenceFor = (a, { classification, decision, params, context, data
   // The part that keeps a green test suite from being mistaken for verified
   // data: if the answer came from a transcribed table nobody has checked, it
   // says so here and in the warnings.
+  // Reads unverifiedDependencies, NOT productionBlockers. The release override
+  // empties the blockers so features ship; it does not make the data verified.
+  // Keying this off blockers made every answer claim SOURCE_VERIFIED the moment
+  // the override went in — the exact failure the override was written not to
+  // cause, caught by the tests that assert an unverified answer says so.
   verificationStatus: datasetIds.length === 0
     ? 'NOT_APPLICABLE'
-    : datasetIds.every((id) => !productionBlockers('sparkAiCalculationTools').includes(id))
+    : datasetIds.every((id) => !unverifiedDependencies('sparkAiCalculationTools').includes(id))
       ? 'SOURCE_VERIFIED' : 'UNVERIFIED',
-  unverifiedData: Object.freeze(datasetIds.filter((id) => productionBlockers('sparkAiCalculationTools').includes(id))),
+  unverifiedData: Object.freeze(datasetIds.filter((id) => unverifiedDependencies('sparkAiCalculationTools').includes(id))),
   confidence: a.confidence,
+  // Same rule as verificationStatus above: the warning is about the DATA, not
+  // about whether the feature is allowed to render. isProductionReady flips true
+  // under the release override, which would have silently dropped this line from
+  // every answer at the moment it mattered most.
   warnings: Object.freeze([
     ...requiredDisclosures(classification),
-    ...(isProductionReady('sparkAiCalculationTools') ? [] : [gateNotice('sparkAiCalculationTools')?.body].filter(Boolean)),
+    ...(unverifiedDependencies('sparkAiCalculationTools').length === 0
+      ? []
+      : [gateNotice('sparkAiCalculationTools')?.body].filter(Boolean)),
   ]),
   routeReason: decision?.reason ?? null,
 });
