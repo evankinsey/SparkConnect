@@ -6,6 +6,7 @@ const SC_LOGO = null; // set to require('./assets/SparkConnectLogo.png') to show
 import SparkPaywall from './src/SparkPaywall';
 import { initPurchases, purchaseProduct, restorePurchases as rcRestorePurchases, checkStore } from './src/purchases';
 import OnboardingFlow from './src/OnboardingFlow';
+import { DOCUMENTS, EFFECTIVE_DATE, CONTACT_EMAIL } from './src/core/legal/policy';
 import { useGating } from './src/useGating';
 import { analytics } from './src/analytics';
 // The six screens added in v1.1 are loaded on first use, not at startup — see
@@ -3314,70 +3315,42 @@ const DisclaimerFooter = ({ C }) => (
 // it is the one that gets rendered.
 
 // ─── TERMS OF SERVICE ─────────────────────────────────────────────────────────
-const TermsScreen = ({ C, onBack }) => {
-  const Sec = ({ title, body }) => (
-    <View style={{ marginBottom: 20 }}>
-      <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 6 }}>{title}</Text>
-      <Text style={{ fontSize: 13, color: C.textSec, lineHeight: 20 }}>{body}</Text>
-    </View>
-  );
-  return (
-    <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border }}>
-        <TouchableOpacity onPress={onBack} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
-          <Ionicons name="arrow-back" size={18} color={C.blue} />
-        </TouchableOpacity>
-        <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>Terms of Service</Text>
-      </View>
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
-        <Text style={{ fontSize: 11, color: C.textTert, marginBottom: 20 }}>Last updated: June 2025</Text>
-        <Sec title="Reference Tool Only" body="SparkConnect Tools is a field reference and productivity application for electricians, apprentices, and contractors. It does not replace professional judgment, licensed supervision, engineering review, inspections, permits, manufacturer instructions, OSHA requirements, the National Electrical Code, or local Authority Having Jurisdiction (AHJ) requirements." />
-        <Sec title="No Guarantee of Code Compliance" body="Calculations and code references are for informational and planning purposes only. SparkConnect makes no warranty that any result is code-compliant, accurate, or applicable to your specific installation, jurisdiction, or conditions." />
-        <Sec title="User Responsibility" body="You are solely responsible for verifying all calculations, code citations, wire sizing, conduit fill, voltage drop, box fill, and any other output before using it in any installation. Always consult the adopted NEC edition for your jurisdiction and your local AHJ." />
-        <Sec title="Electrical Safety" body="Electrical work can cause serious injury, death, or property damage if performed incorrectly. This app does not provide safety advice and is not a substitute for proper training, licensing, supervision, or safe work practices." />
-        <Sec title="Permits and Inspections" body="Permits and inspections may be required for electrical work in your jurisdiction. This app does not determine permit requirements and does not replace inspection by a qualified authority." />
-        <Sec title="No Engineering or Professional Advice" body="This app does not provide engineering, legal, or professional advice. For engineering review, consult a licensed professional engineer. For legal questions, consult a licensed attorney." />
-        <Sec title="Limitation of Liability" body="To the maximum extent permitted by law, SparkConnect and its developers shall not be liable for any damages, injuries, losses, or code violations arising from use of this application." />
-        <Sec title="Subscription Terms" body="SparkConnect Pro is billed monthly or annually at the rates displayed in the app at the time of purchase. Payment is charged to your App Store or Google Play account at confirmation. Subscriptions auto-renew unless cancelled at least 24 hours before the end of the current period, and your account is charged for renewal within 24 hours of the period ending. Manage or cancel your subscription in your App Store or Google Play account settings. SparkAI answer packs are one-time purchases, not subscriptions, and do not renew. Prices may vary by region." />
-        <Sec title="Changes to Terms" body="We may update these Terms from time to time. Continued use after changes constitutes acceptance." />
-        <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>Questions? support@sparkconnect.pro</Text>
-      </ScrollView>
-    </View>
-  );
-};
+// ─── TERMS AND PRIVACY ────────────────────────────────────────────────────────
+// Rendered from src/core/legal/policy.js, which is the ONE copy. Both documents
+// used to be hardcoded here and a second, different pair lived on the website —
+// they disagreed about whether SparkAI questions reach a third-party AI service,
+// which is the most consequential sentence either document contains.
 
-// ─── PRIVACY POLICY ───────────────────────────────────────────────────────────
-const PrivacyScreen = ({ C, onBack }) => {
-  const Sec = ({ title, body }) => (
-    <View style={{ marginBottom: 20 }}>
-      <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 6 }}>{title}</Text>
-      <Text style={{ fontSize: 13, color: C.textSec, lineHeight: 20 }}>{body}</Text>
+const LegalScreen = ({ C, onBack, doc }) => (
+  <View style={{ flex: 1, backgroundColor: C.bg }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border }}>
+      <TouchableOpacity onPress={onBack} accessibilityRole="button" accessibilityLabel="Back"
+        style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name="arrow-back" size={18} color={C.blue} />
+      </TouchableOpacity>
+      <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>{doc.title}</Text>
     </View>
-  );
-  return (
-    <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border }}>
-        <TouchableOpacity onPress={onBack} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.blueSub, alignItems: 'center', justifyContent: 'center' }}>
-          <Ionicons name="arrow-back" size={18} color={C.blue} />
-        </TouchableOpacity>
-        <Text style={{ fontSize: 18, fontWeight: '800', color: C.text }}>Privacy Policy</Text>
+    <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
+      <Text style={{ fontSize: 11, color: C.textTert, marginBottom: 16 }}>Last updated {EFFECTIVE_DATE}</Text>
+
+      <View style={{ backgroundColor: C.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: C.border, marginBottom: 22 }}>
+        <Text style={{ fontSize: 13.5, color: C.text, lineHeight: 20 }}>{doc.summary}</Text>
       </View>
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
-        <Text style={{ fontSize: 11, color: C.textTert, marginBottom: 20 }}>Last updated: June 2025</Text>
-        <Sec title="Information We Collect" body="SparkConnect Tools collects minimal information. Calculator inputs, quiz progress, saved settings, and Job Cam photos are stored locally on your device. We do not require account creation. The one exception is described below: a photo you choose to attach to a SparkAI question, and voice audio you choose to record, are uploaded so they can be analyzed or transcribed." />
-        <Sec title="SparkAI Questions, Photos and Voice" body="When you use SparkAI, your question text is sent over an encrypted connection to our backend and on to an AI service provider to generate a response. If you attach a photo to a question, that image is uploaded the same way so it can be analyzed — this includes plan sheets you photograph for Blueprint Takeoff. If you hold the microphone button to ask a question by voice, that audio recording is uploaded so it can be transcribed into text. Images and audio are sent only when you choose to attach or record them, are used only to answer that question, and are not stored by us or used to identify you. Reading answers aloud happens entirely on your device and sends nothing. Do not submit private, sensitive, or confidential information — or photographs of people or documents — through SparkAI. Searches made without a network connection are processed locally on your device." />
-        <Sec title="Analytics" body="SparkConnect Tools does not currently collect analytics or crash reporting data. If basic anonymous analytics are enabled in a future version, they will not include personally identifiable information and will be disclosed here." />
-        <Sec title="Purchases and Subscriptions" body="Purchases are processed entirely by Apple (App Store) or Google (Play Store). SparkConnect never sees, stores or processes payment card information. Subscription status is checked through RevenueCat using an anonymous install identifier, not your name or email." />
-        <Sec title="Account and Login Data" body="The current version does not require an account or login. If account features are added in a future version, we will update this policy." />
-        <Sec title="Data Sharing" body="We do not sell, rent, or trade your personal data to advertisers or third parties. Anonymous aggregate data may be used to improve the app." />
-        <Sec title="Data Security" body="Your calculator results, saved projects and Job Cam photos remain on your device — we do not operate servers that store them. SparkAI questions, any photo you attach to one, and any voice recording you make travel over an encrypted (HTTPS) connection and are used only to generate that answer." />
-        <Sec title="Children's Privacy" body="SparkConnect Tools is intended for adult professionals and is not directed at children under 13." />
-        <Sec title="Changes to This Policy" body="We may update this Privacy Policy from time to time. Continued use after changes constitutes acceptance." />
-        <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>Questions? support@sparkconnect.pro</Text>
-      </ScrollView>
-    </View>
-  );
-};
+
+      {doc.sections.map((s) => (
+        <View key={s.title} style={{ marginBottom: 20 }}>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 6 }}>{s.title}</Text>
+          <Text style={{ fontSize: 13, color: C.textSec, lineHeight: 20 }}>{s.body}</Text>
+        </View>
+      ))}
+
+      <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>Questions? {CONTACT_EMAIL}</Text>
+    </ScrollView>
+  </View>
+);
+
+const TermsScreen = ({ C, onBack }) => <LegalScreen C={C} onBack={onBack} doc={DOCUMENTS.terms} />;
+const PrivacyScreen = ({ C, onBack }) => <LegalScreen C={C} onBack={onBack} doc={DOCUMENTS.privacy} />;
 
 
 // ─── SAFETY & COMPLIANCE ──────────────────────────────────────────────────────
