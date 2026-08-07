@@ -167,19 +167,43 @@ export const DATASETS = Object.freeze({
   }),
   'table-314-16-b': dataset({
     id: 'table-314-16-b',
-    label: 'NEC Table 314.16(B) — box fill volume allowances',
+    label: 'NEC Table 314.16(B)(1) — box fill volume allowances',
     where: 'App.js · CONDUCTOR_VOL, src/core/ai/tools.js · BOX_VOLUME',
-    status: VerificationStatus.UNVERIFIED,
-    transcribedFrom: 'memory',
-    checkInstructions: 'Confirm 18 AWG through 6 AWG volume allowances.',
+    status: VerificationStatus.SOURCE_VERIFIED,
+    transcribedFrom: 'NEC 2023, Table 314.16(B)(1), printed page 70-198',
+    sourceEdition: '2023',
+    reviewDate: '2026-08-07',
+    reviewer: "App owner, against the printed 2023 NEC in their possession. The edition is the owner's attestation rather than a photographed title page — recorded that way on purpose so a later auditor knows which part was read and which part was stated.",
+    verifiedRows: Object.freeze([
+      'Free space within box for each conductor, in cubic inches — 18 AWG 1.50, '
+      + '16 AWG 1.75, 14 AWG 2.00, 12 AWG 2.25, 10 AWG 2.50, 8 AWG 3.00, 6 AWG 5.00. '
+      + 'All seven match the shipped values exactly.',
+    ]),
+    note: 'The table is titled 314.16(B)(1) in the 2023 edition. Our label said 314.16(B); '
+      + 'corrected here so a citation points at something that exists.',
+    checkInstructions: 'Confirmed 2026-08-07. Re-check on the next code cycle.',
   }),
   'table-240-4-d': dataset({
     id: 'table-240-4-d',
     label: 'NEC 240.4(D) — small-conductor overcurrent limits',
     where: 'src/core/ai/tools.js · SMALL_CONDUCTOR_LIMIT',
-    status: VerificationStatus.UNVERIFIED,
-    transcribedFrom: 'memory',
-    checkInstructions: 'Confirm 14 AWG = 15 A, 12 AWG = 20 A, 10 AWG = 30 A copper.',
+    status: VerificationStatus.SOURCE_VERIFIED,
+    transcribedFrom: 'NEC 2023, 240.4(D)(1) through (D)(8), printed page 70-124',
+    sourceEdition: '2023',
+    reviewDate: '2026-08-07',
+    reviewer: "App owner, against the printed 2023 NEC in their possession. The edition is the owner's attestation rather than a photographed title page — recorded that way on purpose so a later auditor knows which part was read and which part was stated.",
+    verifiedRows: Object.freeze([
+      'Copper — 240.4(D)(4) 14 AWG 15 A, 240.4(D)(6) 12 AWG 20 A, 240.4(D)(8) 10 AWG 30 A. '
+      + 'All three match the shipped values exactly.',
+    ]),
+    outstandingRows: Object.freeze([
+      'Aluminium and copper-clad aluminium are printed alongside — 12 AWG 15 A, 10 AWG 25 A — '
+      + 'and are NOT in the app. The calculator is copper-only and does not claim otherwise, '
+      + 'but anyone extending it to aluminium must use these and not the copper column.',
+      '18 and 16 AWG copper (7 A and 10 A) carry conditions about listed and marked devices '
+      + 'and continuous load, so they are not a plain lookup and are deliberately absent.',
+    ]),
+    checkInstructions: 'Confirmed 2026-08-07. Re-check on the next code cycle.',
   }),
   'conductor-resistance': dataset({
     id: 'conductor-resistance',
@@ -194,13 +218,16 @@ export const DATASETS = Object.freeze({
     // editions, which is exactly the reasoning that makes assuming it tempting
     // and wrong: "probably unchanged" is how a table gets attributed to an
     // edition nobody checked. One photo of the title page closes this out.
-    status: VerificationStatus.UNVERIFIED,
-    transcribedFrom: 'memory; rows since matched against NEC Chapter 9, Table 8, printed page 70-728',
+    status: VerificationStatus.SOURCE_VERIFIED,
+    transcribedFrom: 'NEC 2023, Chapter 9 Table 8 — Conductor Properties, printed page 70-728',
+    sourceEdition: '2023',
+    reviewDate: '2026-08-07',
+    reviewer: "App owner, against the printed 2023 NEC in their possession. The edition is the owner's attestation rather than a photographed title page — recorded that way on purpose so a later auditor knows which part was read and which part was stated.",
     verifiedRows: Object.freeze([
       'Uncoated copper, STRANDED, ohm/kFT — 14 AWG 3.14, 12 AWG 1.98, 10 AWG 1.24, '
       + '8 AWG 0.778, 6 AWG 0.491, 4 AWG 0.308, 2 AWG 0.194, 1 AWG 0.154. '
       + 'All eight match the shipped values exactly (checked 2026-08-07 against a '
-      + 'photograph of the printed page). Edition still unconfirmed.',
+      + 'photograph of the printed page). Edition confirmed as 2023.',
     ]),
     note: 'Chapter 9 Table 8 values. Drives every voltage-drop answer in the app.\n'
       + 'STRANDED, NOT SOLID. Table 8 lists both for 14–8 AWG and they differ by about 2% '

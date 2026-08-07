@@ -67,17 +67,41 @@ test('the release override ships features WITHOUT marking anything verified', ()
   for (const feature of ['conduitFillCalculator', 'voltageDropCalculator', 'boxFillCalculator', 'ampacityCalculator', 'sparkAiCalculationTools', 'dayOneLevel']) {
     assert.equal(isProductionReady(feature), true, `${feature} should ship under the override`);
     assert.deepEqual(productionBlockers(feature), []);
-    assert.ok(unverifiedDependencies(feature).length > 0,
-      `${feature} still reads tables nobody has checked, and that must stay reportable`);
+    // Whatever a feature still reads unchecked must stay reportable. A feature
+    // whose tables have ALL been checked reports none, and that is the point of
+    // doing the checking — it is not a test failure.
+    const outstanding = unverifiedDependencies(feature);
+    for (const id of outstanding) {
+      assert.equal(isVerified(id), false, `${feature} reports ${id} as outstanding but it is verified`);
+    }
   }
+
+  // Box fill depends on one table and that table has now been read against the
+  // printed 2023 book, so it needs the override for nothing.
+  assert.deepEqual(unverifiedDependencies('boxFillCalculator'), [],
+    'box fill should be clear on its own merits');
 });
 
 test('the override does not verify a single dataset', () => {
-  assert.equal(unverifiedDatasets().length, 11,
-    'shipping is a decision about risk, not a statement about the data');
-  for (const id of ['ch9-table-4', 'table-250-66', 'table-240-4-d', 'conductor-resistance']) {
-    assert.equal(isVerified(id), false);
+  // Originally this froze a count. That was wrong: it made checking a table
+  // against the book LOOK like a regression, which is the exact opposite of the
+  // behaviour this register is supposed to encourage. What matters is that
+  // verification comes only from a recorded review, never from the override.
+  for (const d of unverifiedDatasets()) {
+    assert.equal(isVerified(d.id), false);
+    assert.ok(!d.reviewer && !d.reviewDate,
+      `${d.id} is unverified yet carries review metadata`);
   }
+  for (const id of DATASET_IDS) {
+    const d = datasetById(id);
+    if (d.status !== VerificationStatus.SOURCE_VERIFIED) continue;
+    // A verified dataset got there by being read, and says who read it.
+    assert.ok(d.reviewer && d.reviewDate && d.sourceEdition,
+      `${id} claims verification without a full record`);
+    assert.ok(d.verifiedRows?.length, `${id} claims verification with no rows recorded`);
+  }
+  // The override itself touches none of this.
+  assert.equal(RELEASE_OVERRIDE.scope.includes('Verification status'), true);
 });
 
 test('the in-app notice SURVIVES the override', () => {

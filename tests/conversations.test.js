@@ -109,7 +109,8 @@ test('a turn stores the evidence, not just the words', async () => {
 
   assert.ok(t.evidence, 'an answer read back in six months has to say what it came from');
   assert.equal(t.evidence.calculatedBy, 'voltage_drop');
-  assert.equal(t.evidence.verificationStatus, 'UNVERIFIED');
+  assert.equal(t.evidence.verificationStatus, 'SOURCE_VERIFIED',
+    'Chapter 9 Table 8 was checked against the printed 2023 book');
   assert.deepEqual(t.evidence.inputsUsed.awg, 12);
 });
 
@@ -123,13 +124,20 @@ test('stored evidence is frozen against later mutation', async () => {
 });
 
 test('a resumed answer says whether its data was verified at the time', async () => {
-  const answered = await ask('voltage drop on 100 feet of 12 AWG at 20 amps');
+  // Conduit fill still reads tables nobody has finished checking, so an answer
+  // from it is stored unverified and comes back marked stale.
+  const unchecked = await ask('conduit fill 3/4 EMT 12 THHN 9 conductors');
   let conv = conversation({ title: 'x' });
-  conv = addTurn(conv, turn({ role: 'assistant', text: answered.text, evidence: answered.evidence }));
-
-  const back = resume(conv);
-  assert.equal(back.turns[0].stale, true,
+  conv = addTurn(conv, turn({ role: 'assistant', text: unchecked.text, evidence: unchecked.evidence }));
+  assert.equal(resume(conv).turns[0].stale, true,
     'an old answer must not silently read as current once tables are verified');
+
+  // Voltage drop reads Chapter 9 Table 8, checked against the printed 2023
+  // book, so its answers are not stale and must not be dressed up as doubtful.
+  const checked = await ask('voltage drop on 100 feet of 12 AWG at 20 amps');
+  let conv2 = conversation({ title: 'y' });
+  conv2 = addTurn(conv2, turn({ role: 'assistant', text: checked.text, evidence: checked.evidence }));
+  assert.equal(resume(conv2).turns[0].stale, false);
 });
 
 // ─── Housekeeping ────────────────────────────────────────────────────────────
@@ -181,7 +189,7 @@ test('an answer saved to a project keeps its evidence', async () => {
   const spec = toArtifactSpec(conv, conv.turns[1].id);
   assert.ok(spec);
   assert.equal(spec.kind, ArtifactKind.AI_SUMMARY);
-  assert.equal(spec.meta.verificationStatus, 'UNVERIFIED',
+  assert.equal(spec.meta.verificationStatus, 'SOURCE_VERIFIED',
     'a saved answer still shows whether its data was checked when it was saved');
 
   // And it survives the round trip into a real artifact.

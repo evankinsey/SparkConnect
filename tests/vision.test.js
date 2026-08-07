@@ -210,6 +210,6 @@ test('the voice path carries the same evidence contract', async () => {
   const r = await askByVoice('voltage drop on 100 feet of 12 AWG at 20 amps');
   assert.ok(r.evidence, 'a spoken answer must be as auditable as a typed one');
   assert.equal(r.evidence.calculatedBy, 'voltage_drop');
-  assert.equal(r.evidence.verificationStatus, 'UNVERIFIED');
+  assert.equal(r.evidence.verificationStatus, 'SOURCE_VERIFIED');
   assert.ok(r.voice.transcript);
 });

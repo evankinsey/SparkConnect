@@ -477,11 +477,23 @@ test('every computed answer carries a full evidence record', async () => {
 
 test('an answer from an unverified table SAYS it is unverified', async () => {
   // The whole point of the verification register, surfaced where a user is.
-  const r = await ask('voltage drop on 100 feet of 12 AWG at 20 amps');
+  // Conduit fill reads Chapter 9 Table 4, which is still only partly checked.
+  const r = await ask('conduit fill 3/4 EMT 12 THHN 9 conductors');
   assert.equal(r.evidence.verificationStatus, 'UNVERIFIED');
-  assert.ok(r.evidence.unverifiedData.includes('conductor-resistance'));
+  assert.ok(r.evidence.unverifiedData.length > 0);
   assert.ok(r.evidence.warnings.some((w) => /not yet been checked against a printed source/i.test(w)),
     'a green test suite must not read as verified source data');
+});
+
+test('an answer from a CHECKED table says so, and drops the warning', async () => {
+  // The other half of the contract, and the reason doing the checking is worth
+  // anything: voltage drop reads Chapter 9 Table 8, confirmed against the
+  // printed 2023 book on 2026-08-07.
+  const r = await ask('voltage drop on 100 feet of 12 AWG at 20 amps');
+  assert.equal(r.evidence.verificationStatus, 'SOURCE_VERIFIED');
+  assert.deepEqual(r.evidence.unverifiedData, []);
+  assert.ok(!r.evidence.warnings.some((w) => /not yet been checked against a printed source/i.test(w)),
+    'a checked table must stop carrying the unchecked warning');
 });
 
 // ─── ADVERSARIAL ─────────────────────────────────────────────────────────────

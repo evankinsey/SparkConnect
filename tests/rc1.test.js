@@ -372,13 +372,18 @@ test('disagreements with the paywall are recorded, not silently resolved', async
     'a one-time purchase including the subscription headline feature must be on the record');
 });
 
-test('conductor resistance rows are recorded as checked but not yet verified', async () => {
+test('the three tables checked against the printed 2023 book are verified', async () => {
   const { datasetById, isVerified } = await import('../src/core/verification.js');
-  const d = datasetById('conductor-resistance');
-  assert.ok(d.verifiedRows.length >= 1, 'the rows checked against print must be recorded');
-  assert.match(d.verifiedRows[0], /3\.14/);
-  assert.match(d.verifiedRows[0], /Edition still unconfirmed/i);
-  // Rows checked is not the same as table verified. The edition gate holds.
-  assert.equal(isVerified('conductor-resistance'), false,
-    'no edition means no verified status, however many rows were read');
+  for (const id of ['conductor-resistance', 'table-314-16-b', 'table-240-4-d']) {
+    const d = datasetById(id);
+    assert.equal(isVerified(id), true, `${id} should be verified`);
+    assert.equal(d.sourceEdition, '2023');
+    assert.ok(d.reviewDate && d.reviewer, `${id} needs a full review record`);
+    assert.ok(d.verifiedRows.length >= 1, `${id} must record what was actually read`);
+  }
+  // The resistance rows are the stranded column, and that is written down.
+  assert.match(datasetById('conductor-resistance').verifiedRows[0], /STRANDED/);
+  assert.match(datasetById('conductor-resistance').verifiedRows[0], /3\.14/);
+  // 240.4(D) records the aluminium rows as present in print but absent here.
+  assert.ok(datasetById('table-240-4-d').outstandingRows.some((r) => /alumini/i.test(r)));
 });

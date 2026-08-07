@@ -197,11 +197,17 @@ export const evidenceFor = (a, { classification, decision, params, context, data
   // about whether the feature is allowed to render. isProductionReady flips true
   // under the release override, which would have silently dropped this line from
   // every answer at the moment it mattered most.
+  // Scoped to THE DATASETS THIS ANSWER USED, not to every table the feature can
+  // reach. Keyed off the feature, a voltage-drop answer whose only table has
+  // been checked against the printed book still warned that it had not — the
+  // answer contradicting its own verificationStatus one line above. A warning
+  // that fires when it does not apply is how people learn to skip warnings, and
+  // it also means checking a table buys nothing the user can see.
   warnings: Object.freeze([
     ...requiredDisclosures(classification),
-    ...(unverifiedDependencies('sparkAiCalculationTools').length === 0
-      ? []
-      : [gateNotice('sparkAiCalculationTools')?.body].filter(Boolean)),
+    ...(datasetIds.some((id) => unverifiedDependencies('sparkAiCalculationTools').includes(id))
+      ? [gateNotice('sparkAiCalculationTools')?.body].filter(Boolean)
+      : []),
   ]),
   routeReason: decision?.reason ?? null,
 });
