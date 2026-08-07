@@ -65,7 +65,16 @@ export const AHJ_FIELDS = Object.freeze([
     why: 'Local amendments override the NEC. A missing one is invisible until it is red-tagged.',
   },
   { key: 'inspectionOrder', label: 'Typical inspection order', risk: 'MEDIUM' },
+  {
+    key: 'requiredDocuments', label: 'Documents required with the application', risk: 'MEDIUM',
+    why: 'A missing document does not fail silently — it fails at the counter, after the drive.',
+  },
   { key: 'permitOffice', label: 'Permit office address', risk: 'LOW' },
+  {
+    key: 'quirks', label: 'Known local quirks', risk: 'MEDIUM',
+    why: 'A quirk is second-hand by nature. Useful to hear, never something to plan around unconfirmed.',
+  },
+  { key: 'inspectionTips', label: 'Inspection tips', risk: 'LOW' },
   { key: 'notes', label: 'Notes', risk: 'LOW' },
 ]);
 
