@@ -31,6 +31,8 @@ import {
   parseMinutes, renderLogText, Weather, WEATHER_LABEL,
 } from '../core/domain/dailyLog';
 import { buildExport, renderExportText, exportSummary, Audience, AUDIENCE_LABEL } from '../core/domain/projectExport';
+import { lifecycle, timeline, timelineText, EventKind } from '../core/domain/lifecycle';
+import { intelligenceReport } from '../core/domain/fieldIntelligence';
 
 const KEY = '@sc_projects_v1';
 const LOGS_KEY = '@sc_daily_logs_v1';
@@ -296,6 +298,7 @@ const TAG_CHOICES = [
 
 const VIEWS = [
   { id: 'hub', label: 'Job', icon: 'grid' },
+  { id: 'timeline', label: 'Timeline', icon: 'time' },
   { id: 'photos', label: 'Photos', icon: 'camera' },
   { id: 'log', label: 'Daily log', icon: 'today' },
   { id: 'export', label: 'Export', icon: 'share' },
@@ -374,9 +377,13 @@ function ProjectDetail({ C, proj, world, setTab, onChange, onLogsChange, allLogs
 
       {view === 'hub' && (
         <HubView
-          C={C} proj={proj} overview={overview} done={done} setTab={setTab}
+          C={C} proj={proj} world={world} overview={overview} done={done} setTab={setTab}
           onChange={onChange} onOpenView={setView} onDelete={onDelete}
         />
+      )}
+
+      {view === 'timeline' && (
+        <TimelineView C={C} proj={proj} world={world} />
       )}
 
       {view === 'log' && (
@@ -480,7 +487,8 @@ function ProjectDetail({ C, proj, world, setTab, onChange, onLogsChange, allLogs
 // ─── The hub ─────────────────────────────────────────────────────────────────
 // Every part of the job, whether it lives on the project or points back at it.
 
-function HubView({ C, proj, overview, done, setTab, onChange, onOpenView, onDelete }) {
+function HubView({ C, proj, world, overview, done, setTab, onChange, onOpenView, onDelete }) {
+  const intel = useMemo(() => intelligenceReport(proj, world), [proj, world]);
   const [editing, setEditing] = useState(null);
   const [name, setName] = useState(proj.customer?.name ?? '');
   const [phone, setPhone] = useState(proj.customer?.phone ?? '');
@@ -519,6 +527,50 @@ function HubView({ C, proj, overview, done, setTab, onChange, onOpenView, onDele
           {done.disclaimer}
         </Text>
       </View>
+
+      {/* What this job can do next, because of work already done. Offered, not
+          applied — nothing crosses a tool boundary without a person tapping it. */}
+      {intel.nextMoves.length > 0 && (
+        <View style={{ marginBottom: 16 }}>
+          <Text style={{ fontSize: 10.5, fontWeight: '800', color: C.textTert, letterSpacing: 0.7, marginBottom: 8 }}>
+            NEXT MOVES
+          </Text>
+          {intel.nextMoves.slice(0, 4).map((h) => (
+            <TouchableOpacity
+              key={h.id}
+              onPress={() => h.tab && setTab && setTab(h.tab)}
+              activeOpacity={0.85}
+              style={{
+                flexDirection: 'row', alignItems: 'center', gap: 11,
+                backgroundColor: C.surface, borderRadius: 12, padding: 13, marginBottom: 7,
+                borderWidth: 1, borderColor: C.blue, minHeight: 56,
+              }}>
+              <Ionicons name="arrow-forward-circle" size={19} color={C.blue} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13.5, fontWeight: '700', color: C.text }}>{h.label}</Text>
+                <Text style={{ fontSize: 11.5, color: C.textTert, marginTop: 2 }}>
+                  {h.fromLabel} → {h.toLabel} · {h.detail}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {/* Work standing on a version that has since been replaced. Without this
+          it looks exactly as current as everything else. */}
+      {intel.superseded.length > 0 && (
+        <View style={{ backgroundColor: C.amberBg, borderRadius: 12, padding: 12, marginBottom: 14 }}>
+          <Text style={{ fontSize: 11, fontWeight: '800', color: C.amber, marginBottom: 5 }}>
+            BUILT ON A REPLACED VERSION
+          </Text>
+          {intel.superseded.map((s) => (
+            <Text key={s.id} style={{ fontSize: 12, color: C.text, lineHeight: 18 }}>
+              {s.title} — from {s.builtOn.map((b) => b.title).join(', ')}
+            </Text>
+          ))}
+        </View>
+      )}
 
       {overview.warnings.length > 0 && (
         <View style={{ backgroundColor: C.amberBg, borderRadius: 12, padding: 12, marginBottom: 14 }}>
@@ -605,6 +657,109 @@ function HubView({ C, proj, overview, done, setTab, onChange, onOpenView, onDele
 
       <TouchableOpacity onPress={onDelete} style={{ padding: 14, alignItems: 'center', marginTop: 4 }}>
         <Text style={{ color: C.danger, fontSize: 13, fontWeight: '600' }}>Delete Project</Text>
+      </TouchableOpacity>
+    </>
+  );
+}
+
+// ─── Timeline ────────────────────────────────────────────────────────────────
+// One job, one thread, forever. Stages are the spine; everything else hangs off
+// it. Grouped by year so the three quiet years between a fit-out and the call
+// about a tripping breaker can be scrolled past.
+
+function TimelineView({ C, proj, world }) {
+  const life = useMemo(() => lifecycle(proj, world), [proj, world]);
+  const tl = useMemo(() => timeline(proj, world), [proj, world]);
+
+  const share = async () => {
+    try { await Share.share({ message: timelineText(tl) }); } catch (e) { /* cancelled */ }
+  };
+
+  return (
+    <>
+      <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: C.border }}>
+        <Text style={{ fontSize: 13, fontWeight: '800', color: C.text, marginBottom: 2 }}>{life.current.label}</Text>
+        <Text style={{ fontSize: 11.5, color: C.textTert }}>
+          {life.current.detail}
+          {life.elapsedDays !== null ? ` · ${life.elapsedDays} day${life.elapsedDays === 1 ? '' : 's'} of history` : ''}
+        </Text>
+
+        {/* Stages the job passed over. Not an error — material before permit is
+            normal — so it reads as a gap, not a failure. */}
+        {life.gaps.length > 0 && (
+          <Text style={{ fontSize: 11.5, color: C.amber, marginTop: 8, lineHeight: 17 }}>
+            Never recorded: {life.gaps.map((g) => g.label).join(', ')}
+          </Text>
+        )}
+      </View>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          {life.stages.map((s) => (
+            <View key={s.id} style={{
+              alignItems: 'center', paddingHorizontal: 11, paddingVertical: 9, borderRadius: 10, minWidth: 76,
+              backgroundColor: s.reached ? C.tealBg : C.inputBg,
+              borderWidth: 1.5, borderColor: s.id === life.current.id ? C.teal : 'transparent',
+            }}>
+              <Ionicons name={s.icon} size={15} color={s.reached ? C.teal : C.textTert} />
+              <Text style={{ fontSize: 10.5, fontWeight: '700', color: s.reached ? C.text : C.textTert, marginTop: 4 }}>
+                {s.label}
+              </Text>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+
+      {tl.years.map((group) => (
+        <View key={group.year} style={{ marginBottom: 14 }}>
+          <Text style={{ fontSize: 11, fontWeight: '800', color: C.textTert, letterSpacing: 0.7, marginBottom: 8 }}>
+            {group.year} · {group.count} event{group.count === 1 ? '' : 's'}
+          </Text>
+          {group.events.map((e) => {
+            const isStage = e.kind === EventKind.STAGE;
+            return (
+              <View key={e.id} style={{
+                flexDirection: 'row', gap: 10, alignItems: 'flex-start',
+                paddingVertical: 9, paddingHorizontal: 11, marginBottom: 5, borderRadius: 10,
+                backgroundColor: isStage ? C.tealBg : C.surface,
+                borderWidth: 1, borderColor: isStage ? 'transparent' : C.border,
+              }}>
+                <Ionicons name={e.icon ?? 'ellipse'} size={14} color={isStage ? C.teal : C.textTert} style={{ marginTop: 2 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 12.5, fontWeight: isStage ? '800' : '600', color: C.text }}>{e.title}</Text>
+                  {!!e.summary && <Text style={{ fontSize: 11, color: C.textTert, marginTop: 2 }}>{e.summary}</Text>}
+                </View>
+                <Text style={{ fontSize: 10.5, color: C.textTert }}>
+                  {new Date(e.at).toISOString().slice(5, 10)}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      ))}
+
+      {/* Undated records are shown, never dropped and never dated to 1970. */}
+      {tl.undated.length > 0 && (
+        <View style={{ marginBottom: 14 }}>
+          <Text style={{ fontSize: 11, fontWeight: '800', color: C.textTert, letterSpacing: 0.7, marginBottom: 8 }}>
+            UNDATED · {tl.undated.length}
+          </Text>
+          {tl.undated.map((e) => (
+            <Text key={e.id} style={{ fontSize: 11.5, color: C.textSec, paddingVertical: 4 }}>{e.title}</Text>
+          ))}
+        </View>
+      )}
+
+      {tl.count === 0 && (
+        <Text style={{ fontSize: 12.5, color: C.textTert, lineHeight: 19 }}>
+          Nothing on this job yet. Every photo, log, calculation, permit and invoice lands here
+          automatically — including the service call three years from now.
+        </Text>
+      )}
+
+      <TouchableOpacity onPress={share}
+        style={{ borderWidth: 1.5, borderColor: C.border, borderRadius: 12, paddingVertical: 14, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}>
+        <Text style={{ fontSize: 14, fontWeight: '700', color: C.textSec }}>Share the job history</Text>
       </TouchableOpacity>
     </>
   );
