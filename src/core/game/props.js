@@ -91,28 +91,94 @@ export const PROPS = Object.freeze([
     look: 'Three spools on a rack, two of them nearly empty.',
   },
 
-  // ── Inside the rooms: clutter you step over, never round. ──
+  // ── Inside the rooms. Clutter you step over, never round. ──
+  //
+  // EACH ROOM IS A DIFFERENT SCENE, and that is the point of this block. Six
+  // identical rooms with a station in each is a corridor with doors on it;
+  // walking into one and finding the wire rack, then into the next and finding
+  // the print table, is what makes a floor plan read as a job. `room` and
+  // `story` are enforced: a test fails if two rooms end up with the same
+  // composition of props, so "add another ladder" cannot quietly flatten them.
   {
-    id: 'p-sawhorse-living', kind: PropKind.SAWHORSE, x: 14, y: 4, w: 1, h: 1, solid: false,
-    label: 'Sawhorses',
-    look: 'A door blank across two horses. The site desk.',
-  },
-  {
-    id: 'p-debris-kitchen', kind: PropKind.DEBRIS, x: 6, y: 4, w: 1, h: 1, solid: false,
+    id: 'p-kitchen-debris', room: 'kitchen', kind: PropKind.DEBRIS, x: 5, y: 4, w: 1, h: 1, solid: false,
     label: 'Offcuts and packaging',
-    look: 'Cable offcuts, staples and torn packaging. Somebody has to sweep it.',
+    look: 'Cable offcuts, staples and torn fixture boxes. Somebody has to sweep it.',
   },
   {
-    id: 'p-ladder-garage', kind: PropKind.LADDER, x: 7, y: 10, w: 1, h: 1, solid: false,
+    id: 'p-kitchen-pallet', room: 'kitchen', kind: PropKind.PALLET, x: 6, y: 3, w: 1, h: 1, solid: false,
+    label: 'Fixture cartons',
+    look: 'Under-cabinet lights, opened and counted, two short.',
+  },
+  {
+    id: 'p-living-print', room: 'living', kind: PropKind.SAWHORSE, x: 13, y: 4, w: 1, h: 1, solid: false,
+    label: 'Print table',
+    look: 'A door blank across two horses, prints weighed down with a coupling.',
+  },
+  {
+    id: 'p-living-cart', room: 'living', kind: PropKind.PALLET, x: 14, y: 3, w: 1, h: 1, solid: false,
+    label: 'Material cart',
+    look: 'Straps, connectors and a coffee going cold on the top shelf.',
+  },
+  {
+    id: 'p-bedroom-spool', room: 'bedroom', kind: PropKind.SPOOL, x: 19, y: 4, w: 1, h: 1, solid: false,
+    label: 'Wire rack',
+    look: 'Three spools on a rack. The 12 is nearly gone, the 14 has barely moved.',
+  },
+  {
+    id: 'p-bedroom-ladder', room: 'bedroom', kind: PropKind.LADDER, x: 21, y: 3, w: 1, h: 1, solid: false,
+    label: 'Step ladder',
+    look: 'Folded against the wall where the ceiling boxes went in.',
+  },
+  {
+    id: 'p-garage-gangbox', room: 'garage', kind: PropKind.GANG_BOX, x: 4, y: 10, w: 1, h: 1, solid: false,
+    label: 'Gang box',
+    look: 'Open. Meter on top, leads still coiled.',
+  },
+  {
+    id: 'p-garage-ladder', room: 'garage', kind: PropKind.LADDER, x: 7, y: 10, w: 1, h: 1, solid: false,
     label: 'Step ladder',
     look: 'Open in front of the panel, which is where it lives.',
   },
   {
-    id: 'p-debris-hall', kind: PropKind.DEBRIS, x: 20, y: 10, w: 1, h: 1, solid: false,
+    id: 'p-bath-conduit', room: 'bath', kind: PropKind.CONDUIT, x: 12, y: 10, w: 1, h: 1, solid: false,
+    label: 'Cut conduit',
+    look: 'Offcuts stood in the corner, ends reamed, waiting to be used up.',
+  },
+  {
+    id: 'p-bath-debris', room: 'bath', kind: PropKind.DEBRIS, x: 14, y: 9, w: 1, h: 1, solid: false,
+    label: 'Backer board',
+    look: 'Stacked flat where the vanity is going. The boxes behind it are already in.',
+  },
+  {
+    id: 'p-hall-drywall', room: 'hall', kind: PropKind.DEBRIS, x: 20, y: 10, w: 1, h: 1, solid: false,
     label: 'Drywall stack',
     look: 'Leaning against the wall, covering the boxes behind it.',
   },
+  {
+    id: 'p-hall-temp', room: 'hall', kind: PropKind.TEMP_POWER, x: 18, y: 9, w: 1, h: 1, solid: false,
+    label: 'Temporary light',
+    look: 'A string light hooked over a stud, running back to the pole outside.',
+  },
 ]);
+
+/**
+ * The six rooms, and what each one is in the middle of.
+ *
+ * Kept beside the props rather than derived from them, because the sentence is
+ * the design intent and the props are the execution — when they disagree, the
+ * sentence is what says which one is wrong.
+ */
+export const ROOM_STORY = Object.freeze({
+  kitchen: 'Fit-out. Fixtures opened and counted, packaging everywhere.',
+  living:  'The site desk. Prints, the cart, and where the crew stands to argue.',
+  bedroom: 'Wire pulling. The rack is here and the ceiling boxes are in.',
+  garage:  'The panel wall. Meter out, ladder up, nothing energized yet.',
+  bath:    'Rough-in around the plumbing. Offcuts, backer board, boxes already set.',
+  hall:    'Closing up. Drywall staged, temp light strung, last look at the boxes.',
+});
+
+/** Props belonging to one room, for a screen that renders room by room. */
+export const propsInRoom = (roomId) => Object.freeze(PROPS.filter((p) => p.room === roomId));
 
 export const propById = (id) => PROPS.find((p) => p.id === id) ?? null;
 

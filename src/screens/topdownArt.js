@@ -15,7 +15,7 @@
 // beside the screen rather than in core/.
 
 import React from 'react';
-import { G, Rect, Circle, Ellipse, Path, Line, Defs, LinearGradient, Stop } from 'react-native-svg';
+import { G, Rect, Circle, Ellipse, Path, Line, Defs, LinearGradient, RadialGradient, Stop } from 'react-native-svg';
 
 import { TILE } from '../core/game/topdown';
 
@@ -553,6 +553,139 @@ export const Pallet = ({ tx, ty }) => {
     </G>
   );
 };
+
+// ─── Slab detail, lighting, atmosphere ──────────────────────────────────────
+// The three layers that stop a floor plan reading as grey rectangles. All of
+// them are DETERMINISTIC from tile coordinates — no randomness — so the slab
+// looks the same every time you walk back into a room. A floor that reshuffles
+// its own scuff marks between visits is worse than a plain one.
+
+/** Cheap stable hash. Same tile, same marks, every render. */
+const h2 = (a, b) => {
+  let n = (a * 73856093) ^ (b * 19349663);
+  n = (n ^ (n >>> 13)) >>> 0;
+  return n / 4294967295;
+};
+
+/**
+ * What is actually written on a commercial slab.
+ *
+ * Layout marks, chalk lines and pallet stains are the details a person who has
+ * stood on one recognises instantly, and none of them cost more than a line.
+ * Drawn as one layer above the tiles and below everything else, so it reads as
+ * being ON the floor rather than as objects.
+ */
+export const SlabMarks = ({ tx, ty }) => {
+  const x = tx * TILE, y = ty * TILE;
+  const r = h2(tx, ty);
+  const marks = [];
+
+  // Blue chalk snap lines, running the length of a bay.
+  if ((tx * 3 + ty * 5) % 11 === 0) {
+    marks.push(
+      <Line key="chalk" x1={x} y1={y + TILE * 0.32} x2={x + TILE} y2={y + TILE * 0.32}
+        stroke="#3F6FA8" strokeWidth={1.4} opacity={0.42} />,
+    );
+  }
+  // Layout marks: the crosses and short ticks that say where a box lands.
+  if (r > 0.86) {
+    marks.push(
+      <G key="mark" opacity={0.5}>
+        <Line x1={x + TILE * 0.42} y1={y + TILE * 0.58} x2={x + TILE * 0.62} y2={y + TILE * 0.58} stroke="#C0453A" strokeWidth={1.6} />
+        <Line x1={x + TILE * 0.52} y1={y + TILE * 0.48} x2={x + TILE * 0.52} y2={y + TILE * 0.68} stroke="#C0453A" strokeWidth={1.6} />
+      </G>,
+    );
+  }
+  // Pallet stain — a square of clean slab where something sat for a month.
+  if (r > 0.955) {
+    marks.push(
+      <Rect key="pallet" x={x + TILE * 0.16} y={y + TILE * 0.16} width={TILE * 0.66} height={TILE * 0.66}
+        fill="#A7ACB0" opacity={0.26} rx={2} />,
+    );
+  }
+  // Scuff: a boot arc, or a wheel drag.
+  if (r > 0.62 && r < 0.70) {
+    marks.push(
+      <Path key="scuff" d={`M ${x + TILE * 0.2} ${y + TILE * 0.76} q ${TILE * 0.3} ${-TILE * 0.16} ${TILE * 0.6} ${TILE * 0.04}`}
+        stroke="#8E949A" strokeWidth={2.2} fill="none" opacity={0.3} strokeLinecap="round" />,
+    );
+  }
+
+  return marks.length ? <G>{marks}</G> : null;
+};
+
+/**
+ * Daylight through the openings.
+ *
+ * Warm pools on the slab, cool everywhere else. This is the single biggest
+ * change in how the site reads: an evenly lit floor looks like a diagram, and
+ * a floor with light falling across it looks like a room. Drawn above the slab
+ * and below the walls so the studs cast into it.
+ */
+export const Daylight = ({ pools = [] }) => (
+  <G pointerEvents="none">
+    <Defs>
+      <RadialGradient id="sunpool" cx="50%" cy="50%" r="50%">
+        <Stop offset="0%" stopColor="#FFE7BC" stopOpacity="0.30" />
+        <Stop offset="60%" stopColor="#FFD79A" stopOpacity="0.12" />
+        <Stop offset="100%" stopColor="#FFD79A" stopOpacity="0" />
+      </RadialGradient>
+    </Defs>
+    {pools.map((p, i) => (
+      <Ellipse key={i} cx={p.x * TILE} cy={p.y * TILE}
+        rx={(p.r ?? 3) * TILE} ry={(p.r ?? 3) * TILE * 0.78} fill="url(#sunpool)" />
+    ))}
+  </G>
+);
+
+/**
+ * The cool half of the same decision.
+ *
+ * A flat wash would kill the daylight; this is a soft vignette that only bites
+ * at the edges of the viewport, so the middle of the room stays legible and the
+ * corners fall away.
+ */
+export const AmbientShade = ({ w, h }) => (
+  <G pointerEvents="none">
+    <Defs>
+      <RadialGradient id="vign" cx="50%" cy="45%" r="72%">
+        <Stop offset="55%" stopColor="#0A1018" stopOpacity="0" />
+        <Stop offset="100%" stopColor="#0A1018" stopOpacity="0.5" />
+      </RadialGradient>
+    </Defs>
+    <Rect x={0} y={0} width={w} height={h} fill="url(#vign)" />
+  </G>
+);
+
+/**
+ * Dust in the light.
+ *
+ * Deliberately few and slow. Motes that move fast read as snow, and a screen
+ * full of drifting particles is the thing that makes a game look cheap rather
+ * than atmospheric. `t` is a frame counter from the screen; with reduced motion
+ * the caller simply stops advancing it and the dust holds still.
+ */
+export const DustMotes = ({ pools = [], t = 0 }) => (
+  <G pointerEvents="none" opacity={0.5}>
+    {pools.flatMap((p, pi) => (
+      [0, 1, 2, 3].map((k) => {
+        const seed = h2(pi + 1, k + 1);
+        const drift = Math.sin(t * 0.012 + seed * 6.28) * TILE * 0.5;
+        const rise = ((t * 0.16 + seed * 200) % 140) / 140;
+        return (
+          <Circle
+            key={`${pi}-${k}`}
+            cx={p.x * TILE + drift + (seed - 0.5) * TILE * 2.2}
+            cy={p.y * TILE + TILE * 1.4 - rise * TILE * 2.6}
+            r={1.5 + seed}
+            fill="#FFF0D0"
+            opacity={0.5 * (1 - rise)}
+          />
+        );
+      })
+    ))}
+  </G>
+);
 
 /**
  * Scissor lift, parked. Two tiles wide.

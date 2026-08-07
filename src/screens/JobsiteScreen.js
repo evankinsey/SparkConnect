@@ -18,7 +18,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, Dimensions, Vibration, Platform, Image,
-  PanResponder, StyleSheet, ScrollView,
+  PanResponder, StyleSheet, ScrollView, AccessibilityInfo,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Rect, G, Path, Defs, RadialGradient, Stop } from 'react-native-svg';
@@ -36,7 +36,8 @@ import {
   knobOffset, floatingOrigin,
 } from '../core/game/topdown';
 import {
-  SKY, SlabTile, StudWall, BarJoist, Worker, ROLE_LOOK,
+  SKY, SlabTile, SlabMarks, Daylight, AmbientShade, DustMotes,
+  StudWall, BarJoist, Worker, ROLE_LOOK,
   Panelboard, JBox, EmtRun, AFrameLadder, WireReel, GangBox, MaterialCart,
   PrintTable, DrywallStack, SafetyCone, WorkTruck, Dumpster, SiteTrailer,
   Tree, Palm, FenceRun, Pallet, ObjectiveMarker, DoneMarker,
@@ -123,6 +124,24 @@ const SITE_PROP_ART = {
   [PropKind.DEBRIS]: DrywallStack,
 };
 
+/**
+ * Where daylight lands.
+ *
+ * At the door openings and down the middle of the yard — the only places an
+ * unfinished shell actually lets light in. Placing pools anywhere else would
+ * be decoration, and decoration that contradicts the building is what makes a
+ * scene read as fake.
+ */
+const SUN_POOLS = [
+  { x: 5.5,  y: 6.4, r: 3.0 },
+  { x: 12.5, y: 6.4, r: 3.4 },
+  { x: 20.5, y: 6.4, r: 3.0 },
+  { x: 5.5,  y: 12.2, r: 2.4 },
+  { x: 13.5, y: 12.2, r: 2.4 },
+  { x: 19.5, y: 12.2, r: 2.4 },
+  { x: 12.5, y: 1.4,  r: 3.2 },
+];
+
 /** The crew, as people rather than portrait bubbles. */
 const CREW_LOOK = {
   michael: ROLE_LOOK.apprentice, jerry: ROLE_LOOK.foreman,
@@ -145,6 +164,7 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
   const [side, setSide] = useState('left');
   const solvedRef = useRef(false);
   const dir = useRef({ x: 0, y: 0 });
+
 
   useEffect(() => {
     AsyncStorage.getItem(KEY)
@@ -356,6 +376,21 @@ const hudBtn = {
 // ─── World ───────────────────────────────────────────────────────────────────
 
 function World({ grid, pos, progress, near, route, facing, step }) {
+  // Ambient dust. Deliberately slow and few — motes that move fast read as
+  // snow, and a screen full of drifting particles is what makes a game look
+  // cheap rather than atmospheric. Held completely still under reduced motion.
+  const [dust, setDust] = useState(0);
+  useEffect(() => {
+    let timer = null;
+    let live = true;
+    const start = () => { if (live && !timer) timer = setInterval(() => setDust((d) => d + 1), 90); };
+
+    Promise.resolve(AccessibilityInfo?.isReduceMotionEnabled?.() ?? false)
+      .then((reduced) => { if (!reduced) start(); })
+      .catch(start);
+
+    return () => { live = false; if (timer) clearInterval(timer); };
+  }, []);
   const { width: W, height: H } = Dimensions.get('window');
   const cam = useMemo(() => followCamera(pos, MAP_W, MAP_H, W, H), [pos, W, H]);
 
@@ -381,6 +416,13 @@ function World({ grid, pos, progress, near, route, facing, step }) {
         walls.push(<StudWall key={`w${x},${y}`} tx={x} ty={y} horiz={wallHoriz(x, y)} />);
       } else {
         floors.push(<SlabTile key={`f${x},${y}`} tx={x} ty={y} indoor={indoor(x, y)} />);
+        // Layout marks, chalk lines and pallet stains — the details somebody
+        // who has stood on a commercial slab recognises instantly. Deterministic
+        // from the tile coords, so the floor does not reshuffle its own scuffs
+        // between visits, which is worse than a plain one.
+        if (indoor(x, y)) {
+          floors.push(<SlabMarks key={`m${x},${y}`} tx={x} ty={y} />);
+        }
         // An unfinished commercial shell has no ceiling — you look up into deck
         // and open bar joists. Drawing nothing overhead is what made the
         // interior read as a floor plan instead of a building. Every third tile
@@ -424,10 +466,17 @@ function World({ grid, pos, progress, near, route, facing, step }) {
 
           {floors}
 
+          {/* Daylight falling through the door openings. The single biggest
+              change in how the site reads: an evenly lit floor looks like a
+              diagram, a floor with light across it looks like a room. Below
+              the walls, so the studs cast into it. */}
+          <Daylight pools={SUN_POOLS} />
+
           {/* Joists sit above the slab and under everything a player can touch,
               so the shell reads as a building without competing with the props
               or the crew. */}
           {overhead}
+          <DustMotes pools={SUN_POOLS} t={dust} />
 
           {routeD && (
             <G>
@@ -472,6 +521,10 @@ function World({ grid, pos, progress, near, route, facing, step }) {
         </G>
 
         <Rect x={0} y={0} width={W} height={H} fill="url(#sun)" pointerEvents="none" />
+        {/* Screen space, outside the camera transform. A soft vignette rather
+            than a flat wash — a wash would kill the daylight, this only bites
+            at the corners so the middle of the room stays legible. */}
+        <AmbientShade w={W} h={H} />
       </Svg>
     </View>
   );

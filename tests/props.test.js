@@ -155,3 +155,46 @@ test('the stick base never lands where the knob would run off the screen', async
   assert.ok(tiny.x >= 0 && tiny.x <= 200);
   assert.ok(Number.isFinite(tiny.y));
 });
+
+// ─── Every room is a different scene ─────────────────────────────────────────
+
+test('no two rooms hold the same composition of props', async () => {
+  const { ROOM_STORY, propsInRoom } = await import('../src/core/game/props.js');
+  // Six identical rooms with a station in each is a corridor with doors on it.
+  // Walking into one and finding the wire rack, then the next and finding the
+  // print table, is what makes a floor plan read as a job.
+  const seen = new Map();
+  for (const room of Object.keys(ROOM_STORY)) {
+    const kinds = propsInRoom(room).map((p) => p.kind).sort().join('+');
+    assert.ok(kinds, `${room} is empty`);
+    assert.equal(seen.has(kinds), false, `${room} is the same scene as ${seen.get(kinds)}`);
+    seen.set(kinds, room);
+  }
+});
+
+test('every room says what it is in the middle of, and has props to back it', async () => {
+  const { ROOM_STORY, propsInRoom } = await import('../src/core/game/props.js');
+  const { ROOMS } = await import('../src/core/game/jobsite.js');
+  const roomIds = new Set(ROOMS.map((r) => r.id));
+
+  for (const [id, story] of Object.entries(ROOM_STORY)) {
+    assert.ok(roomIds.has(id), `ROOM_STORY names "${id}", which is not a room`);
+    assert.ok(story.length > 20, `${id} has no story`);
+    assert.ok(propsInRoom(id).length >= 2, `${id} claims a story with fewer than two props`);
+  }
+  // And every room in the world has one — a room with no scene is the corridor.
+  for (const r of ROOMS) assert.ok(ROOM_STORY[r.id], `${r.id} has no story`);
+});
+
+test('an in-room prop sits inside the room it claims', async () => {
+  const { propsInRoom } = await import('../src/core/game/props.js');
+  const { ROOMS } = await import('../src/core/game/jobsite.js');
+  for (const r of ROOMS) {
+    for (const p of propsInRoom(r.id)) {
+      // Interior is the wall rectangle minus its border.
+      assert.ok(p.x > r.x && p.x < r.x + r.w - 1, `${p.id} is outside ${r.id} horizontally`);
+      assert.ok(p.y > r.y && p.y < r.y + r.h - 1, `${p.id} is outside ${r.id} vertically`);
+      assert.equal(p.solid, false, `${p.id} blocks a room a station sits in`);
+    }
+  }
+});
