@@ -487,8 +487,11 @@ function World({ grid, pos, progress, near, route, facing, step }) {
  */
 function Stick({ dir, side, onSwap }) {
   const { width: W, height: H } = Dimensions.get('window');
+  // Sits higher than it did. At H-155 the base was inside the bottom dock and
+  // the home-indicator strip, so a downward pull either clipped or got taken
+  // by the system gesture. STICK_R + travel + inset is the floor.
   const rest = useMemo(
-    () => ({ x: side === 'left' ? 96 : W - 96, y: H - 155 }),
+    () => ({ x: side === 'left' ? 104 : W - 104, y: H - 232 }),
     [side, W, H],
   );
   const [origin, setOrigin] = useState(rest);
@@ -500,7 +503,9 @@ function Stick({ dir, side, onSwap }) {
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: (e) => {
-      const o = floatingOrigin(e.nativeEvent.pageX, e.nativeEvent.pageY, W, H, { side });
+      const o = floatingOrigin(e.nativeEvent.pageX, e.nativeEvent.pageY, W, H, {
+        side, margin: STICK_R + 16, bottomInset: 110,
+      });
       if (o) setOrigin(o);
       setActive(true);
     },

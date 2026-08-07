@@ -122,3 +122,36 @@ test('a multi-tile prop occupies every tile it covers', () => {
   const grid = buildSiteMap();
   if (wide.solid) for (const t of tilesOf(wide)) assert.equal(isWall(grid, t.x, t.y), true);
 });
+
+// ─── The stick ───────────────────────────────────────────────────────────────
+
+test('the stick base never lands where the knob would run off the screen', async () => {
+  const { floatingOrigin } = await import('../src/core/game/topdown.js');
+  const W = 390, H = 844, margin = 74, bottomInset = 110;
+
+  // A thumb holding the phone one-handed lands in the bottom-left corner. The
+  // unclamped version put the base there and drew it half off-screen, so
+  // pushing down or outward ran out of travel before it ran out of deflection
+  // and the swipe went off the edge.
+  const corner = floatingOrigin(6, H - 8, W, H, { side: 'left', margin, bottomInset });
+  assert.ok(corner.x >= margin, 'the base is clipped on the left');
+  assert.ok(corner.y <= H - bottomInset - margin, 'the base is under the home indicator');
+
+  // Every direction gets the same throw, wherever inside the zone you grab it.
+  for (const [x, y] of [[10, H - 5], [180, H - 300], [3, H * 0.5], [120, H - 60]]) {
+    const o = floatingOrigin(x, y, W, H, { side: 'left', margin, bottomInset });
+    if (!o) continue;
+    assert.ok(o.x >= margin && o.x <= W - margin, `x ${o.x} clipped`);
+    assert.ok(o.y >= H * 0.45 && o.y <= H - bottomInset - margin, `y ${o.y} clipped`);
+  }
+
+  // Still refuses a touch outside its half of the screen, and above the zone.
+  assert.equal(floatingOrigin(380, H - 40, W, H, { side: 'left' }), null);
+  assert.equal(floatingOrigin(40, 60, W, H, { side: 'left' }), null);
+
+  // A viewport too short for the margins resolves to the middle rather than
+  // inverting the clamp and throwing the base off the top.
+  const tiny = floatingOrigin(50, 300, 200, 400, { side: 'left', margin: 150, bottomInset: 150 });
+  assert.ok(tiny.x >= 0 && tiny.x <= 200);
+  assert.ok(Number.isFinite(tiny.y));
+});

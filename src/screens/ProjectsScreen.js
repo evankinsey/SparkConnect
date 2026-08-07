@@ -223,9 +223,38 @@ function ProjectList({ C, projects, onOpen, onCreate, setTab, migrationNote, onD
         </View>
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 20, fontWeight: '800', color: C.text }}>Projects</Text>
-          <Text style={{ fontSize: 12, color: C.textTert }}>Job records you can defend an inspection with</Text>
+          <Text style={{ fontSize: 12, color: C.textTert }}>Where your job photos and numbers live</Text>
         </View>
       </View>
+
+      {/* WHAT THIS IS FOR, in the words of the thing people actually do with it.
+          "Job records you can defend an inspection with" is true and it reads
+          like paperwork for a PM — an apprentice sees that and decides the tab
+          is not for them. Everyone photographs a trench before it gets covered.
+          That is the same feature, described by the moment somebody needs it. */}
+      {projects.length === 0 && (
+        <View style={{
+          backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 14,
+          borderWidth: 1, borderColor: C.border,
+        }}>
+          <Text style={{ fontSize: 13.5, fontWeight: '700', color: C.text, marginBottom: 8 }}>
+            Photograph it before it gets covered
+          </Text>
+          {[
+            { icon: 'camera', text: 'Buried pipe, trench depth, rough-in — before the concrete or the drywall goes on' },
+            { icon: 'calculator', text: 'Any calculation you ran, kept with the job it was for' },
+            { icon: 'chatbubble-ellipses', text: 'What the inspector said, on the day they said it' },
+          ].map((r) => (
+            <View key={r.icon} style={{ flexDirection: 'row', gap: 9, alignItems: 'flex-start', marginBottom: 7 }}>
+              <Ionicons name={r.icon} size={15} color={C.teal} style={{ marginTop: 1.5 }} />
+              <Text style={{ flex: 1, fontSize: 12, color: C.textSec, lineHeight: 17 }}>{r.text}</Text>
+            </View>
+          ))}
+          <Text style={{ fontSize: 11.5, color: C.textTert, lineHeight: 16, marginTop: 3 }}>
+            One job, one place. Six months later, when somebody asks what was down there, you have it.
+          </Text>
+        </View>
+      )}
 
       {/* Photos that were in the old Job Cam store now live here. Said out loud
           rather than silently: a user who took 40 photos in Job Cam needs to

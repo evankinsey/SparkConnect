@@ -102,9 +102,34 @@ export const knobOffset = (dx, dy, radius) => {
  * control zone, rather than at a fixed spot the thumb has to hunt for.
  * Returns null when the touch is outside the zone, so the caller can ignore it.
  */
-export const floatingOrigin = (touchX, touchY, viewW, viewH, { side = 'left', zone = 0.5 } = {}) => {
+/**
+ * Where the floating stick's base lands.
+ *
+ * CLAMPED, and that is the fix rather than a refinement. Returning the raw
+ * touch point put the base wherever the thumb happened to land — including
+ * three quarters of the way down the screen and an inch from the edge, which
+ * is exactly where a thumb lands when you are holding a phone one-handed. The
+ * base was then drawn half off-screen and the knob ran out of travel before it
+ * ran out of deflection, so pushing down or outward stopped registering and
+ * the swipe went off the edge.
+ *
+ * `margin` is the stick's own radius plus its travel. Keeping the whole base
+ * inside the viewport means every direction has the same throw, which is the
+ * difference between a stick that works one-handed and one you have to
+ * re-grip for.
+ */
+export const floatingOrigin = (touchX, touchY, viewW, viewH, {
+  side = 'left', zone = 0.5, margin = 74, bottomInset = 96,
+} = {}) => {
   const inX = side === 'left' ? touchX < viewW * zone : touchX > viewW * (1 - zone);
   const inY = touchY > viewH * 0.45;
   if (!inX || !inY) return null;
-  return { x: touchX, y: touchY };
+
+  const clamp = (v, lo, hi) => (hi < lo ? (lo + hi) / 2 : Math.min(Math.max(v, lo), hi));
+  return {
+    x: clamp(touchX, margin, viewW - margin),
+    // bottomInset keeps the base clear of the home indicator and the dock, so
+    // pulling the knob down does not hand the gesture to the system.
+    y: clamp(touchY, viewH * 0.45, viewH - bottomInset - margin),
+  };
 };

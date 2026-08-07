@@ -918,13 +918,15 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
                   <Text style={{ fontSize: 11, fontWeight: '700', color: C.success, marginBottom: 3 }}>{q.ref}</Text>
                   <Text style={{ fontSize: 12, color: C.text, lineHeight: 18 }}>{q.explanation}</Text>
                 </View>
-                {/* Post-answer payoff: XP earned + share. The share text names the
-                    topic but never the answer — a shared result should recruit,
-                    not leak the day's question. */}
+                {/* Post-answer payoff. No XP number: Home stopped keeping score,
+                    because a total that only goes up is not a reason to open a
+                    tool you use on a job. The share text names the topic but
+                    never the answer — a shared result should recruit, not leak
+                    the day's question. */}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
                   <View style={{ backgroundColor: selected === q.correct ? C.successBg : C.amberBg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 }}>
                     <Text style={{ fontSize: 12, fontWeight: '800', color: selected === q.correct ? C.success : C.amber }}>
-                      {selected === q.correct ? '+15 XP · Correct' : '+5 XP · Studied'}
+                      {selected === q.correct ? 'Correct' : 'Now you know'}
                     </Text>
                   </View>
                   <TouchableOpacity

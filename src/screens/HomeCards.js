@@ -14,7 +14,6 @@ import {
   allToolsGrouped,
 } from '../core/home/layout';
 import { dailyChallenge, answerDailyChallenge } from '../core/challenges/daily';
-import { rankForXp } from '../circuit/scoring';
 
 const KEY_LAYOUT = '@sc_home_layout_v1';
 const KEY_ROLE = '@sc_role';
@@ -151,7 +150,7 @@ export function HomeCards({ C, setTab, layout, streak = 0, xp = 0, onCustomize }
         if (card.kind === CardKind.WIDGET) {
           // daily_challenge left the catalog — the pinned Daily Code Question
           // made it read as the same widget twice on Home.
-          if (card.id === 'streak') return <StreakWidget key={card.id} C={C} streak={streak} xp={xp} />;
+          if (card.id === 'streak') return <StreakWidget key={card.id} C={C} streak={streak} />;
           return null; // daily_question is rendered by HomeScreen itself
         }
         return <ToolRow key={card.id} C={C} card={card} setTab={setTab} />;
@@ -182,7 +181,6 @@ function ChallengeWidget({ C }) {
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <Ionicons name="flame" size={17} color={C.amber} />
         <Text style={{ flex: 1, fontSize: 13, fontWeight: '800', color: C.amber }}>{challenge.title}</Text>
-        <Text style={{ fontSize: 10.5, color: C.textTert }}>+{challenge.xp} XP</Text>
       </View>
 
       <Text style={{ fontSize: 13.5, fontWeight: '600', color: C.text, lineHeight: 20, marginBottom: 11 }}>
@@ -256,20 +254,31 @@ function ChallengeWidget({ C }) {
   );
 }
 
-function StreakWidget({ C, streak, xp }) {
-  const rank = rankForXp(xp);
+/**
+ * The streak, and only the streak.
+ *
+ * XP, level and jobs-logged came out. A number that only goes up is not a
+ * reason to open an app the second week, and three of them across the top of
+ * Home turned a tool an electrician uses on a job into something that looks
+ * like it is scoring them. The streak stays because it says something true
+ * about a habit rather than about a total.
+ *
+ * The rank machinery is untouched — the job-site game still awards and shows
+ * it, where a level is the point. It is Home that stopped keeping score.
+ */
+function StreakWidget({ C, streak }) {
+  if (!streak) return null;
   return (
     <View style={{
-      flexDirection: 'row', gap: 12, backgroundColor: C.surface, borderRadius: 14,
-      padding: 14, marginBottom: 9, borderWidth: 1, borderColor: C.border,
+      flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.surface,
+      borderRadius: 14, padding: 14, marginBottom: 9, borderWidth: 1, borderColor: C.border,
     }}>
+      <Text style={{ fontSize: 26, fontWeight: '800', color: C.text }}>{streak}</Text>
       <View style={{ flex: 1 }}>
-        <Text style={{ fontSize: 24, fontWeight: '800', color: C.text }}>{streak}</Text>
-        <Text style={{ fontSize: 10.5, color: C.textTert }}>DAY STREAK</Text>
-      </View>
-      <View style={{ flex: 2 }}>
-        <Text style={{ fontSize: 14, fontWeight: '800', color: C.text }}>{rank.title}</Text>
-        <Text style={{ fontSize: 10.5, color: C.textTert }}>{xp} XP · {rank.disclaimer}</Text>
+        <Text style={{ fontSize: 13, fontWeight: '800', color: C.text }}>
+          day{streak === 1 ? '' : 's'} in a row
+        </Text>
+        <Text style={{ fontSize: 11, color: C.textTert }}>Today's question keeps it going.</Text>
       </View>
     </View>
   );

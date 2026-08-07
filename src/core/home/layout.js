@@ -22,7 +22,7 @@ export const HOME_CARDS = Object.freeze([
   // Code Question pinned to the top of Home it read as the same widget twice.
   // sanitizeLayout drops unknown ids, so saved layouts self-heal on load.
   { id: 'daily_question', kind: CardKind.WIDGET, title: 'Daily Code Question', sub: "Today's NEC question", icon: 'school', group: 'Daily' },
-  { id: 'streak', kind: CardKind.WIDGET, title: 'Streak & Rank', sub: 'Progress at a glance', icon: 'trophy', group: 'Daily' },
+  { id: 'streak', kind: CardKind.WIDGET, title: 'Streak', sub: 'Days in a row', icon: 'flame', group: 'Daily' },
 
   // Training
   { id: 'wiring_lab', kind: CardKind.SHORTCUT, tab: 'wiringlab', title: 'Wiring Simulator', sub: 'Wire it, then test it', icon: 'git-network', group: 'Training' },
