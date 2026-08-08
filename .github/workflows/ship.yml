@@ -1,0 +1,133 @@
+name: Ship to TestFlight
+
+# Launch SparkConnect without a computer.
+#
+# Runs on GitHub's machines, so it needs neither Evan's laptop nor a local
+# terminal. Trigger it from the Actions tab on a phone.
+#
+# ONE SECRET IS REQUIRED — Settings → Secrets and variables → Actions:
+#
+#   EXPO_TOKEN   expo.dev → account → Access Tokens → Create token
+#
+# That is the whole setup. Apple credentials are NOT stored here; EAS already
+# holds the ones used for previous submissions on its own servers.
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to build'
+        type: choice
+        options: [ios, android, all]
+        default: ios
+      submit:
+        description: 'Submit to the store after building'
+        type: boolean
+        default: true
+
+concurrency:
+  # A second run started by accident must not race the first into the store.
+  group: ship-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: What is about to ship
+        run: |
+          node -e "
+          const a = require('./app.json').expo;
+          const e = require('./eas.json');
+          console.log('version    ' + a.version + ' (' + a.ios.buildNumber + ')');
+          console.log('bundle id  ' + a.ios.bundleIdentifier);
+          console.log('ascAppId   ' + e.submit.production.ios.ascAppId);
+          console.log('increment  ' + (e.build.production.autoIncrement ? 'AUTO' : 'off — ships exactly this number'));
+          "
+
+      # Every check below costs seconds here and 20+ minutes to discover after
+      # an upload. A bundle error in particular only surfaces on EAS's builder.
+      - name: Tests
+        run: npm test
+
+      - name: App.js bundles
+        run: |
+          npx --yes esbuild App.js --bundle --platform=neutral \
+            --loader:.js=jsx --loader:.png=text --loader:.jpg=text \
+            --outfile=/dev/null \
+            --external:react --external:react-native --external:react-native-svg \
+            --external:@expo/vector-icons \
+            --external:@react-native-async-storage/async-storage \
+            --external:expo --external:'expo-*' --external:react-native-purchases
+
+      - name: Legal pages match the policy module
+        run: npm run legal:check
+
+  ship:
+    name: Build and submit
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The secrets context is not readable from a step-level `if`, so this is
+      # a shell check on an env var. Written as an `if:` first, where it would
+      # have silently evaluated false and let the run fail 40 lines later with
+      # an opaque eas error instead.
+      - name: Fail early if the token is missing
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "${EXPO_TOKEN}" ]; then
+            echo "::error title=EXPO_TOKEN missing::Add it at Settings → Secrets and variables → Actions. Create the token at expo.dev → account → Access Tokens."
+            exit 1
+          fi
+          echo "EXPO_TOKEN is set"
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install
+        run: npm ci
+
+      - name: Build${{ inputs.submit && ' and submit' || '' }}
+        run: |
+          eas build \
+            --platform ${{ inputs.platform }} \
+            --profile production \
+            --non-interactive \
+            ${{ inputs.submit && '--auto-submit' || '--no-wait' }}
+
+      - name: Where to look next
+        if: always()
+        run: |
+          echo "Builds:      https://expo.dev/accounts"
+          echo "TestFlight:  appstoreconnect.apple.com → TestFlight"
+          echo ""
+          echo "First three checks on the device, in this order:"
+          echo "  1. Ask SparkAI anything open-ended — it should ANSWER."
+          echo "     Still refusing means the backend is unreachable from the"
+          echo "     phone, not that the fix failed. Check /api/ask-nec on"
+          echo "     cellular with wifi off, and Vercel's SSO protection."
+          echo "  2. Open the paywall — every plan should show a price."
+          echo "     'Unavailable right now' means that product id does not"
+          echo "     exist in App Store Connect."
+          echo "  3. Fresh install — onboarding appears, disclaimer first."
