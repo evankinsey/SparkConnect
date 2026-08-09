@@ -179,3 +179,45 @@ completed match present the fee conversation ($199/$299/$499 arm by the
 deterministic assignment, framed as the experiment it is — nothing charged
 in-app). Ten completed matches with honest willingness-to-pay data decides
 whether the backend build is justified — which is the entire point of this MVP.
+
+---
+
+## HOW TO TEST IT
+
+Four paths, fastest first.
+
+**1. Ten seconds, no device — `npm run connect:demo`.**
+Drives the real modules through one Tampa job: unlicensed submitter routed
+correctly, licence-lending phrasing quarantined, a contractor's self-declared
+"verified" discarded, an unverified licence refused a match, the DBPR record
+attached by an admin, the match scored with every point attributable, the
+introduction advanced one legal step at a time, a qualifying relationship
+refused until the board reference exists, and the war-room queue worked. It
+narrates rather than asserts — the assertions live in `tests/marketplace.test.js`.
+
+**2. The test suite — `npm test`.** 1201 tests, including the 38 that pin the
+compliance guarantees.
+
+**3. On your phone, live — `npx expo start`, scan the QR code with Expo Go.**
+Home → Contractor Connect (or Tools → Work → Contractor Connect). Everything
+works in Expo Go except push notifications, which is a pre-existing limitation
+unrelated to this module. This is the only way to see the actual screens.
+
+**4. TestFlight — GitHub → Actions → "Ship to TestFlight" → Run workflow.**
+No computer needed. Runs the preflight (tests + bundle check) and refuses to
+build if anything fails. 15–25 minutes to a build, then the usual Apple wait.
+
+Before any of it: `npm install` (this repo's tests need `@babel/parser`).
+
+### What to click through on a device
+
+- All four intent cards render and open their funnels.
+- In "I have a job", answer **no** to the licence question and confirm the
+  routing notice appears inline, before submission.
+- Submit one clean job and one containing "need someone to lend their license"
+  — the second should come back as needing review, with no accusation.
+- In "I want work", create a profile and confirm it reads **Not yet checked**,
+  then tap "Open your DBPR record" and confirm the deep link lands on the real
+  licensee page. That link is unconfirmed until a human opens it once.
+- Verify a License with a real Florida number, then check it appears in Saved.
+- In a dev build only, open the war room and confirm the counts move.
