@@ -78,12 +78,34 @@ export const Cause = Object.freeze({
   BAD_API_KEY: 'BAD_API_KEY',
   NO_STORE_CONNECTION: 'NO_STORE_CONNECTION',
   AGREEMENT_OR_BUNDLE: 'AGREEMENT_OR_BUNDLE',
+  INCONCLUSIVE: 'INCONCLUSIVE',
   OFFERING_EMPTY: 'OFFERING_EMPTY',
   IDENTIFIER_MISSING: 'IDENTIFIER_MISSING',
   PURCHASE_NOT_ALLOWED: 'PURCHASE_NOT_ALLOWED',
   ALREADY_OWNED: 'ALREADY_OWNED',
   HEALTHY: 'HEALTHY',
 });
+
+/**
+ * The causes where we have POSITIVE EVIDENCE that a tap cannot succeed, and so
+ * are entitled to disable a button before anybody presses it.
+ *
+ * Everything not in this set — most importantly INCONCLUSIVE — leaves the
+ * button live. Build 29 greyed out all three answer packs on TestFlight for
+ * products the App Store build sells to the same account every day, purely
+ * because one getProducts call resolved empty and the SDK reported no error.
+ * An empty list with no error code is an absence of evidence, and disabling a
+ * working purchase on it is a worse bug than the one the preflight was added
+ * to catch: an honest error after a tap costs a tap, a wrongly dead paywall
+ * costs the sale and looks like a broken app.
+ */
+export const BLOCKING_CAUSES = Object.freeze([
+  Cause.SDK_ABSENT,           // react-native-purchases is not in this build
+  Cause.BAD_API_KEY,          // RevenueCat rejected the credentials outright
+  Cause.PURCHASE_NOT_ALLOWED, // the device itself refuses purchases
+  Cause.IDENTIFIER_MISSING,   // other products came back; this one did not
+  Cause.OFFERING_EMPTY,       // products came back; the Offering is genuinely empty
+]);
 
 const DIAGNOSES = Object.freeze({
   [Cause.SDK_ABSENT]: {
@@ -126,6 +148,17 @@ const DIAGNOSES = Object.freeze({
       + 'tester account under Settings → Developer; (4) the products are not all still in '
       + '"Missing Metadata" in App Store Connect.',
     fixIsOutsideTheApp: true,
+  },
+  [Cause.INCONCLUSIVE]: {
+    // What an empty result with no error code ACTUALLY supports.
+    headline: 'The store check came back empty without saying why.',
+    userMessage: null, // nothing certain enough to put in front of a buyer
+    engineerAction: 'Not a verdict. getProducts resolved with an empty array and the SDK '
+      + 'raised no error, which is what a genuine agreement problem looks like AND what a '
+      + 'store connection that has not warmed up yet looks like. Buttons stay live. If a '
+      + 'purchase is then attempted, the error code from that attempt is the real diagnosis '
+      + '— check it before touching App Store Connect.',
+    fixIsOutsideTheApp: false,
   },
   [Cause.OFFERING_EMPTY]: {
     // Subscriptions and one-time products come from two different places, and
@@ -221,6 +254,12 @@ export const diagnose = (facts = {}) => {
         return Cause.ALREADY_OWNED;
       case RcErrorCode.STORE_PROBLEM:
         return Cause.AGREEMENT_OR_BUNDLE;
+      // The store knows this product and will not sell it — not approved yet,
+      // not available in this storefront, or still in Missing Metadata. It was
+      // previously unmapped, so it fell through to the empty-list inference and
+      // got reported as an agreement problem, sending the fix to the wrong place.
+      case RcErrorCode.PRODUCT_NOT_AVAILABLE_FOR_PURCHASE:
+        return Cause.IDENTIFIER_MISSING;
       default: break;
     }
 
@@ -230,7 +269,13 @@ export const diagnose = (facts = {}) => {
     const productsEmpty = req.length > 0 && ret.length === 0;
     const offeringEmpty = pkgs !== null && pkgs.length === 0;
 
-    if (productsEmpty && (pkgs === null || offeringEmpty)) return Cause.AGREEMENT_OR_BUNDLE;
+    // Nothing from either source, and the SDK raised no error. This is the
+    // shape of a lapsed agreement — and equally the shape of a store that has
+    // not answered yet. Without an error code the two are indistinguishable
+    // from here, so it is recorded as inconclusive and nothing is disabled.
+    // AGREEMENT_OR_BUNDLE stays reachable, from the STORE_PROBLEM code above,
+    // where the SDK has actually said so.
+    if (productsEmpty && (pkgs === null || offeringEmpty)) return Cause.INCONCLUSIVE;
     if (offeringEmpty && ret.length > 0) return Cause.OFFERING_EMPTY;
     if (wanted && !ret.includes(wanted)) return Cause.IDENTIFIER_MISSING;
     if (req.length > 0 && ret.length < req.length && !wanted) return Cause.IDENTIFIER_MISSING;
@@ -243,6 +288,11 @@ export const diagnose = (facts = {}) => {
   return Object.freeze({
     cause,
     healthy: cause === Cause.HEALTHY,
+    // Whether this conclusion is strong enough to disable a button. Kept
+    // separate from `healthy` on purpose: "not healthy" and "provably cannot
+    // sell" are different claims, and treating the first as the second is what
+    // blacked out the answer packs in build 29.
+    blocksPurchase: BLOCKING_CAUSES.includes(cause),
     ...d,
     // Facts, kept alongside the conclusion, so a debug screen can show the
     // working rather than asking anybody to trust the verdict.

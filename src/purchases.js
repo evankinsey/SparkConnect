@@ -15,14 +15,29 @@
 import { Platform } from 'react-native';
 import { REVENUECAT_IOS_KEY, REVENUECAT_ANDROID_KEY } from './config/keys';
 import { ProductId, ALL_STORE_IDS, matchesProduct, PRODUCT_ALIASES } from './core/paywall/config';
-import { diagnose } from './core/paywall/storeDiagnosis';
+import { diagnose, Cause } from './core/paywall/storeDiagnosis';
 
 let Purchases = null;
 let PACKAGE_TYPE = { ANNUAL: 'ANNUAL', MONTHLY: 'MONTHLY' };
+/**
+ * getProducts' second argument, which defaults to SUBSCRIPTION in the SDK.
+ *
+ * Everything this file asks getProducts for is a consumable or a one-time
+ * unlock, so the default is wrong for every call we make. On iOS the native
+ * bridge ignores the argument entirely — StoreKit has no such split — which is
+ * why the App Store build has always sold the answer packs without passing it.
+ * On Google Play the split is real: querying "subs" for an "inapp" SKU returns
+ * an empty list, so on Android the packs could never have loaded.
+ *
+ * The enum is not re-exported from the package root, so the string the bridge
+ * expects is the fallback, and the SDK's own value is preferred if it appears.
+ */
+let NON_SUBSCRIPTION = 'NON_SUBSCRIPTION';
 try {
   const rc = require('react-native-purchases');
   Purchases = rc.default;
   if (rc.PACKAGE_TYPE) PACKAGE_TYPE = { ...PACKAGE_TYPE, ...rc.PACKAGE_TYPE };
+  if (rc.PRODUCT_CATEGORY?.NON_SUBSCRIPTION) NON_SUBSCRIPTION = rc.PRODUCT_CATEGORY.NON_SUBSCRIPTION;
 } catch (e) { /* preview environment — purchase calls become friendly no-ops */ }
 
 const ENTITLEMENT = 'pro';
@@ -132,7 +147,7 @@ export async function checkStore() {
   }
 
   try {
-    const prods = await Purchases.getProducts(ONE_TIME_PRODUCT_IDS);
+    const prods = await Purchases.getProducts(ONE_TIME_PRODUCT_IDS, NON_SUBSCRIPTION);
     returned = (prods || []).map((p) => p.productIdentifier);
   } catch (e) {
     errorCode = errorCode ?? codeOf(e);
@@ -164,7 +179,15 @@ const codeOf = (e) => (typeof e?.code === 'number' ? e.code : Number(e?.code ?? 
  */
 export const isProductAvailable = (productId) => {
   if (!lastDiagnosis) return true;
-  if (lastDiagnosis.cause === 'SDK_ABSENT') return false;
+  if (lastDiagnosis.healthy) return true;
+  // Same rule the paywall renders by: only a diagnosis backed by positive
+  // evidence may call a product unavailable. An empty getProducts result with
+  // no error code is INCONCLUSIVE and must not black out a product the App
+  // Store sells — see BLOCKING_CAUSES in core/paywall/storeDiagnosis.
+  if (!lastDiagnosis.blocksPurchase) return true;
+  if (lastDiagnosis.cause === Cause.SDK_ABSENT
+    || lastDiagnosis.cause === Cause.BAD_API_KEY
+    || lastDiagnosis.cause === Cause.PURCHASE_NOT_ALLOWED) return false;
   if (isSubscription(productId)) return lastDiagnosis.subscriptionsSellable;
   return lastDiagnosis.returned.some((id) => matchesProduct(productId, id));
 };
@@ -172,7 +195,7 @@ export const isProductAvailable = (productId) => {
 /** Buy by product identifier. This path needs only the product to exist in
  *  App Store Connect — no Offering, no dashboard packages. */
 async function buyByIdentifier(productId) {
-  const prods = await Purchases.getProducts(ONE_TIME_PRODUCT_IDS);
+  const prods = await Purchases.getProducts(ONE_TIME_PRODUCT_IDS, NON_SUBSCRIPTION);
   const returned = (prods || []).map((p) => p.productIdentifier);
   // Match on any known alias, not on our internal id — the store returns
   // whatever identifier the product was actually created with.

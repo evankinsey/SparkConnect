@@ -432,14 +432,62 @@ test('every product failing is diagnosed differently from one product failing', 
   assert.deepEqual([...one.missing], ['b']);
   assert.equal(one.everythingFailed, false);
 
-  assert.equal(all.cause, Cause.AGREEMENT_OR_BUNDLE);
-  assert.equal(all.everythingFailed, true);
-  assert.equal(all.fixIsOutsideTheApp, true, 'no build fixes a lapsed agreement');
-  assert.match(all.engineerAction, /Paid Applications/);
-  assert.match(all.engineerAction, /bundle identifier/);
-  assert.notEqual(one.userMessage, all.userMessage, 'a user must not see the same sentence');
+  // Nothing came back and the SDK said nothing. That is not a verdict.
+  assert.equal(all.cause, Cause.INCONCLUSIVE);
+  assert.equal(all.everythingFailed, true, 'still a fact worth recording');
+  assert.notEqual(one.cause, all.cause, 'one failing and all failing stay distinguishable');
+
+  // An agreement problem is what the SDK SAYS it is, not what we infer.
+  const stated = diagnose({ requested: ['a', 'b', 'c'], returned: [], errorCode: 2 });
+  assert.equal(stated.cause, Cause.AGREEMENT_OR_BUNDLE);
+  assert.equal(stated.fixIsOutsideTheApp, true, 'no build fixes a lapsed agreement');
+  assert.match(stated.engineerAction, /Paid Applications/);
+  assert.match(stated.engineerAction, /bundle identifier/);
+  assert.notEqual(one.userMessage, stated.userMessage, 'a user must not see the same sentence');
   // When everything is down, point at restore — existing purchases still work.
-  assert.match(all.userMessage, /Restore/i);
+  assert.match(stated.userMessage, /Restore/i);
+});
+
+test('an empty store result with no error code never disables a button', async () => {
+  const { diagnose, Cause } = await import('../src/core/paywall/storeDiagnosis.js');
+  // Build 29 greyed out all three answer packs on TestFlight — the same three
+  // identifiers the App Store build sells to the same account every day —
+  // because one getProducts call resolved empty and nothing threw. An empty
+  // list with no error code is an absence of evidence, and a wrongly dead
+  // paywall costs the sale, while an honest error after a tap costs a tap.
+  const empty = diagnose({ requested: ['p1', 'p2', 'p3'], returned: [] });
+  assert.equal(empty.cause, Cause.INCONCLUSIVE);
+  assert.equal(empty.blocksPurchase, false, 'no evidence may not disable a purchase');
+  assert.equal(empty.userMessage, null, 'do not tell a buyer something we have not concluded');
+  assert.equal(empty.fixIsOutsideTheApp, false, 'do not send anybody to App Store Connect on a guess');
+
+  // Positive evidence still disables: others came back, this one did not.
+  const missing = diagnose({ requested: ['p1', 'p2'], returned: ['p1'], wanted: 'p2' });
+  assert.equal(missing.blocksPurchase, true);
+
+  // And an SDK that is not present cannot sell anything.
+  assert.equal(diagnose({ sdkPresent: false }).blocksPurchase, true);
+});
+
+test('the paywall and purchases.js disable by the same rule', async () => {
+  const fs = await import('node:fs');
+  // Two copies of "can this be bought" drifting apart is how a button gets
+  // rendered live and then refuses, or rendered dead while the store would
+  // have sold it. Both must consult blocksPurchase.
+  for (const f of ['src/SparkPaywall.js', 'src/purchases.js']) {
+    assert.match(fs.readFileSync(f, 'utf8'), /blocksPurchase/, `${f} ignores the evidence rule`);
+  }
+});
+
+test('a product the store refuses to sell is not blamed on the agreement', async () => {
+  const { diagnose, Cause, RcErrorCode } = await import('../src/core/paywall/storeDiagnosis.js');
+  // Code 5 was unmapped, so it fell through to the empty-list inference and
+  // pointed at bank details when the real cause was one product not approved.
+  const d = diagnose({
+    requested: ['p1'], returned: [], errorCode: RcErrorCode.PRODUCT_NOT_AVAILABLE_FOR_PURCHASE,
+  });
+  assert.equal(d.cause, Cause.IDENTIFIER_MISSING);
+  assert.doesNotMatch(d.engineerAction, /Paid Applications/);
 });
 
 test('an error code beats an inference from an empty list', async () => {
@@ -505,9 +553,17 @@ test('subscriptions are never asked for by identifier', async () => {
   assert.match(list[0], /PACK_15/);
   assert.match(list[0], /LIFETIME_TOOLS/, 'lifetime genuinely is a one-time product');
 
-  // Every getProducts call uses that list and no other.
-  for (const m of src.matchAll(/getProducts\(([^)]*)\)/g)) {
-    assert.equal(m[1].trim(), 'ONE_TIME_PRODUCT_IDS', `getProducts called with ${m[1]}`);
+  // Every getProducts call asks for that list and no other.
+  const calls = [...src.matchAll(/getProducts\(([^)]*)\)/g)];
+  assert.ok(calls.length > 0, 'getProducts is never called');
+  for (const m of calls) {
+    const [ids, category] = m[1].split(',').map((a) => a.trim());
+    assert.equal(ids, 'ONE_TIME_PRODUCT_IDS', `getProducts asked for ${ids}`);
+    // The SDK defaults this argument to SUBSCRIPTION, which is wrong for every
+    // product in that list. iOS ignores it; Google Play does not, and would
+    // return an empty list for consumables queried as subscriptions.
+    assert.equal(category, 'NON_SUBSCRIPTION',
+      'one-time products must be queried as non-subscriptions');
   }
 });
 
@@ -530,10 +586,13 @@ test('an empty offering does not black out the packs, or the reverse', async () 
   assert.equal(packsDown.subscriptionsSellable, true, 'subscriptions are unaffected');
   assert.equal(packsDown.everythingFailed, false);
 
-  // Both empty IS the store-level problem.
+  // Both empty LOOKS like the store-level problem and is not evidence of one:
+  // a store that has not answered yet is indistinguishable from here. Recorded
+  // as a fact, not a verdict, and nothing gets disabled on it.
   const allDown = diagnose({ requested: ['pack_a'], returned: [], offeringPackages: [] });
-  assert.equal(allDown.cause, Cause.AGREEMENT_OR_BUNDLE);
+  assert.equal(allDown.cause, Cause.INCONCLUSIVE);
   assert.equal(allDown.everythingFailed, true);
+  assert.equal(allDown.blocksPurchase, false);
 
   // No offering check ran: never treated as empty.
   const unknown = diagnose({ requested: ['a'], returned: ['a'], offeringPackages: null });

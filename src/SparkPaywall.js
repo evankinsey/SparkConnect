@@ -26,6 +26,7 @@ import {
   buildPaywall, PACKS, Placement, Variant, ProductId,
   formatPrice, perAnswerCents, bestValuePack, matchesProduct,
 } from './core/paywall/config';
+import { Cause } from './core/paywall/storeDiagnosis';
 
 /**
  * Can this plan actually be bought right now?
@@ -38,6 +39,15 @@ import {
 const buyable = (store, productId) => {
   if (!store) return true;
   if (store.healthy) return true;
+  // Only a diagnosis with positive evidence gets to disable a button. An empty
+  // store result with no error code is INCONCLUSIVE, and greying out a product
+  // on it is how build 29 rendered three answer packs unavailable while the
+  // App Store build sold those same identifiers to the same account.
+  if (!store.blocksPurchase) return true;
+  // Blanket failures: nothing on the sheet can be bought.
+  if (store.cause === Cause.SDK_ABSENT
+    || store.cause === Cause.BAD_API_KEY
+    || store.cause === Cause.PURCHASE_NOT_ALLOWED) return false;
   // Subscriptions are sold from the Offering and one-time products from
   // getProducts. Asking the wrong source is how a plan that sells perfectly
   // well gets rendered as unavailable — which is worse than the bug it was
@@ -168,6 +178,26 @@ export default function SparkPaywall({
   );
 }
 
+/**
+ * Say WHY, when there is something honest to say.
+ *
+ * The diagnosis has always been computed and never rendered, so a tester
+ * screenshotting a greyed-out paywall was sending back the one fact everybody
+ * already had — "it says unavailable" — and none of the facts that separate a
+ * wrong identifier from a store that has not answered. `userMessage` is null
+ * for HEALTHY and for INCONCLUSIVE, so this stays silent unless the diagnosis
+ * has actually concluded something.
+ */
+function StoreNotice({ store }) {
+  if (!store || store.healthy || !store.userMessage) return null;
+  return (
+    <View style={s.notice}>
+      <Ionicons name="information-circle-outline" size={15} color={C.sec} />
+      <Text style={s.noticeT}>{store.userMessage}</Text>
+    </View>
+  );
+}
+
 // ─── Pro ─────────────────────────────────────────────────────────────────────
 
 function ProView({ model, reason, busy, store, onSelect, onPurchase, onBuyLifetime, onViewComparison, onClose }) {
@@ -180,6 +210,7 @@ function ProView({ model, reason, busy, store, onSelect, onPurchase, onBuyLifeti
       <Text style={s.eyebrow}>{reason || copy.eyebrow}</Text>
       <Text style={s.title}>{copy.headline}</Text>
       <Text style={s.sub}>{copy.sub}</Text>
+      <StoreNotice store={store} />
 
       {/* Price first. The old paywall made people read a feature table before
           seeing a number, which is the fastest way to lose someone who was
@@ -296,6 +327,7 @@ function PacksView({ sel, onSel, busy, store, onBuy, onClose }) {
       <Text style={s.eyebrow}>SparkAI</Text>
       <Text style={s.title}>Top up your answers</Text>
       <Text style={s.sub}>One-time purchase. They never expire and no subscription is needed.</Text>
+      <StoreNotice store={store} />
 
       {PACKS.map((p) => {
         const selected = sel === p.id;
@@ -356,6 +388,12 @@ const s = StyleSheet.create({
   plan: { flex: 1, backgroundColor: C.card, borderRadius: 16, padding: 15, borderWidth: 2, borderColor: C.border, minHeight: 108 },
   planSel: { borderColor: C.borderSel, backgroundColor: C.cardSel },
   planOff: { opacity: 0.42 },
+  notice: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: C.border,
+    borderRadius: 10, padding: 11, marginTop: -10, marginBottom: 18,
+  },
+  noticeT: { flex: 1, color: C.sec, fontSize: 12, lineHeight: 17 },
 
   outage: { flexDirection: 'row', gap: 11, alignItems: 'flex-start', backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 14, marginTop: 8, marginBottom: 4 },
   outageT: { color: C.text, fontSize: 14, fontWeight: '700', marginBottom: 3 },
