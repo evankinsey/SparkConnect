@@ -131,6 +131,10 @@ const SITE_PROP_ART = {
   [PropKind.SPOOL]: WireReel,
   [PropKind.SAWHORSE]: PrintTable,
   [PropKind.DEBRIS]: DrywallStack,
+  [PropKind.DRYWALL]: DrywallStack,
+  [PropKind.PRINT_TABLE]: PrintTable,
+  [PropKind.CART]: MaterialCart,
+  [PropKind.HVAC]: ConduitBundle,
 };
 
 /**

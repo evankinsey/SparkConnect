@@ -37,6 +37,10 @@ export const PropKind = Object.freeze({
   SPOOL: 'SPOOL',
   SAWHORSE: 'SAWHORSE',
   DEBRIS: 'DEBRIS',
+  DRYWALL: 'DRYWALL',
+  PRINT_TABLE: 'PRINT_TABLE',
+  CART: 'CART',
+  HVAC: 'HVAC',
 });
 
 /**
@@ -158,6 +162,55 @@ export const PROPS = Object.freeze([
     id: 'p-hall-temp', room: 'hall', kind: PropKind.TEMP_POWER, x: 18, y: 9, w: 1, h: 1, solid: false,
     label: 'Temporary light',
     look: 'A string light hooked over a stud, running back to the pole outside.',
+  },
+
+  // ── Per-room detail. The point is visual DISCOVERY: you should be able to
+  // tell which room you are in from the floor, not from a label. Every room
+  // below carries a kind no other room has, and the set matches the sentence
+  // in ROOM_STORY — when the two disagree the sentence is the design intent
+  // and the props are what is wrong.
+  {
+    id: 'p-kitchen-cart', kind: PropKind.CART, x: 6, y: 4, w: 1, h: 1, solid: false, room: 'kitchen',
+    label: 'Material cart',
+    look: 'Half unloaded. Fixture cartons stacked on the lower shelf.',
+  },
+  {
+    // NOT solid. A solid table here narrowed the living room enough that the
+    // station inside it stopped being reachable — the room is 6x4 and a blocked
+    // tile in the wrong column closes the route. Caught by the existing
+    // reachability test, not on a device.
+    id: 'p-living-print', kind: PropKind.PRINT_TABLE, x: 11, y: 3, w: 1, h: 1, solid: false, room: 'living',
+    label: 'Print table',
+    look: 'Prints weighted down at the corners. Somebody has been marking them up.',
+  },
+  {
+    id: 'p-living-saw2', kind: PropKind.SAWHORSE, x: 14, y: 4, w: 1, h: 1, solid: false, room: 'living',
+    label: 'Sawhorse',
+    look: 'Second horse, pulled over to hold the other end of a board.',
+  },
+  {
+    id: 'p-bedroom-spool2', kind: PropKind.SPOOL, x: 19, y: 3, w: 1, h: 1, solid: false, room: 'bedroom',
+    label: 'Wire reel',
+    look: 'Second reel, mostly run off. The rack is still standing over it.',
+  },
+  {
+    id: 'p-garage-conduit', kind: PropKind.CONDUIT, x: 6, y: 9, w: 1, h: 1, solid: false, room: 'garage',
+    label: 'Staged conduit',
+    look: 'Sticks leaned against the wall, cut ends squared and reamed.',
+  },
+  {
+    id: 'p-bath-hvac', kind: PropKind.HVAC, x: 12, y: 9, w: 1, h: 1, solid: false, room: 'bath',
+    label: 'Duct offcut',
+    look: 'Flex duct and a length of copper left where the trades crossed over.',
+  },
+  {
+    // NOT solid. Sheets on edge against the studs sit flush to the wall, and a
+    // solid one here landed on a protected tile and sealed the station off —
+    // caught by the reachability test rather than by a save file that walked
+    // there.
+    id: 'p-hall-drywall', kind: PropKind.DRYWALL, x: 20, y: 9, w: 1, h: 1, solid: false, room: 'hall',
+    label: 'Drywall stack',
+    look: 'Sheets on edge against the studs, waiting on the last box inspection.',
   },
 ]);
 
