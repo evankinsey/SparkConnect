@@ -27,6 +27,7 @@ import {
   formatPrice, perAnswerCents, bestValuePack, matchesProduct,
 } from './core/paywall/config';
 import { Cause } from './core/paywall/storeDiagnosis';
+import { PILLARS, FREE_FOREVER } from './core/paywall/contexts';
 
 /**
  * Can this plan actually be bought right now?
@@ -77,6 +78,8 @@ export default function SparkPaywall({
   variant = Variant.A_CURRENT,
   isPacks = false,
   reason,              // legacy prop, still honoured as the eyebrow
+  source = null,       // where the paywall was opened from — see core/paywall/contexts
+  hero = null,         // contextual headline for that source
   store = null,        // preflight diagnosis — see src/core/paywall/storeDiagnosis
 }) {
   const [selectedId, setSelectedId] = useState(ProductId.PRO_ANNUAL);
@@ -145,6 +148,9 @@ export default function SparkPaywall({
             ) : (
               <ProView
                 model={model}
+                hero={hero}
+                pillars={PILLARS}
+                freeForever={FREE_FOREVER}
                 reason={reason}
                 busy={busy}
                 store={store}
@@ -200,17 +206,34 @@ function StoreNotice({ store }) {
 
 // ─── Pro ─────────────────────────────────────────────────────────────────────
 
-function ProView({ model, reason, busy, store, onSelect, onPurchase, onBuyLifetime, onViewComparison, onClose }) {
+function ProView({ model, hero, pillars, freeForever, reason, busy, store, onSelect, onPurchase, onBuyLifetime, onViewComparison, onClose }) {
   const { copy, plans, benefits, lifetime, cta } = model;
   const canBuySelected = buyable(store, model.selectedProductId);
   const canBuyLifetime = buyable(store, ProductId.LIFETIME_TOOLS);
 
   return (
     <>
-      <Text style={s.eyebrow}>{reason || copy.eyebrow}</Text>
-      <Text style={s.title}>{copy.headline}</Text>
-      <Text style={s.sub}>{copy.sub}</Text>
+      <Text style={s.eyebrow}>{hero?.eyebrow || reason || copy.eyebrow}</Text>
+      <Text style={s.title}>{hero?.headline || copy.headline}</Text>
+      <Text style={s.sub}>{hero?.sub || copy.sub}</Text>
       <StoreNotice store={store} />
+
+      {/* Four pillars, and SparkAI is one of them.
+          Pro used to be sold as "100 AI answers plus a couple of calculators",
+          which tells somebody they are buying a chatbot and undersells three
+          quarters of the app. */}
+      <View style={{ marginBottom: 18 }}>
+        {(pillars ?? []).map((p) => (
+          <View key={p.id} style={s.pillar}>
+            <View style={s.pillarIcon}><Ionicons name={p.icon} size={16} color={C.orange} /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.pillarTitle}>{p.title}</Text>
+              <Text style={s.pillarLead}>{p.lead}</Text>
+              <Text style={s.pillarSub}>{p.sub}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
 
       {/* Price first. The old paywall made people read a feature table before
           seeing a number, which is the fastest way to lose someone who was
@@ -313,6 +336,21 @@ function ProView({ model, reason, busy, store, onSelect, onPurchase, onBuyLifeti
       <TouchableOpacity style={s.free} onPress={onClose} activeOpacity={0.8} accessibilityRole="button">
         <Text style={s.freeT}>Continue with Free</Text>
       </TouchableOpacity>
+
+      {/* Saying which tools stay free forever is both true and the strongest
+          argument that the locked things are worth paying for rather than
+          artificially withheld. */}
+      {(freeForever ?? []).length > 0 && (
+        <View style={s.freeBox}>
+          <Text style={s.freeBoxT}>Free forever, with or without Pro</Text>
+          {freeForever.map((f) => (
+            <View key={f} style={{ flexDirection: 'row', gap: 7, marginTop: 5 }}>
+              <Ionicons name="checkmark" size={13} color={C.green} />
+              <Text style={s.freeBoxItem}>{f}</Text>
+            </View>
+          ))}
+        </View>
+      )}
     </>
   );
 }
@@ -388,6 +426,14 @@ const s = StyleSheet.create({
   plan: { flex: 1, backgroundColor: C.card, borderRadius: 16, padding: 15, borderWidth: 2, borderColor: C.border, minHeight: 108 },
   planSel: { borderColor: C.borderSel, backgroundColor: C.cardSel },
   planOff: { opacity: 0.42 },
+  pillar: { flexDirection: 'row', gap: 11, alignItems: 'flex-start', marginBottom: 13 },
+  pillarIcon: { width: 30, height: 30, borderRadius: 9, backgroundColor: C.orangeSoft, alignItems: 'center', justifyContent: 'center' },
+  pillarTitle: { color: C.orange, fontSize: 9.5, fontWeight: '900', letterSpacing: 0.8 },
+  pillarLead: { color: C.text, fontSize: 13, fontWeight: '700', marginTop: 2 },
+  pillarSub: { color: C.sec, fontSize: 11, marginTop: 1.5, lineHeight: 15 },
+  freeBox: { backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: 13, marginTop: 6, borderWidth: 1, borderColor: C.border },
+  freeBoxT: { color: C.sec, fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
+  freeBoxItem: { color: C.sec, fontSize: 11.5, flex: 1, lineHeight: 16 },
   notice: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
     backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: C.border,

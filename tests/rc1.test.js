@@ -362,15 +362,26 @@ test('the free SparkAI allowance comes from one table', async () => {
   assert.equal(ASK_ALLOWANCE.free.perDay, 5);
 });
 
-test('the Pro monthly backstop can never bind before the daily number', async () => {
+test('the monthly backstop is never advertised, so it cannot contradict anything', async () => {
   const { ASK_ALLOWANCE } = await import('../src/core/paywall/entitlements.js');
-  // 20/day with a 400/month cap means "20 a day" runs out on day 20 — the
-  // advertised number quietly stops being true two thirds of the way through
-  // the month. The backstop must clear a full month at the daily rate.
-  assert.ok(
-    ASK_ALLOWANCE.pro.monthlyBackstop >= ASK_ALLOWANCE.pro.perDay * 31,
-    'the monthly cap contradicts the daily allowance the paywall sells',
-  );
+  const { PILLARS, HEROES, FREE_FOREVER } = await import('../src/core/paywall/contexts.js');
+
+  // This rule was the reverse until 9 Aug 2026, and the reversal is deliberate.
+  //
+  // The old shape was 20/day with a 400/month cap, and it was broken because the
+  // PAYWALL SOLD the daily number while the monthly one quietly cancelled it two
+  // thirds through the month. The fix was assumed to be "make the ceiling clear a
+  // full month". It is not — that just makes the ceiling useless as an abuse
+  // guard, which is the only reason it exists.
+  //
+  // The real rule is that a fair-use ceiling must never be a number anybody was
+  // sold. 250 sits below 10 x 31 on purpose, and that is safe precisely because
+  // no surface quotes it. So this asserts the thing that actually matters.
+  const sold = JSON.stringify([PILLARS, HEROES, FREE_FOREVER]);
+  assert.doesNotMatch(sold, new RegExp(String(ASK_ALLOWANCE.pro.monthlyBackstop)),
+    'the fair-use ceiling is being advertised, which is what made the old shape a lie');
+  assert.ok(ASK_ALLOWANCE.pro.monthlyBackstop > ASK_ALLOWANCE.pro.perDay * 20,
+    'the ceiling is low enough that a normal subscriber would hit it');
 });
 
 test('disagreements with the paywall are recorded, not silently resolved', async () => {
@@ -381,8 +392,13 @@ test('disagreements with the paywall are recorded, not silently resolved', async
     assert.ok(d.id && d.paywallSays && d.thisCodeDoes && d.why, `${d.id} incomplete`);
     assert.ok(['HIGH', 'MEDIUM', 'LOW'].includes(d.severity));
   }
-  // These are pricing calls, so they stay open until a person makes them.
-  assert.equal(openPricingDecisions().length, PRICING_DISCREPANCIES.length);
+  // They stayed open until a person made them, which happened on 9 Aug 2026.
+  // The record is kept rather than deleted — a resolved discrepancy is the
+  // history of why a number is what it is.
+  for (const d of PRICING_DISCREPANCIES) {
+    assert.match(d.decision, /^(OPEN|RESOLVED)/, `${d.id} has no decision either way`);
+  }
+  assert.equal(openPricingDecisions().length, 0, 'a pricing call was reopened without a decision');
   assert.ok(PRICING_DISCREPANCIES.some((d) => d.id === 'lifetime-gets-unlimited-ai'),
     'a one-time purchase including the subscription headline feature must be on the record');
 });

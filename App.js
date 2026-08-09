@@ -26,7 +26,8 @@ import {
   answerActions, AnswerAction, SIMPLIFY_PROMPT, sourceBadge, historyGroups,
 } from './src/core/ai/modes';
 import { buildPriceQuestion, priceAskBlocker, PRICE_DISCLAIMER } from './src/core/ai/estimatorAsk';
-import { FREE_LIMITS, Feature, proAskAllowanceLabel } from './src/core/paywall/entitlements';
+import { FREE_LIMITS, Feature, proAskAllowanceLabel, usageLabel } from './src/core/paywall/entitlements';
+import { Source as PaywallSource, heroFor, paywallEvent } from './src/core/paywall/contexts';
 import { CAST_IMAGES } from './src/screens/castImages';
 import { buildPulse, dayIndexFor } from './src/core/home/pulse';
 import { getDailyQuestion } from './src/core/content/dailyQuestions';
@@ -4265,10 +4266,10 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
       </Card>
 
       {/* 2 — AI Query Packs */}
-      <SectionTitle title=" Query Packs" />
+      <SectionTitle title="SparkAI Answer Packs" />
       <Card C={C} style={{ marginBottom: 20, padding: 0, overflow: 'hidden' }}>
         <View style={{ padding: 12, backgroundColor: C.amberBg, borderBottomWidth: 1, borderBottomColor: C.border }}>
-          <Text style={{ fontSize: 12, fontWeight: '600', color: C.amber }}>Need more answers? Add a SparkAI pack anytime.</Text>
+          <Text style={{ fontSize: 12, fontWeight: '600', color: C.amber }}>Need more answers? Add a SparkAI Answer Pack anytime.</Text>
         </View>
         {[{ label: '15 SparkAI Answers', price: '$1.99' },{ label: '50 SparkAI Answers', price: '$4.99' },{ label: '150 SparkAI Answers', price: '$9.99' }].map((pack, i, arr) => (
           <TouchableOpacity key={pack.label} onPress={onBuyPacks} activeOpacity={0.7}
@@ -4989,7 +4990,7 @@ export default function App() {
 
         // ENTITLEMENT. The offer screen records intent; the purchase itself
         // still goes through the one paywall, so there is exactly one buy path.
-        if (result?.startedTrial) setPaywall('pro');
+        if (result?.startedTrial) setPaywall(PaywallSource.SETTINGS);
       }} />
     );
   }
@@ -5036,7 +5037,7 @@ export default function App() {
       case 'conduitfill': return <ConduitFillScreen C={C} setTab={navigateTo} />;
       case 'ampacity':    return <AmpacityScreen C={C} />;
       case 'estimator':   return <EstimatorScreen C={C} setTab={navigateTo} isPro={isPro} />;
-      case 'necai':       return <NecAiScreen C={C} setTab={navigateTo} initialSearch={necaiInitSearch} clearInitSearch={() => setNecaiInitSearch('')} onUpgrade={() => setPaywall('pro')} onBuyPacks={() => setPaywall('packs')} isPro={isPro} />;
+      case 'necai':       return <NecAiScreen C={C} setTab={navigateTo} initialSearch={necaiInitSearch} clearInitSearch={() => setNecaiInitSearch('')} onUpgrade={() => setPaywall(PaywallSource.SETTINGS)} onBuyPacks={() => setPaywall('packs')} isPro={isPro} />;
       case 'examprep':    return <ExamPrepScreen C={C} onStreakUpdate={updateStreak} isPro={isPro} />;
       case 'tools':       return <ToolsScreen C={C} setTab={navigateTo} />;
       // Learn is still reachable — it is the study-path index now, one of
@@ -5056,14 +5057,14 @@ export default function App() {
           C={C}
           setTab={navigateTo}
           isPro={isPro}
-          onUpgrade={() => setPaywall('pro')}
+          onUpgrade={() => setPaywall(PaywallSource.SETTINGS)}
           pickImage={pickPlanImage}
           askBackend={askNecBackend}
         />
       );
       case 'customizehome': return <HomeCustomizeScreen C={C} layout={homeLayout} onSave={saveHomeLayout} role={role} onDone={() => { setHomeKey(k => k + 1); navigateTo('home'); }} />;
       case 'hours':       return <HoursScreen C={C} role={role} setTab={navigateTo} />;
-      case 'settings':    return <SettingsScreen C={C} themePreference={themePreference} setThemePreference={chooseTheme} showDailyQ={showDailyQ} onDailyQToggle={handleDailyQToggle} appLanguage={appLanguage} setAppLanguage={setAppLanguage} isPro={isPro} onUpgrade={() => setPaywall('pro')} onBuyPacks={() => setPaywall('packs')} onRestore={handleRestorePurchases} />;
+      case 'settings':    return <SettingsScreen C={C} themePreference={themePreference} setThemePreference={chooseTheme} showDailyQ={showDailyQ} onDailyQToggle={handleDailyQToggle} appLanguage={appLanguage} setAppLanguage={setAppLanguage} isPro={isPro} onUpgrade={() => setPaywall(PaywallSource.SETTINGS)} onBuyPacks={() => setPaywall('packs')} onRestore={handleRestorePurchases} />;
       // Job Cam is a feature inside a project now. Anything still pointing
       // here — a deep link, saved nav state, an old shortcut — lands on
       // Projects, which is where its photos were migrated to.
@@ -5129,9 +5130,15 @@ export default function App() {
       )}
 
       {/* ── Paywall — the ONE purchase surface, wired to real RevenueCat ── */}
+      {/* One paywall, one price, one entitlement — and the hero copy names the
+          feature that just demonstrated the value. Somebody who ran out of
+          SparkAI answers and somebody who hit a locked Job Site station are not
+          convinced by the same sentence. Only the argument changes. */}
       <SparkPaywall
         visible={paywall !== null}
         isPacks={paywall === 'packs'}
+        source={paywall}
+        hero={paywall && paywall !== 'packs' ? heroFor(paywall) : null}
         store={store}
         onClose={() => setPaywall(null)}
         onPurchase={handlePurchase}

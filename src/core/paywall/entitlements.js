@@ -41,37 +41,51 @@ export const Grant = {
 /**
  * THE SPARKAI ALLOWANCE. One table. Every screen that states a number reads it.
  *
- * Four different numbers were being shown for the same thing: free was
- * enforced at 3 and advertised as 5, Pro was sold as 20/day on one screen,
- * 100/month on another and unlimited on the trial screen. Nobody had lied on
- * purpose — the number was typed in five places and drifted.
+ * Settled 9 Aug 2026 after an audit found four different numbers for one thing:
+ * free enforced at 3 and advertised as 5, Pro sold as 20/day, 100/month and
+ * "unlimited" on three different screens.
  *
- * The numbers, and why:
+ * FREE — 5 a day. The app had been promising five since launch, so the
+ * allowance was raised to match the promise rather than the promise corrected
+ * down and two answers taken off everybody.
  *
- * FREE — 5 a day, raised from 3. The app has been TELLING people they get five
- * since launch. Raising the allowance to match the promise is better than
- * correcting the promise down to 3: nobody experiences a downgrade, and the
- * sentence the app has been showing all along becomes true. Three questions is
- * also thin enough to burn on one panel before the app has proved anything.
+ * PRO — 10 a day. Deliberately between the two candidates that were on the
+ * table. 100/month averages about three a day, which is thin for a product
+ * marketed around SparkAI; 25/day made the answer packs pointless to a
+ * subscriber and left no headroom if photo analysis or Blueprint Takeoff get
+ * popular and cost several times a text question.
  *
- * PRO — 25 a day. The monthly cap is set ABOVE daily × 31 on purpose, so it can
- * never bind before the daily one does. The old shape was 20/day with a
- * 400/month cap, which quietly contradicts itself: a subscriber using their
- * advertised 20 a day runs out of month on day 20, and "20 a day" turns out to
- * mean "20 a day for two thirds of the month". A ceiling that contradicts the
- * number on the paywall is the same bug as advertising unlimited, just slower
- * to discover. The monthly figure here is an anti-abuse backstop and nothing
- * else — it is not a selling point and no screen quotes it.
+ * THE MONTHLY BACKSTOP IS DELIBERATELY BELOW daily x 31. 250 against a
+ * theoretical 310 is not an oversight — it is an abuse ceiling, not a second
+ * allowance, and a normal subscriber will never reach it. This is the opposite
+ * of the old 20/day + 400/month shape, which advertised a daily number the
+ * monthly one quietly cancelled two thirds of the way through the month: there,
+ * the ceiling contradicted the number ON THE PAYWALL. Here the paywall says
+ * "10 answers every day" and the backstop is never quoted as a benefit, so
+ * nothing advertised stops being true.
+ *
+ * LIFETIME — the free allowance. Lifetime Tools is $29.99 once, and a one-time
+ * payment cannot sensibly fund an indefinitely recurring model expense. It buys
+ * the tools it was sold with; it is not a cheap Pro. Any historical buyer who
+ * was explicitly promised more is grandfathered rather than having the deal
+ * changed under them — see PRICING_DISCREPANCIES.
  *
  * ⚠️  THE SERVER ENFORCES THIS, NOT THIS FILE. /api/ask-nec returns the 429.
- * Changing these numbers changes what the app SAYS, and the backend has to be
- * changed to match or the app promises 25 and the store cuts you off at 20 —
- * the same class of bug pointed the other way. See PRICING_DISCREPANCIES.
+ * These numbers change what the app SAYS. Shipping a client that advertises a
+ * limit the backend does not honour is the same bug in both directions.
  */
+/**
+ * Free active projects. One, and it is read by every screen that mentions it.
+ *
+ * Three surfaces used to state this differently — the paywall, the projects
+ * screen and this table — which is how somebody hits a limit the app never
+ * warned them about.
+ */
+export const FREE_PROJECT_LIMIT = 1;
+
 export const ASK_ALLOWANCE = Object.freeze({
   free: Object.freeze({ perDay: 5 }),
-  pro: Object.freeze({ perDay: 25, monthlyBackstop: 800 }),
-  // Lifetime buys the tools, not the AI tier. It gets the free allowance.
+  pro: Object.freeze({ perDay: 10, monthlyBackstop: 250 }),
   lifetime: Object.freeze({ perDay: 5 }),
 });
 
@@ -83,13 +97,38 @@ export const PRO_LIMITS = Object.freeze({
   },
 });
 
-/** "25 SparkAI answers a day" — written once, read wherever Pro is sold. */
+/** "10 SparkAI answers a day" — read wherever Pro is sold. */
 export const proAskAllowanceLabel = () =>
   `${ASK_ALLOWANCE.pro.perDay} SparkAI answers a day`;
 
-/** "5 a day" — the free allowance, wherever it is quoted. */
+/** "5 SparkAI answers a day" — the free allowance, wherever it is quoted. */
 export const freeAskAllowanceLabel = () =>
   `${ASK_ALLOWANCE.free.perDay} SparkAI answers a day`;
+
+/**
+ * What the usage indicator says.
+ *
+ * Leads with the day, because "8 of 10 remaining today" is intuitive and
+ * generous-feeling. The monthly figure appears only when it is close enough to
+ * matter — quoting a ceiling nobody will reach turns a fair-use guard into a
+ * thing people ration against.
+ */
+export const MONTHLY_WARN_AT = 0.8;
+
+export const usageLabel = ({ usedToday = 0, usedThisMonth = 0, isPro = false, purchased = 0 } = {}) => {
+  const day = isPro ? ASK_ALLOWANCE.pro.perDay : ASK_ALLOWANCE.free.perDay;
+  const left = Math.max(0, day - (Number(usedToday) || 0));
+  const month = isPro ? ASK_ALLOWANCE.pro.monthlyBackstop : 0;
+  const monthUsed = Number(usedThisMonth) || 0;
+  const nearMonthly = month > 0 && monthUsed >= month * MONTHLY_WARN_AT;
+  return Object.freeze({
+    daily: `${left} of ${day} answers remaining today`,
+    // Only when it is actually relevant.
+    monthly: nearMonthly ? `${monthUsed} of ${month} included answers used this month` : null,
+    purchased: purchased > 0 ? `+ ${purchased} purchased answers` : null,
+    exhausted: left <= 0,
+  });
+};
 
 /**
  * Free allowances. `null` means unlimited; `0` means Pro-only.
@@ -103,17 +142,20 @@ export const FREE_LIMITS = Object.freeze({
   // copy moving down.
   [Feature.SPARK_AI]: { limit: ASK_ALLOWANCE.free.perDay, period: 'day' },
   [Feature.VOICE_ASK]: { limit: 0, period: 'day' },        // Pro only
-  // The live build meters calculators at 5/day; the live paywall lists "Box &
-  // Conduit Fill" and "Advanced calculators" as Pro-only. Those two disagree
-  // with each other, and this file made a third choice. Left unlimited on
-  // purpose pending a decision — see PRICING_DISCREPANCIES below — because
-  // whichever way it resolves is a pricing call, not a code cleanup.
+  // RESOLVED 9 Aug 2026: the everyday calculators stay free, permanently, and
+  // the paywall stops selling them. They are the distribution engine — somebody
+  // downloads the app for a pipe-bending reel, finds the bender genuinely
+  // useful, keeps it on their phone and converts months later. "Download, tap
+  // bender, pay us" converts nobody and gets deleted.
   [Feature.CALCULATOR]: { limit: null, period: 'day' },
   [Feature.TROUBLESHOOT]: { limit: 3, period: 'day' },
   [Feature.WIRING_LESSON]: { limit: 2, period: 'total' },  // first two lessons free
   [Feature.JOBSITE]: { limit: 3, period: 'total' },        // three stations, then Pro
   [Feature.BLUEPRINT]: { limit: 1, period: 'total' },      // one takeoff to prove it works
-  [Feature.JOB_CAM]: { limit: 25, period: 'total' },
+  // ONE number for the free project limit, after three screens disagreed about
+  // it. Free gets one ACTIVE project — enough to document a real job end to end
+  // and understand what the tab is for.
+  [Feature.JOB_CAM]: { limit: FREE_PROJECT_LIMIT, period: 'total' },
   [Feature.PERMIT]: { limit: null, period: 'day' },        // never gate safety guidance
 });
 
@@ -238,6 +280,29 @@ export const freeTierSummary = () =>
 // one-time purchase that quietly includes the subscription's headline feature
 // is a hole in the revenue model.
 
+/**
+ * What Lifetime Tools actually buys.
+ *
+ * RESOLVED: the tools it was sold with, for good — and the FREE AI allowance.
+ * $29.99 once cannot fund an indefinitely recurring model expense, and a
+ * lifetime product that quietly becomes Pro is a subscription somebody bought
+ * by accident.
+ *
+ * `historicalPromise` is the escape hatch and it matters: if inspection of the
+ * shipped App Store listing turns up an explicit promise of more, those buyers
+ * are grandfathered rather than having the deal changed under them. Nobody has
+ * been able to check the historical listing yet, so this stays false and the
+ * check is recorded as outstanding.
+ */
+export const LIFETIME_ENTITLEMENT = Object.freeze({
+  aiPerDay: ASK_ALLOWANCE.lifetime.perDay,
+  unlimitedAi: false,
+  becomesPro: false,
+  historicalPromiseVerified: false,
+  note: 'Lifetime Tools is the calculators and field tools, kept for good. SparkAI '
+    + 'stays at the free allowance.',
+});
+
 export const PRICING_DISCREPANCIES = Object.freeze([
   {
     id: 'pro-ai-allowance-unresolved',
@@ -256,9 +321,23 @@ export const PRICING_DISCREPANCIES = Object.freeze([
       + 'the cap. The unlimited claim is fixed because it is false under every reading. The '
       + 'remaining number is copied from the shipping paywall, which is the best evidence '
       + 'available from inside the app, NOT a verified fact.',
-    decision: 'OPEN — read the real limit off the /api/ask-nec handler and make PRO_LIMITS '
-      + 'match it. Until then no screen should state a Pro monthly number, because nothing '
-      + 'here can confirm one.',
+    id: 'pro-ai-allowance-unresolved',
+    feature: Feature.SPARK_AI,
+    paywallSays: 'live App Store build: "20 Sparky AI answers/day (400/month fair-use cap)"; '
+      + 'this branch previously told Pro users "100 answers/month" in the rate-limit message, '
+      + 'and the onboarding trial screen promised no daily ceiling at all',
+    liveBuildEnforces: 'the SERVER meters it — /api/ask-nec returns 429 and the client only '
+      + 'learns the number from `remainingQuestions`. The real ceiling is not in this repo.',
+    thisCodeDoes: 'PRO_LIMITS says 20/day + 400/month, matching the live paywall, and '
+      + 'checkAccess() still returns unmetered for Pro because the client does not do the '
+      + 'counting',
+    severity: 'HIGH',
+    why: 'Three numbers were being shown to the same paying user — 20/day, 100/month and '
+      + 'unlimited — and none of them is checked against the backend that actually enforces '
+      + 'the cap. The unlimited claim is fixed because it is false under every reading. The '
+      + 'remaining number is copied from the shipping paywall, which is the best evidence '
+      + 'available from inside the app, NOT a verified fact.',
+    decision: 'RESOLVED 9 Aug 2026 — Pro is 10/day with a 250/month abuse backstop. OUTSTANDING AND BLOCKING: /api/ask-nec must enforce 5/day free and 10/day + 250/month Pro before this build ships, or the app advertises a limit the server does not honour.',
   },
   {
     id: 'calculators-advertised-as-pro',
@@ -270,8 +349,16 @@ export const PRICING_DISCREPANCIES = Object.freeze([
     why: 'The paywall sells a feature the app gives away. Someone upgrading for conduit '
       + 'fill will find it was never locked, and that is the kind of thing an electrician '
       + 'tells the rest of the crew about.',
-    decision: 'OPEN — either lock calculators to match the paywall, or redraw the paywall '
-      + 'to stop selling them. Not a code cleanup either way.',
+    id: 'calculators-advertised-as-pro',
+    feature: Feature.CALCULATOR,
+    paywallSays: 'Box & Conduit Fill and Advanced calculators: free tier shows "—"',
+    liveBuildEnforces: '5 calculator uses per day on free',
+    thisCodeDoes: 'unlimited on free',
+    severity: 'HIGH',
+    why: 'The paywall sells a feature the app gives away. Someone upgrading for conduit '
+      + 'fill will find it was never locked, and that is the kind of thing an electrician '
+      + 'tells the rest of the crew about.',
+    decision: 'RESOLVED 9 Aug 2026 — the calculators stay free permanently and the paywall no longer sells them. They are the distribution engine, not a lever.',
   },
   {
     id: 'lifetime-gets-unlimited-ai',
@@ -282,8 +369,15 @@ export const PRICING_DISCREPANCIES = Object.freeze([
     severity: 'HIGH',
     why: 'A $29.99 one-time purchase would include the headline feature of a $7.99/month '
       + 'subscription. That is the whole reason to subscribe, given away once.',
-    decision: 'OPEN — Lifetime needs its own metered allowance (5/day per the paywall) '
-      + 'rather than inheriting the unmetered path.',
+    id: 'lifetime-gets-unlimited-ai',
+    feature: Feature.SPARK_AI,
+    paywallSays: 'Lifetime Tools: 5 SparkAI answers per day',
+    liveBuildEnforces: 'not distinguished — the live build has no Lifetime tier in useGating',
+    thisCodeDoes: 'Lifetime is unmetered on everything its tier includes, so unlimited SparkAI',
+    severity: 'HIGH',
+    why: 'A $29.99 one-time purchase would include the headline feature of a $7.99/month '
+      + 'subscription. That is the whole reason to subscribe, given away once.',
+    decision: 'RESOLVED 9 Aug 2026 — Lifetime gets the FREE allowance, not unlimited and not Pro. See LIFETIME_ENTITLEMENT. OUTSTANDING: nobody has read the historical App Store listing; if it promised more, those buyers are grandfathered.',
   },
   {
     id: 'jobcam-project-count',
@@ -294,7 +388,15 @@ export const PRICING_DISCREPANCIES = Object.freeze([
     severity: 'MEDIUM',
     why: 'The paywall counts PROJECTS, this counts PHOTOS. Whichever is right, the two '
       + 'numbers are not comparable and one of them is describing something the app does not do.',
-    decision: 'OPEN — pick a unit, then make the paywall and the gate use the same one.',
+    id: 'jobcam-project-count',
+    feature: Feature.JOB_CAM,
+    paywallSays: 'Job Cam projects: free 1, Lifetime 25, Pro unlimited',
+    liveBuildEnforces: 'not metered',
+    thisCodeDoes: '25 photos total on free — a different unit entirely',
+    severity: 'MEDIUM',
+    why: 'The paywall counts PROJECTS, this counts PHOTOS. Whichever is right, the two '
+      + 'numbers are not comparable and one of them is describing something the app does not do.',
+    decision: 'RESOLVED 9 Aug 2026 — FREE_PROJECT_LIMIT is the one number and every screen reads it.',
   },
 ]);
 
