@@ -322,3 +322,50 @@ test('the client never overrules the server', async () => {
   assert.doesNotMatch(src, /grant|unlock|override|setLimit/i);
   assert.match(src, /only NOTICES|cannot overrule/i);
 });
+
+// ─── The website is a pricing surface too ────────────────────────────────────
+// The app's allowances changed and sparkconnect.pro kept advertising the old
+// ones, including "SparkAI without the daily ceiling" for a tier that has a
+// ceiling of ten. Nobody catches that by reading, because the page is 1,100
+// lines and the number lives in a bullet. So it is a test.
+
+test('the marketing site cannot contradict the shipped allowances', () => {
+  const html = fs.readFileSync(new URL('../website/index.html', import.meta.url), 'utf8');
+
+  // Anything that reads as "no limit on SparkAI" is false on every tier.
+  // Unlimited CALCULATORS is true and must stay sayable, so the check is
+  // scoped to sentences that mention SparkAI.
+  const bullets = [...html.matchAll(/<li>.*?<\/li>/gs)].map((m) => m[0]);
+  for (const b of bullets) {
+    if (!/sparkai/i.test(b)) continue;
+    assert.doesNotMatch(b, /unlimited|without the (daily )?ceiling|no (daily )?(limit|cap|ceiling)|as (many|much) as you want/i,
+      `the site promises uncapped SparkAI: ${b.replace(/<[^>]+>/g, '').trim()}`);
+  }
+
+  // Every per-day number the site states about SparkAI has to be one the app
+  // actually enforces.
+  const claimed = [...html.matchAll(/(\d+)\s+SparkAI answers a day/g)].map((m) => Number(m[1]));
+  assert.ok(claimed.length >= 2, 'the plan cards stopped stating an allowance at all');
+  const real = new Set([ASK_ALLOWANCE.free.perDay, ASK_ALLOWANCE.pro.perDay, ASK_ALLOWANCE.lifetime.perDay]);
+  for (const n of claimed) {
+    assert.ok(real.has(n), `the site advertises ${n} answers a day and nothing enforces that`);
+  }
+
+  const monthly = [...html.matchAll(/(\d+)\s+a month/g)].map((m) => Number(m[1]));
+  for (const n of monthly) {
+    assert.equal(n, ASK_ALLOWANCE.pro.monthlyBackstop,
+      'the monthly backstop on the site is not the one the server enforces');
+  }
+});
+
+test('the site cannot offer a trial the store will not honour', () => {
+  const html = fs.readFileSync(new URL('../website/index.html', import.meta.url), 'utf8');
+  const trials = [...html.matchAll(/(\d+)[- ]day (?:free )?trial/gi)].map((m) => Number(m[1]));
+  for (const d of trials) {
+    assert.equal(d, TRIAL_DAYS, `the site offers a ${d}-day trial and the app configures ${TRIAL_DAYS}`);
+  }
+  // The trial is annual-only. A trial promised beside the monthly price is a
+  // promise StoreKit will not keep.
+  assert.doesNotMatch(html, /\$7\.99[\s\S]{0,400}?\d+[- ]day (?:free )?trial/i,
+    'a trial is advertised against the monthly plan, which does not carry one');
+});
