@@ -42,6 +42,12 @@ test('FLG-12: every incomplete or money-touching feature defaults OFF', () => {
     // still has to default OFF.
     if (name === 'updatedLightThemeEnabled') continue; // safe, reversible, complete
     if (name === 'isoJobsiteEnabled') continue;        // pure rendering, no money, remote-killable
+    // Contractor Connect intake: complete, tested (marketplace.test.js), local-only,
+    // touches no money — its fee/payment flags are separate and stay hard-locked off.
+    if (name === 'contractorConnectEnabled') continue;
+    if (name === 'opportunityMarketplaceEnabled') continue;
+    if (name === 'qualifierMarketplaceEnabled') continue;
+    if (name === 'introductionsEnabled') continue;
     assert.equal(DEFAULTS[name], false, `${name} must default to false`);
   }
 });

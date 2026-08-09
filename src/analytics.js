@@ -132,6 +132,28 @@ export const analytics = {
   shareCardPreviewed: (cardType) => track('share_card_previewed', { card_type: cardType }),
   shareCardShared:    (cardType, method) => track('share_card_shared', { card_type: cardType, share_method: method }),
 
+  // ── CONTRACTOR CONNECT ────────────────────────────────────────────────────
+  // Taxonomy pinned by src/core/connect/marketplace/analytics.js and its test.
+  // Nothing here carries content — no descriptions, no licence numbers, no
+  // names. The scrub would drop them anyway; the call sites do not try.
+  connectOpened:            (p) => track('contractor_connect_opened', p),
+  connectIntentSelected:    (intent) => track('intent_selected', { intent }),
+  connectOpportunityStarted:(p) => track('opportunity_started', p),
+  connectOpportunitySubmitted: (p) => track('opportunity_submitted', p),
+  connectContractorProfileCreated: (p) => track('contractor_profile_created', p),
+  connectQualifierProfileCreated:  (p) => track('qualifier_profile_created', p),
+  connectVerificationStarted: (p) => track('license_verification_started', p),
+  connectVerificationSuccess: (p) => track('license_verification_success', p),
+  connectVerificationFailed:  (errorCode, p) => track('license_verification_failed', { error_code: errorCode, ...p }),
+  connectMatchViewed:       (p) => track('match_viewed', p),
+  connectIntroRequested:    (p) => track('intro_requested', p),
+  connectIntroAccepted:     (p) => track('intro_accepted', p),
+  connectIntroDeclined:     (p) => track('intro_declined', p),
+  connectMatchCompleted:    (p) => track('match_completed', p),
+  connectFeePresented:      (feeBucket, p) => track('fee_presented', { fee_bucket: feeBucket, ...p }),
+  connectFeePaid:           (feeBucket, p) => track('fee_paid', { fee_bucket: feeBucket, ...p }),
+  connectSourceClicked:     (sourceId) => track('source_clicked', { source_id: sourceId }),
+
   // ── Backwards-compatible aliases (NNR-02) ─────────────────────────────────
   // The previous names were never called anywhere, but keeping them costs
   // nothing and guarantees no call site can break.

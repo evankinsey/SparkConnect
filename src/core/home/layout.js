@@ -47,6 +47,7 @@ export const HOME_CARDS = Object.freeze([
   { id: 'formulas', kind: CardKind.SHORTCUT, tab: 'formulas', title: 'Formulas', sub: "Ohm's Law · 3Φ · motors", icon: 'book', group: 'Tools' },
   { id: 'calculators', kind: CardKind.SHORTCUT, tab: 'calculators', title: 'All Calculators', sub: 'Everything in one list', icon: 'calculator', group: 'Tools' },
   { id: 'permits', kind: CardKind.SHORTCUT, tab: 'permits', title: 'Permit Assistant', sub: 'What to expect, what to ask', icon: 'document-text', group: 'Work' },
+  { id: 'contractor_connect', kind: CardKind.SHORTCUT, tab: 'contractors', title: 'Contractor Connect', sub: 'Jobs, qualifiers, licence checks', icon: 'people-circle', group: 'Work' },
   { id: 'blueprint', kind: CardKind.SHORTCUT, tab: 'blueprint', title: 'Blueprint Takeoff', sub: 'Shoot the sheet, count devices', icon: 'documents', group: 'Work' },
   { id: 'panelschedule', kind: CardKind.SHORTCUT, tab: 'panelschedule', title: 'Panel Schedule', sub: 'Build it, balance it, share it', icon: 'grid', group: 'Work' },
 

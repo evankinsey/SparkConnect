@@ -4451,6 +4451,7 @@ const CommunityScreen   = lazyScreen('Community',       () => require('./src/scr
 const PermitScreen      = lazyScreen('Permit Assistant', () => require('./src/screens/PermitScreen'));
 const BlueprintScreen   = lazyScreen('Blueprint Takeoff', () => require('./src/screens/BlueprintScreen'));
 const PanelScheduleScreen = lazyScreen('Panel Schedule', () => require('./src/screens/PanelScheduleScreen'));
+const ContractorConnectScreen = lazyScreen('Contractor Connect', () => require('./src/screens/ContractorConnectScreen'));
 
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
@@ -4596,7 +4597,7 @@ export default function App() {
   // src/core/home/layout.js so adding a Home feature is a data change.
   const { layout: homeLayout, save: saveHomeLayout } = useHomeLayout();
 
-  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','tools','wiringlab','troubleshoot','jobsite','flashcards','customizehome','projects','materials','community','permits','blueprint','panelschedule'];
+  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','tools','wiringlab','troubleshoot','jobsite','flashcards','customizehome','projects','materials','community','permits','blueprint','panelschedule','contractors'];
 
   // Stable handlers — avoids stale closure in Settings toggle rows
   const handleDailyQToggle = React.useCallback((v) => {
@@ -4739,6 +4740,7 @@ export default function App() {
       case 'community':   return <CommunityScreen C={C} setTab={navigateTo} />;
       case 'permits':     return <PermitScreen C={C} setTab={navigateTo} onAskAi={(q) => { setNecaiInitSearch(q); navigateTo('necai'); }} />;
       case 'panelschedule': return <PanelScheduleScreen C={C} setTab={navigateTo} />;
+      case 'contractors': return <ContractorConnectScreen C={C} setTab={navigateTo} />;
       case 'blueprint':   return (
         <BlueprintScreen
           C={C}

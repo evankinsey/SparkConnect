@@ -106,6 +106,7 @@ export const TOOL_SECTIONS = Object.freeze({
   jobcam: { DO: { tab: 'projects', label: 'Photos, inside a project' } },
   estimator: { DO: { tab: 'estimator', label: 'Estimate' } },
   permits: { DO: { tab: 'permits', label: 'Permit assistant' } },
+  contractor_connect: { DO: { tab: 'contractors', label: 'Contractor Connect' } },
   panelschedule: { DO: { tab: 'panelschedule', label: 'Panel schedule' } },
   materials: { DO: { tab: 'materials', label: 'Material list' } },
   community: { DO: { tab: 'community', label: 'Community' } },

@@ -29,6 +29,11 @@ export const ALLOWED_PROPERTIES = new Set([
   'entitlement', 'reason', 'error_code', 'source',
   // pdf / share
   'stage', 'share_method', 'page_count', 'card_type',
+  // contractor connect — funnel states only. Licence numbers can never join
+  // this list: 'license' is a denied key fragment below, deliberately.
+  'intent', 'trade', 'state', 'county', 'project_type', 'value_range',
+  'flag_count', 'match_count', 'verification_status', 'intro_status',
+  'subject_kind', 'fee_bucket', 'source_id',
 ]);
 
 /**

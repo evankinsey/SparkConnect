@@ -42,6 +42,32 @@ export const DEFAULTS = Object.freeze({
 
   // Theme — safe, reversible, no entitlement or safety surface.
   updatedLightThemeEnabled: true,       // FLG-11
+
+  // ── Contractor Connect (the brief's flags, in this file's naming) ────────
+  // CONTRACTOR_CONNECT_ENABLED — the module as a whole. ON: the four intake
+  // funnels, verify deep link and saved pile work locally and honestly.
+  contractorConnectEnabled: true,
+  // LIVE_LICENSE_VERIFICATION_ENABLED — automated reads of a licence source.
+  // OFF: DBPR is deep-link-only today (adapters/florida.js says why), and a
+  // flag cannot conjure an implementation. Flipping this does nothing until a
+  // LIVE adapter exists; it is here so the day one does, the switch is too.
+  liveLicenseVerificationEnabled: false,
+  // OPPORTUNITY_MARKETPLACE_ENABLED / QUALIFIER_MARKETPLACE_ENABLED — the
+  // intake funnels. ON: intake, moderation and local records are complete and
+  // tested; matching against OTHER users' records waits on the backend and is
+  // stated in-product as manual/brokered.
+  opportunityMarketplaceEnabled: true,
+  qualifierMarketplaceEnabled: true,
+  // INTRODUCTIONS_ENABLED — request-introduction flow (no open messaging).
+  introductionsEnabled: true,
+  // MATCH_FEES_ENABLED / MARKETPLACE_PAYMENTS_ENABLED — money. Hard-locked
+  // off below with the other payment flags: no backend, no charge, and no
+  // remote payload may pretend otherwise.
+  matchFeesEnabled: false,
+  marketplacePaymentsEnabled: false,
+  // PERMIT_DATA_ENABLED — automated permit records. OFF: every permit adapter
+  // is PLANNED (portal roots only), and this flips when one goes LIVE.
+  permitDataEnabled: false,
 });
 
 export const FLAG_NAMES = Object.keys(DEFAULTS);
@@ -86,6 +112,11 @@ export const HARD_LOCKED_OFF = Object.freeze([
   'stripeConnectEnabled',
   'customerPaymentsEnabled',
   'platformFeesEnabled',
+  // Contractor Connect money paths join the lock for the same reason: there
+  // is no reviewed backend, so ON cannot make them work — it can only make a
+  // screen present a fee nothing can honour.
+  'matchFeesEnabled',
+  'marketplacePaymentsEnabled',
 ]);
 
 const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
