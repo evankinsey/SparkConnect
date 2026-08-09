@@ -132,13 +132,26 @@ test('you can go back, and back never discards an answer', () => {
 
 // ─── What comes out ──────────────────────────────────────────────────────────
 
-test('what brought you here beats what you do', () => {
-  // "What brought you here" is the more specific of the two answers, so it
-  // wins for the opening screen.
-  const o = outcome(run({ [StepId.ROLE]: 'contractor', [StepId.FOCUS]: 'learn' }));
-  assert.equal(o.openAt, focusById('learn').tab);
-  // With no focus, the role decides.
-  assert.equal(outcome(run({ [StepId.ROLE]: 'contractor' })).openAt, roleById('contractor').firstScreen);
+test('the app always opens on Home, whatever they answered', () => {
+  // It used to open on the tab the FOCUS answer named, so answering "getting
+  // better at the trade" launched a first-time user straight into the Wiring
+  // Simulator: they never saw Home, never learned the app had calculators or
+  // Projects, and had no idea how they got there. Home is the map.
+  for (const f of FOCUS) {
+    const o = outcome(run({ [StepId.ROLE]: 'contractor', [StepId.FOCUS]: f.id }));
+    assert.equal(o.openAt, 'home', `${f.id} opened somewhere other than Home`);
+  }
+  assert.equal(outcome(run({ [StepId.ROLE]: 'contractor' })).openAt, 'home');
+});
+
+test('what they came for becomes a suggestion, not a redirect', () => {
+  const o = outcome(run({ [StepId.ROLE]: 'apprentice', [StepId.FOCUS]: 'learn' }));
+  assert.equal(o.suggest.tab, focusById('learn').tab, 'the answer is still used');
+  assert.ok(o.suggest.headline, 'a suggestion needs something to say');
+  // Skipping the question means no suggestion — not a default one.
+  assert.equal(outcome(run({ [StepId.ROLE]: 'contractor' })).suggest, null);
+  // Every focus can offer something.
+  for (const f of FOCUS) assert.ok(f.suggest, `${f.id} has no suggestion copy`);
 });
 
 test('the outcome carries nothing that is not consumed', () => {
@@ -148,7 +161,7 @@ test('the outcome carries nothing that is not consumed', () => {
   }));
   // Nothing is collected for a dashboard.
   assert.deepEqual(Object.keys(o).sort(), [
-    'acceptedTerms', 'layout', 'notifications', 'openAt', 'role', 'skippedAll', 'startedTrial',
+    'acceptedTerms', 'layout', 'notifications', 'openAt', 'role', 'skippedAll', 'startedTrial', 'suggest',
   ].sort());
   assert.equal(o.role, 'foreman');
   assert.equal(o.notifications, true);
@@ -206,7 +219,8 @@ test('the trial screen never promises an allowance the app meters', async () => 
   }
 
   // The free number quoted alongside it is the one actually enforced.
-  assert.equal(FREE_LIMITS[Feature.SPARK_AI].limit, 3);
+  const { ASK_ALLOWANCE } = await import('../src/core/paywall/entitlements.js');
+  assert.equal(FREE_LIMITS[Feature.SPARK_AI].limit, ASK_ALLOWANCE.free.perDay);
 });
 
 test('one allowance number reaches every screen that sells it', async () => {

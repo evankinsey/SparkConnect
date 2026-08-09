@@ -1,7 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { FREE_LIMITS, Feature } from './core/paywall/entitlements';
+
 const KEYS = { su:'@sc_sparky_uses_v2', sd:'@sc_sparky_date_v2', cu:'@sc_calc_uses_v2', cd:'@sc_calc_date_v2' };
-const LIMITS = { sparky:3, calc:5 };
+// The allowance lives in core/paywall/entitlements. It used to be typed here
+// as 3 while the app's own copy said 5, so the gate and the sentence explaining
+// the gate disagreed with each other.
+const LIMITS = { sparky: FREE_LIMITS[Feature.SPARK_AI].limit, calc: 5 };
 const today = () => new Date().toISOString().slice(0,10);
 async function getCount(uk, dk) {
   const [u,d] = await Promise.all([AsyncStorage.getItem(uk), AsyncStorage.getItem(dk)]);

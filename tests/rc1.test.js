@@ -351,12 +351,26 @@ test('the entitlement id matches the live build', async () => {
 
 // ─── The gates must agree with the build that is selling ─────────────────────
 
-test('the free SparkAI allowance matches the shipping build', async () => {
-  const { FREE_LIMITS: L, Feature: F } = await import('../src/core/paywall/entitlements.js');
-  // useGating.js on the live build: LIMITS = { sparky: 3 }, and its paywall
-  // advertises "3/day". This file had invented 5, which never shipped.
-  assert.equal(L[F.SPARK_AI].limit, 3);
+test('the free SparkAI allowance comes from one table', async () => {
+  const { FREE_LIMITS: L, Feature: F, ASK_ALLOWANCE } =
+    await import('../src/core/paywall/entitlements.js');
+  // The gate enforced 3 while the app's own copy advertised 5. It was raised to
+  // 5 rather than the copy corrected down, so nobody loses an answer they were
+  // already being promised — see the note on ASK_ALLOWANCE.
+  assert.equal(L[F.SPARK_AI].limit, ASK_ALLOWANCE.free.perDay);
   assert.equal(L[F.SPARK_AI].period, 'day');
+  assert.equal(ASK_ALLOWANCE.free.perDay, 5);
+});
+
+test('the Pro monthly backstop can never bind before the daily number', async () => {
+  const { ASK_ALLOWANCE } = await import('../src/core/paywall/entitlements.js');
+  // 20/day with a 400/month cap means "20 a day" runs out on day 20 — the
+  // advertised number quietly stops being true two thirds of the way through
+  // the month. The backstop must clear a full month at the daily rate.
+  assert.ok(
+    ASK_ALLOWANCE.pro.monthlyBackstop >= ASK_ALLOWANCE.pro.perDay * 31,
+    'the monthly cap contradicts the daily allowance the paywall sells',
+  );
 });
 
 test('disagreements with the paywall are recorded, not silently resolved', async () => {
@@ -609,12 +623,11 @@ test('the free-answer count in the copy is the one the app enforces', async () =
   // useGating.js enforces 3 and FREE_LIMITS says 3. So the app cut somebody off
   // after three and told them in writing that they had received five. Whichever
   // number is right, there is only one of it, and it lives where it is checked.
-  assert.equal(FREE_LIMITS[Feature.SPARK_AI].limit, 3);
+  // The gate no longer types a number at all — it reads the same table the
+  // copy does, which is the only way the two cannot drift apart again.
   const gating = fs.readFileSync('src/useGating.js', 'utf8');
-  const enforced = gating.match(/LIMITS\s*=\s*\{\s*sparky:\s*(\d+)/);
-  assert.ok(enforced, 'useGating must state the sparky limit');
-  assert.equal(Number(enforced[1]), FREE_LIMITS[Feature.SPARK_AI].limit,
-    'the gate and the entitlement table disagree about the free allowance');
+  assert.doesNotMatch(gating, /sparky:\s*\d+/, 'useGating hardcodes the allowance again');
+  assert.match(gating, /FREE_LIMITS\[Feature\.SPARK_AI\]\.limit/);
 
   // The message reads the constant rather than spelling a number.
   assert.match(src, /const FREE_ASK_LIMIT = FREE_LIMITS/);

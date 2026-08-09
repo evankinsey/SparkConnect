@@ -11,7 +11,7 @@
 // They are folded in on load, once, without losing any (see projectMerge.js).
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Share } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Share, Image, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -348,6 +348,29 @@ function ProjectList({ C, projects, onOpen, onCreate, setTab, migrationNote, onD
               {TEMPLATES[p.template]?.label ?? 'Custom'} · {stats.photoCount} photo{stats.photoCount === 1 ? '' : 's'}
               {stats.untagged > 0 ? ` · ${stats.untagged} untagged` : ''}
             </Text>
+            {/* Thumbnails on the list itself. "1 photo" as text asks you to
+                remember what you shot; the strip shows you. */}
+            {(() => {
+              const recent = (p.photos ?? []).filter((x) => x?.uri).slice(-4).reverse();
+              if (!recent.length) return null;
+              return (
+                <View style={{ flexDirection: 'row', gap: 6, marginTop: 10 }}>
+                  {recent.map((ph) => (
+                    <Image
+                      key={ph.id}
+                      source={{ uri: ph.uri }}
+                      style={{ width: 62, height: 62, borderRadius: 8, backgroundColor: C.inputBg }}
+                      resizeMode="cover"
+                    />
+                  ))}
+                  {stats.photoCount > recent.length ? (
+                    <View style={{ width: 62, height: 62, borderRadius: 8, backgroundColor: C.inputBg, alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.textSec }}>+{stats.photoCount - recent.length}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })()}
           </TouchableOpacity>
         );
       })}
@@ -366,16 +389,26 @@ const TAG_CHOICES = [
   PhotoTag.UNDERGROUND, PhotoTag.CONCEALED, PhotoTag.INSPECTION, PhotoTag.LABEL, PhotoTag.DAMAGE,
 ];
 
+/**
+ * Photos FIRST, and it is the tab the screen opens on.
+ *
+ * Photos sat third, behind a job-info hub and a timeline. Nobody standing in a
+ * crawlspace with a phone in one hand wants to read a summary of the job they
+ * are physically inside — they want the camera, or they want the shot they took
+ * twenty minutes ago. Ordering by what the app knows rather than by what the
+ * user came to do is how a documentation tool becomes paperwork.
+ */
 const VIEWS = [
+  { id: 'photos', label: 'Photos', icon: 'camera' },
   { id: 'hub', label: 'Job', icon: 'grid' },
   { id: 'timeline', label: 'Timeline', icon: 'time' },
-  { id: 'photos', label: 'Photos', icon: 'camera' },
   { id: 'log', label: 'Daily log', icon: 'today' },
   { id: 'export', label: 'Export', icon: 'share' },
 ];
 
 function ProjectDetail({ C, proj, world, setTab, onChange, onLogsChange, allLogs, onExit, onDelete }) {
-  const [view, setView] = useState('hub');
+  const [view, setView] = useState('photos');
+  const [viewing, setViewing] = useState(null);   // photo opened full screen
   const [folderId, setFolderId] = useState(proj.folders[0]?.id ?? null);
   const [selected, setSelected] = useState(null);
   const stats = useMemo(() => projectStats(proj), [proj]);
@@ -512,8 +545,30 @@ function ProjectDetail({ C, proj, world, setTab, onChange, onLogsChange, allLogs
         </Text>
       )}
 
+      {/* THE PHOTO ITSELF. This screen stored a uri for every shot and never
+          rendered a single <Image> — the whole file did not contain one. You
+          could take a photo, watch the counter go up, and then never see it
+          again. A documentation app that cannot show you your own documentation
+          is not a documentation app.
+
+          Tap opens it full screen; the row underneath stays for tagging. */}
       {inFolder.map((p) => (
         <View key={p.id} style={{ backgroundColor: C.surface, borderRadius: 12, padding: 12, marginBottom: 9, borderWidth: 1, borderColor: C.border }}>
+          {p.uri ? (
+            <TouchableOpacity onPress={() => setViewing(p)} activeOpacity={0.9}
+              accessibilityRole="imagebutton"
+              accessibilityLabel={`Open ${p.note || p.tags.join(', ') || 'untagged photo'} full screen`}>
+              <Image
+                source={{ uri: p.uri }}
+                style={{ width: '100%', height: 190, borderRadius: 9, marginBottom: 10, backgroundColor: C.inputBg }}
+                resizeMode="cover"
+              />
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: '100%', height: 72, borderRadius: 9, marginBottom: 10, backgroundColor: C.inputBg, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 11, color: C.textTert }}>This photo is no longer on the device</Text>
+            </View>
+          )}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Ionicons name="image" size={17} color={C.teal} />
             <Text style={{ flex: 1, fontSize: 12.5, color: C.text }}>
@@ -550,6 +605,36 @@ function ProjectDetail({ C, proj, world, setTab, onChange, onLogsChange, allLogs
 
       </>
       )}
+
+      {/* Full screen. A thumbnail proves the photo is there; this is the one
+          that settles an argument about whether the conduit was strapped. */}
+      <Modal visible={!!viewing} transparent animationType="fade" onRequestClose={() => setViewing(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.94)' }}>
+          <TouchableOpacity
+            onPress={() => setViewing(null)}
+            style={{ position: 'absolute', top: 52, right: 20, zIndex: 2, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center' }}
+            accessibilityLabel="Close photo" accessibilityRole="button">
+            <Ionicons name="close" size={22} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity activeOpacity={1} onPress={() => setViewing(null)} style={{ flex: 1, justifyContent: 'center' }}>
+            {viewing?.uri ? (
+              <Image source={{ uri: viewing.uri }} style={{ width: '100%', height: '78%' }} resizeMode="contain" />
+            ) : null}
+          </TouchableOpacity>
+          {viewing ? (
+            <View style={{ paddingHorizontal: 22, paddingBottom: 44 }}>
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>
+                {viewing.note || viewing.tags?.join(', ') || 'Untagged photo'}
+              </Text>
+              {viewing.takenAt ? (
+                <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11, marginTop: 4 }}>
+                  {String(viewing.takenAt).slice(0, 10)}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+      </Modal>
     </ScrollView>
   );
 }

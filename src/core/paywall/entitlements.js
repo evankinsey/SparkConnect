@@ -39,18 +39,69 @@ export const Grant = {
 };
 
 /**
+ * THE SPARKAI ALLOWANCE. One table. Every screen that states a number reads it.
+ *
+ * Four different numbers were being shown for the same thing: free was
+ * enforced at 3 and advertised as 5, Pro was sold as 20/day on one screen,
+ * 100/month on another and unlimited on the trial screen. Nobody had lied on
+ * purpose — the number was typed in five places and drifted.
+ *
+ * The numbers, and why:
+ *
+ * FREE — 5 a day, raised from 3. The app has been TELLING people they get five
+ * since launch. Raising the allowance to match the promise is better than
+ * correcting the promise down to 3: nobody experiences a downgrade, and the
+ * sentence the app has been showing all along becomes true. Three questions is
+ * also thin enough to burn on one panel before the app has proved anything.
+ *
+ * PRO — 25 a day. The monthly cap is set ABOVE daily × 31 on purpose, so it can
+ * never bind before the daily one does. The old shape was 20/day with a
+ * 400/month cap, which quietly contradicts itself: a subscriber using their
+ * advertised 20 a day runs out of month on day 20, and "20 a day" turns out to
+ * mean "20 a day for two thirds of the month". A ceiling that contradicts the
+ * number on the paywall is the same bug as advertising unlimited, just slower
+ * to discover. The monthly figure here is an anti-abuse backstop and nothing
+ * else — it is not a selling point and no screen quotes it.
+ *
+ * ⚠️  THE SERVER ENFORCES THIS, NOT THIS FILE. /api/ask-nec returns the 429.
+ * Changing these numbers changes what the app SAYS, and the backend has to be
+ * changed to match or the app promises 25 and the store cuts you off at 20 —
+ * the same class of bug pointed the other way. See PRICING_DISCREPANCIES.
+ */
+export const ASK_ALLOWANCE = Object.freeze({
+  free: Object.freeze({ perDay: 5 }),
+  pro: Object.freeze({ perDay: 25, monthlyBackstop: 800 }),
+  // Lifetime buys the tools, not the AI tier. It gets the free allowance.
+  lifetime: Object.freeze({ perDay: 5 }),
+});
+
+export const PRO_LIMITS = Object.freeze({
+  [Feature.SPARK_AI]: {
+    limit: ASK_ALLOWANCE.pro.perDay,
+    period: 'day',
+    monthlyCap: ASK_ALLOWANCE.pro.monthlyBackstop,
+  },
+});
+
+/** "25 SparkAI answers a day" — written once, read wherever Pro is sold. */
+export const proAskAllowanceLabel = () =>
+  `${ASK_ALLOWANCE.pro.perDay} SparkAI answers a day`;
+
+/** "5 a day" — the free allowance, wherever it is quoted. */
+export const freeAskAllowanceLabel = () =>
+  `${ASK_ALLOWANCE.free.perDay} SparkAI answers a day`;
+
+/**
  * Free allowances. `null` means unlimited; `0` means Pro-only.
  *
  * `period` is only documentation for the caller — this module does not know
  * what day it is, on purpose, so it stays pure and testable.
  */
 export const FREE_LIMITS = Object.freeze({
-  // 3, not 5. The build on the App Store enforces `LIMITS = { sparky: 3 }` in
-  // useGating.js and its paywall advertises "3/day" — this file had invented a
-  // different number that never shipped. Matching the live build is not a
-  // tightening: no user has ever had 5, and the paywall would have been calling
-  // the app a liar in front of a paying customer.
-  [Feature.SPARK_AI]: { limit: 3, period: 'day' },
+  // Read from ASK_ALLOWANCE below, never typed. This was 3 while the app told
+  // users they had 5 — see the note there for why it moved up rather than the
+  // copy moving down.
+  [Feature.SPARK_AI]: { limit: ASK_ALLOWANCE.free.perDay, period: 'day' },
   [Feature.VOICE_ASK]: { limit: 0, period: 'day' },        // Pro only
   // The live build meters calculators at 5/day; the live paywall lists "Box &
   // Conduit Fill" and "Advanced calculators" as Pro-only. Those two disagree
@@ -66,26 +117,6 @@ export const FREE_LIMITS = Object.freeze({
   [Feature.PERMIT]: { limit: null, period: 'day' },        // never gate safety guidance
 });
 
-/**
- * What Pro actually gets. One number, because it is sold in several places.
- *
- * The onboarding trial screen promised "Ask SparkAI as many times as you need
- * in a day" while the paywall two screens away said 20 a day and the live
- * build's own paywall said 20 a day with a 400/month fair-use cap. The trial
- * screen is the last thing somebody reads before being charged, and it was the
- * one making a claim the product does not honour — a subscriber hits the
- * ceiling on day one and the app has already told them there is not one.
- *
- * Advertising an unlimited allowance you meter is not a copy slip. It is the
- * claim App Review reads, and the one a refund request quotes back.
- */
-export const PRO_LIMITS = Object.freeze({
-  [Feature.SPARK_AI]: { limit: 20, period: 'day', monthlyCap: 400 },
-});
-
-/** "20 a day" — written once, read wherever Pro's AI allowance is sold. */
-export const proAskAllowanceLabel = () =>
-  `${PRO_LIMITS[Feature.SPARK_AI].limit} SparkAI answers a day`;
 
 /**
  * Paywall copy per feature. Sells the outcome, and states the free allowance

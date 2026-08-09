@@ -9,7 +9,7 @@
 // App Store rule this file enforces: price, billing interval, renewal and
 // cancellation terms must be stated wherever a trial is offered (PWL-03).
 
-import { proAskAllowanceLabel } from './entitlements.js';
+import { proAskAllowanceLabel, freeAskAllowanceLabel } from './entitlements.js';
 
 export const ProductId = {
   // MUST match App Store Connect exactly. The shipping build on the App Store
@@ -235,7 +235,7 @@ export const PRO_BENEFITS = Object.freeze([
 
 export const LIFETIME_BENEFITS = Object.freeze([
   'Core calculators forever',
-  '5 SparkAI answers a day',
+  freeAskAllowanceLabel(),
   '25 Job Cam projects',
   '5 invoice exports a month',
 ]);

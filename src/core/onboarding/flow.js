@@ -154,11 +154,21 @@ export const roleById = (id) => ROLES.find((r) => r.id === id) ?? null;
  * first value costs more than the personalisation it buys, and the honest
  * version of a long quiz is a short one.
  */
+/**
+ * `suggest` is what Home offers them, in their words rather than the tab's.
+ *
+ * The tab is NOT where the app opens — see outcome(). It is what gets pointed
+ * at once they are somewhere they can orient themselves.
+ */
 export const FOCUS = Object.freeze([
-  { id: 'code', label: 'Getting code answers fast', tab: 'necai' },
-  { id: 'calc', label: 'Running the numbers on site', tab: 'calculators' },
-  { id: 'learn', label: 'Getting better at the trade', tab: 'wiringlab' },
-  { id: 'jobs', label: 'Keeping my jobs documented', tab: 'projects' },
+  { id: 'code', label: 'Getting code answers fast', tab: 'necai',
+    suggest: 'Ask SparkAI your first code question' },
+  { id: 'calc', label: 'Running the numbers on site', tab: 'calculators',
+    suggest: 'Run your first calculation' },
+  { id: 'learn', label: 'Getting better at the trade', tab: 'wiringlab',
+    suggest: 'Wire your first circuit in the simulator' },
+  { id: 'jobs', label: 'Keeping my jobs documented', tab: 'projects',
+    suggest: 'Start your first job and take a photo' },
 ]);
 
 export const focusById = (id) => FOCUS.find((f) => f.id === id) ?? null;
@@ -352,9 +362,25 @@ export const outcome = (state) => {
     // HOME_LAYOUT
     role: role?.id ?? null,
     layout: Object.freeze(layoutForRole(role?.id ?? null)),
-    // FIRST_SCREEN — what they came for beats what they do, because the answer
-    // to "what brought you here" is the more specific of the two.
-    openAt: focus?.tab ?? role?.firstScreen ?? 'home',
+    // FIRST_SCREEN — always Home.
+    //
+    // This used to open the app on whatever tab the FOCUS answer named, so
+    // answering "getting better at the trade" launched a first-time user
+    // directly into the Wiring Simulator. They never saw Home, never saw that
+    // the app has calculators, a daily code question, Projects or Tools, and
+    // had no idea how they got where they were or how to leave.
+    //
+    // Dropping somebody into a deep screen on first launch is disorienting even
+    // when the screen is the right guess. Home is the map. What they told us
+    // still gets used — it reorders Home (see `layout`) and it becomes a
+    // suggestion they can take or ignore, which is the difference between
+    // helping and hijacking.
+    openAt: 'home',
+    // What to OFFER on Home, once, rather than navigate to. Null when they
+    // skipped the question — no answer means no suggestion, not a default one.
+    suggest: focus
+      ? Object.freeze({ tab: focus.tab, label: focus.label, headline: focus.suggest })
+      : null,
     // DAILY_NOTIFICATION
     notifications: state.answers[StepId.NOTIFY] === true,
     // ENTITLEMENT

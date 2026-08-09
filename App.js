@@ -18,7 +18,7 @@ import { ask as sparkAsk, Provenance as SparkProvenance } from './src/core/ai/sp
 import { knowledgeBase } from './src/core/ai/knowledge';
 import { answerFooter } from './src/core/ai/answer';
 import { buildPriceQuestion, priceAskBlocker, PRICE_DISCLAIMER } from './src/core/ai/estimatorAsk';
-import { FREE_LIMITS, Feature } from './src/core/paywall/entitlements';
+import { FREE_LIMITS, Feature, proAskAllowanceLabel } from './src/core/paywall/entitlements';
 import { CAST_IMAGES } from './src/screens/castImages';
 import { buildPulse, dayIndexFor } from './src/core/home/pulse';
 import { getDailyQuestion } from './src/core/content/dailyQuestions';
@@ -866,7 +866,7 @@ const BendDiagram = ({ type, result, stub, offsetH, offsetA, C }) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ─── HOME ────────────────────────────────────────────────────────────────────
-const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, homeLayout = null }) => {
+const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, homeLayout = null, suggestion = null, onDismissSuggestion }) => {
   const [notifPromptShown, setNotifPromptShown] = React.useState(false);
   const [notifEnabled, setNotifEnabled] = React.useState(false);
   const [notifDismissed, setNotifDismissed] = React.useState(true); // assume hidden until storage answers
@@ -894,6 +894,38 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
       {/* Home order is deliberate: Daily Question → Quick Tools → Wiring
           Simulator → Sparky search → custom cards. The user asked for exactly
           this — do not shuffle it back. */}
+
+      {/* What they said brought them here — OFFERED, not navigated to.
+          Onboarding used to open the app on this tab, so somebody who answered
+          "getting better at the trade" landed in the Wiring Simulator having
+          never seen Home. Shown once, then dismissed for good. */}
+      {suggestion?.tab ? (
+        <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
+          <Card C={C} style={{ borderLeftWidth: 4, borderLeftColor: C.amber }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+              <Ionicons name="sparkles" size={18} color={C.amber} style={{ marginTop: 1 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 10, fontWeight: '800', color: C.amber, letterSpacing: 0.6 }}>START HERE</Text>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginTop: 3 }}>
+                  {suggestion.headline || suggestion.label}
+                </Text>
+                <Text style={{ fontSize: 11, color: C.textTert, marginTop: 3, lineHeight: 16 }}>
+                  Based on what you told us. Everything else is on this screen and in the tabs below.
+                </Text>
+              </View>
+              <TouchableOpacity onPress={onDismissSuggestion} hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }} accessibilityLabel="Dismiss suggestion">
+                <Ionicons name="close" size={16} color={C.textTert} />
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              onPress={() => { onDismissSuggestion?.(); setTab(suggestion.tab); }}
+              style={{ backgroundColor: C.amber, borderRadius: 10, paddingVertical: 11, alignItems: 'center', marginTop: 12 }}
+              activeOpacity={0.85}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>Take me there</Text>
+            </TouchableOpacity>
+          </Card>
+        </View>
+      ) : null}
 
       {/* Daily Question */}
       {showDailyQ && <View style={{ padding: 16 }}>
@@ -1190,7 +1222,7 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
       <TouchableOpacity onPress={() => setTab('settings')} style={{ marginHorizontal: 16, backgroundColor: C.blue, borderRadius: 16, padding: 20, flexDirection: 'row', alignItems: 'center', shadowColor: C.blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 6 }} activeOpacity={0.9}>
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff', marginBottom: 3 }}>Go Pro — Unlock Everything</Text>
-          <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 17 }}>100 SparkAI answers/mo · Box Fill · Conduit Fill · PDF Export</Text>
+          <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 17 }}>{proAskAllowanceLabel()} · Box Fill · Conduit Fill · PDF Export</Text>
         </View>
         <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center', marginLeft: 12 }}>
           <Ionicons name="arrow-forward" size={18} color="#fff" />
@@ -4126,10 +4158,10 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
             </View>
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: 17, fontWeight: '800', color: C.text, letterSpacing: -0.4 }}>SparkConnect Pro</Text>
-              <Text style={{ fontSize: 12, color: C.textSec, marginTop: 1 }}>$7.99/mo · $49.99/yr Launch Special · 100 AI answers/mo</Text>
+              <Text style={{ fontSize: 12, color: C.textSec, marginTop: 1 }}>$7.99/mo · $49.99/yr Launch Special · {proAskAllowanceLabel()}</Text>
             </View>
           </View>
-          {['100 SparkAI answers/month','Box Fill Calculator','Conduit Fill Calculator','Saved Projects & History','PDF Report Export (coming)','Priority new features'].map(f => (
+          {[proAskAllowanceLabel(),'Box Fill Calculator','Conduit Fill Calculator','Saved Projects & History','PDF Report Export (coming)','Priority new features'].map(f => (
             <View key={f} style={{ flexDirection: 'row', gap: 8, alignItems: 'center', paddingVertical: 3 }}>
               <Ionicons name="checkmark-circle" size={15} color={C.blue} />
               <Text style={{ fontSize: 12, color: C.text, fontWeight: '500' }}>{f}</Text>
@@ -4547,6 +4579,8 @@ export default function App() {
   // ── ALL hooks must be called unconditionally, before any early return ──
   const [splashDone, setSplashDone] = useState(false);
   const [onboardingDone, setOnboardingDone] = useState(false);
+  // What the FOCUS answer asked for, offered on Home instead of navigated to.
+  const [firstSuggestion, setFirstSuggestion] = useState(null);
   const [onboardingChecked, setOnboardingChecked] = useState(false);
   const [showDailyQ, setShowDailyQ] = useState(true);
   const [streak, setStreak] = useState(0);
@@ -4688,6 +4722,25 @@ export default function App() {
 
   const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','tools','wiringlab','troubleshoot','jobsite','flashcards','customizehome','projects','materials','community','permits','blueprint','panelschedule'];
 
+  // The first-run suggestion is shown once and then gone for good. A prompt
+  // that keeps coming back is a nag, and the whole point of it is that it is a
+  // gentler thing than being dropped into the screen unasked.
+  const dismissSuggestion = React.useCallback(() => {
+    setFirstSuggestion(null);
+    safeStorageSet('@sc_first_suggestion_v1', '');
+  }, []);
+
+  React.useEffect(() => {
+    let live = true;
+    safeStorageGet('@sc_first_suggestion_v1')
+      .then((raw) => {
+        if (!live || !raw) return;
+        try { setFirstSuggestion(JSON.parse(raw)); } catch (e) { safeLog('suggestion.parse', e); }
+      })
+      .catch(e => safeLog('suggestion.load', e));
+    return () => { live = false; };
+  }, []);
+
   // Stable handlers — avoids stale closure in Settings toggle rows
   const handleDailyQToggle = React.useCallback((v) => {
     setShowDailyQ(v);
@@ -4782,11 +4835,17 @@ export default function App() {
           // Home a person sees is already theirs.
           if (result?.role) await safeStorageSet('@sc_role', result.role);
           if (result?.layout?.length) await safeStorageSet('@sc_home_layout_v1', JSON.stringify(result.layout));
+          // What they came for, kept as a SUGGESTION on Home rather than a
+          // redirect. Answering "getting better at the trade" used to launch
+          // straight into the Wiring Simulator, so a first-time user never saw
+          // Home and had no idea what else the app had or how they got there.
+          if (result?.suggest) await safeStorageSet('@sc_first_suggestion_v1', JSON.stringify(result.suggest));
         } catch (e) { safeLog('onboarding.persist', e); }
 
         setOnboardingDone(true);
+        if (result?.suggest) setFirstSuggestion(result.suggest);
 
-        // FIRST_SCREEN. What they said brought them here.
+        // FIRST_SCREEN is always Home. It is the map — see flow.js outcome().
         if (result?.openAt && result.openAt !== 'home') navigateTo(result.openAt);
 
         // DAILY_NOTIFICATION — only if they said yes. Asking the OS anyway
@@ -4804,7 +4863,7 @@ export default function App() {
 
   const renderScreen = () => {
     switch (tab) {
-      case 'home':        return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} homeLayout={homeLayout} />;
+      case 'home':        return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} homeLayout={homeLayout} suggestion={firstSuggestion} onDismissSuggestion={dismissSuggestion} />;
       case 'calculators': return <CalculatorsScreen setTab={navigateTo} C={C} />;
       case 'bend':        return <BendScreen C={C} setTab={navigateTo} />;
       case 'volt':        return <VoltScreen C={C} setTab={navigateTo} />;
