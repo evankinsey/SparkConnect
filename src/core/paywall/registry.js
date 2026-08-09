@@ -146,6 +146,20 @@ export const REGISTRY = Object.freeze({
     creditEligible: false,
     requiresStoreProduct: ProductId.PRO_MONTHLY,
   }),
+  // Shipping as a beta whose matching is done by a person reading an inbox.
+  // otaConfigurable matters more here than anywhere else in this list: if the
+  // handoff misbehaves on a device we do not have, or nobody can watch the
+  // inbox for a week, this is switched off from app-config.json without an
+  // App Store review.
+  [Feature.CONTRACTOR_CONNECT]: entry(Feature.CONTRACTOR_CONNECT, {
+    label: 'Contractor Connect',
+    tiers: [Tier.FREE, Tier.LIFETIME, Tier.PRO],
+    creditEligible: false,
+    requiresStoreProduct: null,
+    otaConfigurable: true,
+    flag: 'contractorConnectEnabled',
+    note: 'Beta. Matches are brokered manually, and the section says so.',
+  }),
 });
 
 export const FEATURE_IDS = Object.freeze(Object.keys(REGISTRY));

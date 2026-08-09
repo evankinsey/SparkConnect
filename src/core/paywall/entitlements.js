@@ -30,6 +30,7 @@ export const Feature = {
   BLUEPRINT: 'BLUEPRINT',
   JOB_CAM: 'JOB_CAM',
   PERMIT: 'PERMIT',
+  CONTRACTOR_CONNECT: 'CONTRACTOR_CONNECT',
 };
 
 /** Why a use is being allowed without metering it. */
@@ -157,6 +158,9 @@ export const FREE_LIMITS = Object.freeze({
   // and understand what the tab is for.
   [Feature.JOB_CAM]: { limit: FREE_PROJECT_LIMIT, period: 'total' },
   [Feature.PERMIT]: { limit: null, period: 'day' },        // never gate safety guidance
+  // Beta, and the matching behind it is a person reading an inbox. Metering a
+  // funnel we are trying to learn from would only reduce what we learn.
+  [Feature.CONTRACTOR_CONNECT]: { limit: null, period: 'day' },
 });
 
 

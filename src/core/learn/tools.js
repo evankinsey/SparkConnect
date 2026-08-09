@@ -108,6 +108,7 @@ export const TOOL_SECTIONS = Object.freeze({
   permits: { DO: { tab: 'permits', label: 'Permit assistant' } },
   panelschedule: { DO: { tab: 'panelschedule', label: 'Panel schedule' } },
   materials: { DO: { tab: 'materials', label: 'Material list' } },
+  connect: { DO: { tab: 'connect', label: 'Contractor Connect' } },
   community: { DO: { tab: 'community', label: 'Community' } },
   learn: { DO: { tab: 'learn', label: 'Study paths' } },
 });

@@ -4487,6 +4487,7 @@ const SCREEN_LABELS = {
   flashcards: 'Flashcards', projects: 'Projects', materials: 'Material List',
   community: 'Community', customizehome: 'Customize Home',
   permits: 'Permit Assistant', blueprint: 'Blueprint Takeoff', panelschedule: 'Panel Schedule',
+  connect: 'Contractor Connect',
 };
 
 // ─── SPLASH SCREEN ───────────────────────────────────────────────────────────
@@ -4725,6 +4726,7 @@ const CommunityScreen   = lazyScreen('Community',       () => require('./src/scr
 const PermitScreen      = lazyScreen('Permit Assistant', () => require('./src/screens/PermitScreen'));
 const BlueprintScreen   = lazyScreen('Blueprint Takeoff', () => require('./src/screens/BlueprintScreen'));
 const PanelScheduleScreen = lazyScreen('Panel Schedule', () => require('./src/screens/PanelScheduleScreen'));
+const ContractorConnectScreen = lazyScreen('Contractor Connect', () => require('./src/screens/ContractorConnectScreen'));
 
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
@@ -4920,7 +4922,7 @@ export default function App() {
   // src/core/home/layout.js so adding a Home feature is a data change.
   const { layout: homeLayout, save: saveHomeLayout } = useHomeLayout();
 
-  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','tools','wiringlab','troubleshoot','jobsite','flashcards','customizehome','hours','projects','materials','community','permits','blueprint','panelschedule'];
+  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','tools','wiringlab','troubleshoot','jobsite','flashcards','customizehome','hours','projects','materials','community','permits','blueprint','panelschedule','connect'];
 
   // The first-run suggestion is shown once and then gone for good. A prompt
   // that keeps coming back is a nag, and the whole point of it is that it is a
@@ -5075,6 +5077,10 @@ export default function App() {
   const TAB_FEATURE = {
     necai: Feature.SPARK_AI, jobsite: Feature.JOBSITE, wiringlab: Feature.WIRING_LESSON,
     troubleshoot: Feature.TROUBLESHOOT, blueprint: Feature.BLUEPRINT, projects: Feature.JOB_CAM,
+    // The one on this map that is most likely to be used: a beta whose matching
+    // depends on somebody reading an inbox. If that stops, this goes off from
+    // the website rather than waiting for a review.
+    connect: Feature.CONTRACTOR_CONNECT,
   };
 
   const renderScreen = () => {
@@ -5126,6 +5132,7 @@ export default function App() {
       case 'community':   return <CommunityScreen C={C} setTab={navigateTo} />;
       case 'permits':     return <PermitScreen C={C} setTab={navigateTo} onAskAi={(q) => { setNecaiInitSearch(q); navigateTo('necai'); }} />;
       case 'panelschedule': return <PanelScheduleScreen C={C} setTab={navigateTo} />;
+      case 'connect':     return <ContractorConnectScreen C={C} setTab={navigateTo} />;
       case 'blueprint':   return (
         <BlueprintScreen
           C={C}

@@ -54,6 +54,7 @@ export const HOME_CARDS = Object.freeze([
   { id: 'projects', kind: CardKind.SHORTCUT, tab: 'projects', title: 'Projects', sub: 'Everything on one job', icon: 'folder-open', group: 'Work' },
   { id: 'materials', kind: CardKind.SHORTCUT, tab: 'materials', title: 'Material List', sub: 'Build it, send it', icon: 'cart', group: 'Work' },
   { id: 'community', kind: CardKind.SHORTCUT, tab: 'community', title: 'Community', sub: 'Questions and jobs', icon: 'people', group: 'Work' },
+  { id: 'connect', kind: CardKind.SHORTCUT, tab: 'connect', title: 'Contractor Connect', sub: 'Opportunities, qualifiers, licences', icon: 'link', group: 'Work' },
   // Job Cam is the camera inside a project now, so the card points at Projects.
   // Kept under its own id so a saved layout holding 'jobcam' still resolves
   // instead of vanishing from that user's Home.

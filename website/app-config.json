@@ -1,6 +1,6 @@
 {
   "_readme": "SparkConnect kill switch. Edit this file, redeploy the website, and the change reaches every installed app within hours — no App Store review. Safety behaviour (refusals, disclaimers, the authority boundary) is NOT remotely disableable; the app ignores any attempt to switch those off.",
-  "_howToDisableAFeature": "Add the feature id under \"features\" with \"disabled\": true. Ids: SPARK_AI, VOICE_ASK, CALCULATOR, TROUBLESHOOT, WIRING_LESSON, JOBSITE, BLUEPRINT, JOB_CAM, PERMIT.",
+  "_howToDisableAFeature": "Add the feature id under \"features\" with \"disabled\": true. Ids: SPARK_AI, VOICE_ASK, CALCULATOR, TROUBLESHOOT, WIRING_LESSON, JOBSITE, BLUEPRINT, JOB_CAM, PERMIT, CONTRACTOR_CONNECT.",
   "_example": { "features": { "BLUEPRINT": { "disabled": true } }, "notice": "Blueprint Takeoff is off while we fix an upload problem." },
   "features": {},
   "notice": null,

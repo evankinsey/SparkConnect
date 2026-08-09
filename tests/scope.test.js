@@ -68,6 +68,7 @@ const FILES = [
   'src/screens/PermitScreen.js',
   'src/screens/BlueprintScreen.js',
   'src/screens/PanelScheduleScreen.js',
+  'src/screens/ContractorConnectScreen.js',
   'src/core/field/assemblies.js',
   'src/core/field/panelSchedule.js',
   'src/core/field/priceBook.js',
