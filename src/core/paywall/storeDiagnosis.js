@@ -223,6 +223,10 @@ export const diagnose = (facts = {}) => {
   const {
     sdkPresent = true, configured = true,
     requested = [], returned = [], errorCode = null, wanted = null,
+    // From StoreKit via checkStore(). Never defaulted to true — a trial
+    // promised to somebody who cannot have one opens a sheet that charges
+    // immediately and contradicts the button they just pressed.
+    trialEligible = false,
     // Subscription products do not come from getProducts. They come from the
     // current Offering, which is a separate call that fails for separate
     // reasons — and the build that has been selling subscriptions since 1.0
@@ -304,6 +308,8 @@ export const diagnose = (facts = {}) => {
     // offering check ran, which is treated as "do not block" — never as empty.
     subscriptionsSellable: pkgs === null ? true : pkgs.length > 0,
     errorCode,
+    // From the store. Never defaulted to true — see checkStore().
+    trialEligible: trialEligible === true,
     // The distinction the whole module exists for, stated plainly enough that a
     // screen can render it without re-deriving it.
     everythingFailed: req.length > 0 && ret.length === 0 && (pkgs === null || pkgs.length === 0),

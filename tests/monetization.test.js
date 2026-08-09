@@ -221,3 +221,49 @@ test('the packs are named for what they are', async () => {
   assert.doesNotMatch(blob, /Query Pack/i, '"Query Packs" survived the rename');
   assert.match(blob, /SparkAI Answer Packs/);
 });
+
+// ─── Purchases have to actually work ─────────────────────────────────────────
+
+test('a trial is never promised before StoreKit confirms eligibility', async () => {
+  const { buildPaywall, ctaFor, termsFor, PRODUCTS, ProductId } =
+    await import('../src/core/paywall/config.js');
+  const { diagnose } = await import('../src/core/paywall/storeDiagnosis.js');
+
+  // The default at EVERY layer is false. A trial offered to somebody who has
+  // already used one opens a sheet that charges immediately and contradicts the
+  // button they just pressed — a refund request and an App Review rejection.
+  assert.equal(diagnose({}).trialEligible, false, 'the diagnosis defaults to eligible');
+  assert.equal(buildPaywall({}).trialEligible, false, 'the paywall model defaults to eligible');
+  assert.doesNotMatch(buildPaywall({}).cta.title, /trial/i);
+  assert.doesNotMatch(buildPaywall({}).terms, /trial/i);
+
+  // Only annual carries it, and only when confirmed.
+  assert.match(buildPaywall({ trialEligible: true }).cta.title, /7-Day Free Trial/);
+  assert.doesNotMatch(
+    ctaFor(PRODUCTS[ProductId.PRO_MONTHLY], { trialEligible: true }).title, /trial/i,
+    'monthly was given a trial',
+  );
+  // The disclosure always matches what will be charged.
+  assert.doesNotMatch(termsFor(PRODUCTS[ProductId.PRO_ANNUAL]), /trial/i);
+});
+
+test('an unverified product is never offered for sale', async () => {
+  const { buildPaywall } = await import('../src/core/paywall/config.js');
+  // sparkconnect_lifetime_tools has never been confirmed in App Store Connect.
+  // A plan that cannot be bought is the failure that broke builds 27, 28 and 29.
+  assert.equal(buildPaywall({}).lifetime, null);
+  assert.ok(buildPaywall({ lifetimeConfirmed: true }).lifetime);
+
+  const src = fs.readFileSync('src/SparkPaywall.js', 'utf8');
+  // Confirmation comes from what the store RETURNED, not from a constant.
+  assert.match(src, /lifetimeConfirmed: !!store\?\.returned/);
+  assert.match(src, /trialEligible: store\?\.trialEligible === true/);
+});
+
+test('eligibility is read from the store, and UNKNOWN counts as no', async () => {
+  const src = fs.readFileSync('src/purchases.js', 'utf8');
+  assert.match(src, /checkTrialOrIntroductoryPriceEligibility/);
+  // Status 2 is ELIGIBLE. 0 is UNKNOWN and must not be treated as yes.
+  assert.match(src, /Number\(e\?\.status\) === 2/);
+  assert.match(src, /let trialEligible = false/);
+});

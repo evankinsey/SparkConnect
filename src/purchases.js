@@ -153,6 +153,23 @@ export async function checkStore() {
     errorCode = errorCode ?? codeOf(e);
   }
 
+  // Trial eligibility, from the store rather than from hope.
+  //
+  // ELIGIBLE is status 2. UNKNOWN (0) is treated as NOT eligible on purpose:
+  // RevenueCat returns it when it cannot determine subscription-group state,
+  // and guessing "yes" there produces a button offering a free trial followed
+  // by a sheet that charges immediately. Under-promising costs a little
+  // conversion; over-promising costs a refund and an App Review rejection.
+  let trialEligible = false;
+  try {
+    if (typeof Purchases.checkTrialOrIntroductoryPriceEligibility === 'function') {
+      const ids = PRODUCT_ALIASES[ProductId.PRO_ANNUAL] ?? [ProductId.PRO_ANNUAL];
+      const map = await Purchases.checkTrialOrIntroductoryPriceEligibility(ids);
+      trialEligible = Object.values(map || {})
+        .some((e) => Number(e?.status) === 2);
+    }
+  } catch (e) { /* unknown stays not-eligible */ }
+
   return record({
     sdkPresent: true,
     configured,
@@ -160,6 +177,7 @@ export async function checkStore() {
     returned,
     offeringPackages: packages,
     errorCode,
+    trialEligible,
   });
 }
 

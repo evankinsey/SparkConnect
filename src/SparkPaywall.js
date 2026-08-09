@@ -86,9 +86,21 @@ export default function SparkPaywall({
   const [busy, setBusy] = useState(false);
   const [selPack, setSelPack] = useState(ProductId.PACK_50);
 
+  // Both of these come from the STORE, and both default to false.
+  //
+  //   trialEligible    — StoreKit decides. A trial offered to somebody who has
+  //                      already used one opens a sheet that charges instantly.
+  //   lifetimeConfirmed — sparkconnect_lifetime_tools has never been verified in
+  //                      App Store Connect. A plan that cannot be bought is the
+  //                      failure that has broken three builds running, so it is
+  //                      shown only once the store has actually returned it.
   const model = useMemo(
-    () => buildPaywall({ placement, variant, selectedProductId: selectedId }),
-    [placement, variant, selectedId],
+    () => buildPaywall({
+      placement, variant, selectedProductId: selectedId,
+      trialEligible: store?.trialEligible === true,
+      lifetimeConfirmed: !!store?.returned?.some((id) => matchesProduct(ProductId.LIFETIME_TOOLS, id)),
+    }),
+    [placement, variant, selectedId, store],
   );
 
   // If the store cannot sell the selected plan but can sell another, move the
