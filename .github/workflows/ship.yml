@@ -74,6 +74,13 @@ jobs:
       - name: Legal pages match the policy module
         run: npm run legal:check
 
+      # The published allowance policy is what /api/ask-nec enforces. If it has
+      # drifted from the app's own numbers, the build would ship advertising a
+      # limit the backend does not honour — which is the bug this whole
+      # generator exists to prevent.
+      - name: Allowance policy matches the code
+        run: npm run allowance:check
+
   ship:
     name: Build and submit
     needs: preflight

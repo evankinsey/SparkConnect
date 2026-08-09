@@ -267,3 +267,58 @@ test('eligibility is read from the store, and UNKNOWN counts as no', async () =>
   assert.match(src, /Number\(e\?\.status\) === 2/);
   assert.match(src, /let trialEligible = false/);
 });
+
+// ─── Client and server must agree ────────────────────────────────────────────
+
+test('the published policy is generated from the code, never typed', () => {
+  const policy = JSON.parse(fs.readFileSync('website/allowance-policy.json', 'utf8'));
+  assert.equal(policy.tiers.free.perDay, ASK_ALLOWANCE.free.perDay);
+  assert.equal(policy.tiers.pro.perDay, ASK_ALLOWANCE.pro.perDay);
+  assert.equal(policy.tiers.pro.perMonth, ASK_ALLOWANCE.pro.monthlyBackstop);
+  assert.equal(policy.tiers.lifetime.perDay, ASK_ALLOWANCE.lifetime.perDay);
+  assert.match(policy._readme, /DO NOT EDIT BY HAND/);
+
+  // Purchased answers survive every reset. Somebody paid for those.
+  assert.equal(policy.purchasedAnswers.expires, false);
+  assert.equal(policy.purchasedAnswers.resetByDaily, false);
+  assert.equal(policy.purchasedAnswers.resetByMonthly, false);
+  assert.equal(policy.purchasedAnswers.consumedAfterIncluded, true);
+});
+
+test('a backend enforcing a different number is detected, not ignored', async () => {
+  const { checkAgreement, Agreement, agreementNotice, agreementLine } =
+    await import('../src/core/paywall/policyCheck.js');
+
+  // Server says 4 left after 1 used = a ceiling of 5. Free is 5. Agreed.
+  assert.equal(checkAgreement({ remaining: 4, usedToday: 1 }).status, Agreement.AGREE);
+
+  // Server enforcing 3/day while the app sold 5.
+  const strict = checkAgreement({ remaining: 2, usedToday: 1 });
+  assert.equal(strict.status, Agreement.SERVER_STRICTER);
+  assert.equal(strict.serverLimit, 3);
+  assert.match(agreementNotice(strict), /3 answers a day right now, not 5/);
+  assert.match(agreementNotice(strict), /nothing you have bought is affected/);
+
+  // A windfall is logged, never announced.
+  const loose = checkAgreement({ remaining: 30, usedToday: 0 });
+  assert.equal(loose.status, Agreement.SERVER_LOOSER);
+  assert.equal(agreementNotice(loose), null, 'the user was told they got MORE than promised');
+
+  // Off by one is timing, not policy.
+  assert.equal(checkAgreement({ remaining: 5, usedToday: 0 }).status, Agreement.AGREE);
+
+  // Nothing observed yet says so rather than guessing.
+  for (const bad of [{}, { remaining: null }, { remaining: -3 }, null]) {
+    assert.equal(checkAgreement(bad).status, Agreement.UNKNOWN);
+  }
+  assert.match(agreementLine(null), /not yet observed/);
+  assert.match(agreementLine(strict), /MISMATCH/);
+});
+
+test('the client never overrules the server', async () => {
+  const src = fs.readFileSync('src/core/paywall/policyCheck.js', 'utf8');
+  // The server is the authority on what it will serve. This module notices a
+  // disagreement; it must not try to grant anybody anything.
+  assert.doesNotMatch(src, /grant|unlock|override|setLimit/i);
+  assert.match(src, /only NOTICES|cannot overrule/i);
+});
