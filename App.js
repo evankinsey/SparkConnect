@@ -18,6 +18,10 @@ import HoursScreen from './src/screens/HoursScreen';
 import { ask as sparkAsk, Provenance as SparkProvenance } from './src/core/ai/sparkai';
 import { knowledgeBase } from './src/core/ai/knowledge';
 import { answerFooter } from './src/core/ai/answer';
+import {
+  Mode, MODES, modeById, promptFor, attachmentTray, Attachment,
+  answerActions, AnswerAction, SIMPLIFY_PROMPT, sourceBadge, historyGroups,
+} from './src/core/ai/modes';
 import { buildPriceQuestion, priceAskBlocker, PRICE_DISCLAIMER } from './src/core/ai/estimatorAsk';
 import { FREE_LIMITS, Feature, proAskAllowanceLabel } from './src/core/paywall/entitlements';
 import { CAST_IMAGES } from './src/screens/castImages';
@@ -2203,7 +2207,6 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
   const [isRecording, setIsRecording] = React.useState(false);
   const [recordingTime, setRecordingTime] = React.useState(0);
   const [remainingQuestions, setRemainingQuestions] = React.useState(null);
-  const [showBrowse, setShowBrowse] = React.useState(false);
   const scrollRef = React.useRef(null);
   const recordingRef = React.useRef(null);
   const timerRef = React.useRef(null);
@@ -2234,18 +2237,19 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
     return () => { try { s.remove(); h.remove(); } catch {} };
   }, []);
 
-  const SPARKY_MODES = [
-    { id: 'general',     emoji: '⚡', label: 'General',           prefix: '' },
-    { id: 'nec',         emoji: '📖', label: 'NEC Code',          prefix: 'NEC code question: ' },
-    { id: 'troubleshoot',emoji: '🔧', label: 'Troubleshoot',      prefix: 'Help me troubleshoot this electrical issue: ' },
-    { id: 'apprentice',  emoji: '🎓', label: 'Explain Simply',    prefix: 'Explain this like I am an apprentice electrician: ' },
-    { id: 'materials',   emoji: '📦', label: 'Material List',     prefix: 'Give me a complete material and parts list for: ' },
-    { id: 'inspection',  emoji: '✅', label: 'Inspection Prep',   prefix: 'Help me prepare for electrical inspection on: ' },
-    { id: 'quiz',        emoji: '🧠', label: 'Quiz Me',           prefix: 'Quiz me with an NEC code question about: ' },
-    { id: 'bending',     emoji: '🔩', label: 'Bending Help',      prefix: 'Help me with pipe/conduit bending for: ' },
-    { id: 'spanish',     emoji: '🇪🇸', label: 'En Español',       prefix: 'Responde en español. ' },
-    { id: 'mandarin',    emoji: '🇨🇳', label: '普通话',            prefix: 'Please respond in Mandarin Chinese. ' },
-  ];
+  // Modes come from core/ai/modes.js, which also owns what each one PUTS ON
+  // SCREEN. They used to be four chips that swapped a hidden prompt prefix and
+  // nothing else, so picking one changed nothing you could see.
+  //
+  // "Explain Simply" is gone from here on purpose: the other three describe a
+  // kind of QUESTION and that one described a kind of ANSWER. It is now an
+  // action on any response, which is where you actually decide you want it.
+  const SPARKY_MODES = MODES;
+  const [showHistory, setShowHistory] = useState(false);
+  // What the selected mode puts on screen. Derived, so a chip can never be lit
+  // while the body below it belongs to a different mode.
+  const modeHome = React.useMemo(() => modeById(activeMode), [activeMode]);
+
 
   // Load conversation history from storage (cross-session memory)
   React.useEffect(() => {
@@ -2777,19 +2781,30 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
             <Ionicons name="flash" size={14} color="#fff" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>SparkAI</Text>
-            <Text style={{ fontSize: 10, color: C.textTert }}>NEC · Estimates · Pricing · Photo analysis</Text>
-          </View>
-          {remainingQuestions !== null && !isPro && (
-            <View style={{ backgroundColor: remainingQuestions <= 1 ? C.warningBg : C.successBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-              <Text style={{ fontSize: 10, fontWeight: '700', color: remainingQuestions <= 1 ? C.warning : C.success }}>
-                {remainingQuestions} left today
-              </Text>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: C.text, letterSpacing: -0.2 }}>SparkAI</Text>
+            {/* One line, not a paragraph. A returning electrician does not need
+                the app to introduce itself on every launch. */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 }}>
+              <Text style={{ fontSize: 10.5, color: C.textTert }}>Your electrical copilot</Text>
+              {isPro ? (
+                <View style={{ backgroundColor: C.amberBg, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                  <Text style={{ fontSize: 9, fontWeight: '800', color: C.amber }}>PRO</Text>
+                </View>
+              ) : null}
+              {remainingQuestions !== null && !isPro ? (
+                <Text style={{ fontSize: 10.5, fontWeight: '700', color: remainingQuestions <= 1 ? C.warning : C.textTert }}>
+                  · {remainingQuestions} answers left
+                </Text>
+              ) : null}
             </View>
-          )}
-          <TouchableOpacity onPress={() => setShowBrowse(b => !b)}
-            style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: showBrowse ? C.blueSub : C.inputBg, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="book-outline" size={16} color={showBrowse ? C.blue : C.textSec} />
+          </View>
+          {/* A recognisable history icon. The book icon read as "reference
+              library" and opened a conversation list, which is a different
+              thing entirely. */}
+          <TouchableOpacity onPress={() => setShowHistory(h => !h)}
+            accessibilityRole="button" accessibilityLabel="Conversation history"
+            style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: showHistory ? C.blueSub : C.inputBg, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="time-outline" size={17} color={showHistory ? C.blue : C.textSec} />
           </TouchableOpacity>
           {messages.length > 0 && (
             <TouchableOpacity onPress={startNewConversation}
@@ -2804,29 +2819,45 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
           {SPARKY_MODES.map(mode => (
             <TouchableOpacity key={mode.id} onPress={() => setActiveMode(mode.id)}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99, backgroundColor: activeMode === mode.id ? C.amber : C.inputBg, borderWidth: 1, borderColor: activeMode === mode.id ? C.amber : C.border }}>
-              <Text style={{ fontSize: 11 }}>{mode.emoji}</Text>
-              <Text style={{ fontSize: 11, fontWeight: activeMode === mode.id ? '700' : '500', color: activeMode === mode.id ? '#fff' : C.textSec }}>{mode.label}</Text>
+              <Ionicons name={mode.icon} size={12} color={activeMode === mode.id ? '#1A1408' : C.textSec} />
+              <Text style={{ fontSize: 11.5, fontWeight: activeMode === mode.id ? '800' : '600', color: activeMode === mode.id ? '#1A1408' : C.textSec }}>{mode.label}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
-      {/* ── Browse NEC Reference (collapsible) ── */}
-      {showBrowse && (
-        <View style={{ backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, maxHeight: 220 }}>
-          <View style={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4 }}>
-            <Text style={{ fontSize: 10, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.5 }}>NEC Quick Reference — tap to ask</Text>
-          </View>
-          <ScrollView contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 10 }} showsVerticalScrollIndicator={false}>
-            {NEC_KB.map(a => (
-              <TouchableOpacity key={a.id} onPress={() => { setShowBrowse(false); handleSend(a.topic); }}
-                style={{ paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: C.borderLight, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <View>
-                  <Text style={{ fontSize: 13, color: C.text, fontWeight: '600' }}>{a.topic}</Text>
-                  <Text style={{ fontSize: 10, color: C.textTert }}>{a.refs.slice(0, 2).join(' · ')}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={14} color={C.textTert} />
-              </TouchableOpacity>
+      {/* ── History ─────────────────────────────────────────────────────
+          Saved AI work was disappearing into individual chat sessions. Grouped
+          by when somebody would look for it — nobody remembers asking about
+          GFCI at 11:32, they remember it was this morning. */}
+      {showHistory && (
+        <View style={{ backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, maxHeight: 300 }}>
+          <ScrollView contentContainerStyle={{ paddingHorizontal: 14, paddingVertical: 12 }} showsVerticalScrollIndicator={false}>
+            {historyGroups(convos.map(c => ({ ...c, updatedAt: new Date(c.ts).toISOString() }))).length === 0 ? (
+              <Text style={{ fontSize: 12.5, color: C.textTert, lineHeight: 19 }}>
+                Nothing yet. Answers you get are kept here so they stop disappearing into
+                one-off chats.
+              </Text>
+            ) : historyGroups(convos.map(c => ({ ...c, updatedAt: new Date(c.ts).toISOString() }))).map((g) => (
+              <View key={g.label} style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 9.5, fontWeight: '800', color: C.textTert, textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 7 }}>
+                  {g.label}
+                </Text>
+                {g.items.map((c) => (
+                  <TouchableOpacity key={c.id} onPress={() => { setShowHistory(false); openConversation(c); }} activeOpacity={0.85}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.bg, borderRadius: 11, borderWidth: 1, borderColor: C.border, padding: 11, marginBottom: 7 }}>
+                    <Ionicons name="chatbubble-ellipses-outline" size={15} color={C.amber} />
+                    <View style={{ flex: 1 }}>
+                      <Text numberOfLines={1} style={{ fontSize: 12.5, fontWeight: '600', color: C.text }}>{c.title}</Text>
+                      <Text style={{ fontSize: 10.5, color: C.textTert, marginTop: 1 }}>{c.count} messages</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => deleteConversation(c.id)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      accessibilityRole="button" accessibilityLabel="Delete conversation">
+                      <Ionicons name="trash-outline" size={14} color={C.textTert} />
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                ))}
+              </View>
             ))}
           </ScrollView>
         </View>
@@ -2841,52 +2872,65 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
         keyboardShouldPersistTaps="handled"
       >
         {/* Empty state */}
+        {/* ── The mode's own home ────────────────────────────────────────
+            This used to be a large card in which SparkAI explained what it was,
+            every time, followed by an identical empty box whichever mode was
+            selected. The middle of the screen now belongs to the mode: the
+            question it is for, and the ways into it. That is what makes the
+            four chips specialised tools rather than filters. */}
         {messages.length === 0 && !loading && (
           <View>
-            {/* Welcome bubble */}
-            <View style={{ alignItems: 'flex-start', marginBottom: 20 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, maxWidth: '92%' }}>
-                <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
-                  <Ionicons name="flash" size={15} color="#fff" />
-                </View>
-                <View style={{ flex: 1, backgroundColor: C.surface, borderRadius: 18, borderTopLeftRadius: 5, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: C.amber, paddingHorizontal: 14, paddingVertical: 12 }}>
-                  <Text style={{ fontSize: 14, color: C.text, lineHeight: 22 }}>
-                    {"Hey! I'm SparkAI ⚡ — your electrical field expert.\n\nAsk me about NEC code, material costs, installation how-tos, load calculations, permit questions, estimates, or snap a photo of a panel or wiring problem and I'll take a look."}
-                  </Text>
-                </View>
-              </View>
+            <View style={{ backgroundColor: C.surface, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: C.amber, marginBottom: 16 }}>
+              <Text style={{ fontSize: 17, fontWeight: '800', color: C.text, letterSpacing: -0.3 }}>{modeHome.headline}</Text>
+              <Text style={{ fontSize: 12.5, color: C.textSec, lineHeight: 18, marginTop: 5 }}>{modeHome.sub}</Text>
             </View>
 
-            {/* Recent conversations — people love chat history */}
-            {convos.length > 0 && (
-              <View style={{ marginBottom: 18 }}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Recent conversations</Text>
-                {convos.map((c) => (
-                  <TouchableOpacity key={c.id} onPress={() => openConversation(c)} activeOpacity={0.85}
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 12, marginBottom: 8 }}>
-                    <Ionicons name="chatbubble-ellipses-outline" size={16} color={C.amber} />
-                    <View style={{ flex: 1 }}>
-                      <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '600', color: C.text }}>{c.title}</Text>
-                      <Text style={{ fontSize: 11, color: C.textTert, marginTop: 1 }}>{new Date(c.ts).toLocaleDateString()} · {c.count} messages</Text>
-                    </View>
-                    <TouchableOpacity onPress={() => deleteConversation(c.id)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      accessibilityRole="button" accessibilityLabel="Delete conversation">
-                      <Ionicons name="trash-outline" size={15} color={C.textTert} />
+            {/* Troubleshooting starts from a photo as often as from words. */}
+            {modeHome.photoAction ? (
+              <TouchableOpacity onPress={() => pickImg(true)} activeOpacity={0.85}
+                accessibilityRole="button" accessibilityLabel={modeHome.photoAction.label}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.blueSub, borderWidth: 1.5, borderColor: C.blue, borderRadius: 13, paddingVertical: 14, marginBottom: 16 }}>
+                <Ionicons name={modeHome.photoAction.icon} size={17} color={C.blue} />
+                <Text style={{ fontSize: 13.5, fontWeight: '800', color: C.blue }}>{modeHome.photoAction.label}</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            <Text style={{ fontSize: 10, fontWeight: '800', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 9 }}>
+              {modeHome.id === 'troubleshoot' ? 'Common issues' : modeHome.id === 'general' ? 'Try asking' : 'What do you need?'}
+            </Text>
+            {modeHome.entries.map((e) => (
+              <TouchableOpacity key={e.id} activeOpacity={0.8}
+                onPress={() => {
+                  if (e.needsPhoto) { pickImg(false); return; }
+                  if (e.ask) { setInputText(e.ask); return; }
+                  if (e.tab && setTab) { setTab(e.tab); }
+                }}
+                accessibilityRole="button" accessibilityLabel={e.label}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 13, marginBottom: 8 }}>
+                <Ionicons name={e.icon} size={18} color={C.amber} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.text }}>{e.label}</Text>
+                  {e.sub ? <Text style={{ fontSize: 11, color: C.textTert, marginTop: 2, lineHeight: 15 }}>{e.sub}</Text> : null}
+                </View>
+                <Ionicons name="chevron-forward" size={14} color={C.textTert} />
+              </TouchableOpacity>
+            ))}
+
+            {modeHome.topics ? (
+              <>
+                <Text style={{ fontSize: 10, fontWeight: '800', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 14, marginBottom: 9 }}>
+                  Popular topics
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
+                  {modeHome.topics.map((t) => (
+                    <TouchableOpacity key={t} onPress={() => handleSend(t)} activeOpacity={0.75}
+                      style={{ backgroundColor: C.inputBg, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 99, borderWidth: 1, borderColor: C.border }}>
+                      <Text style={{ fontSize: 11.5, color: C.textSec, fontWeight: '600' }}>{t}</Text>
                     </TouchableOpacity>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            <Text style={{ fontSize: 10, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Try asking:</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {EXAMPLES.map(e => (
-                <TouchableOpacity key={e} onPress={() => handleSend(e)} activeOpacity={0.7}
-                  style={{ backgroundColor: C.surface, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 99, borderWidth: 1, borderColor: C.border }}>
-                  <Text style={{ fontSize: 12, color: C.text, fontWeight: '500' }}>{e}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+                  ))}
+                </View>
+              </>
+            ) : null}
           </View>
         )}
 
