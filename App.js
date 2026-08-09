@@ -542,9 +542,25 @@ const askNecBackend = async (payload) => {
     });
     clearTimeout(to);
     if (res.status === 429) return 'rate_limited';
-    if (!res.ok) throw new Error(`Backend ${res.status}`);
+    if (!res.ok) {
+      // Return the STATUS rather than collapsing it to null.
+      //
+      // Every failure used to become null, so a 413, a 401, a 500 and airplane
+      // mode all produced the same sentence on screen: "check your connection".
+      // Blueprint Takeoff showed that while the connection was fine, which sent
+      // two days at the wrong end of the stack. A caller that wants the old
+      // behaviour still gets a falsy `answer`; one that wants to say something
+      // true now can.
+      const body = await res.text().catch(() => '');
+      return { ok: false, status: res.status, body: body.slice(0, 300) };
+    }
     return await res.json();
-  } catch (e) { safeLog('askNecBackend', e); return null; }
+  } catch (e) {
+    safeLog('askNecBackend', e);
+    // AbortError is a timeout, not an unreachable host, and telling somebody to
+    // check their connection when the request was simply slow is wrong advice.
+    return { ok: false, status: 0, aborted: e?.name === 'AbortError', body: e?.message ?? '' };
+  }
 };
 
 // ─── CALCULATOR DATA ──────────────────────────────────────────────────────────
