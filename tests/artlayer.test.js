@@ -5,6 +5,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   ART, Source, artLayer, readSprite, isValidSprite, missingArt, placeSprite, ART_RULES,
@@ -138,4 +139,52 @@ test('clutter never seals a room off', () => {
   for (const key of protectedKeys) {
     assert.ok(reached.has(key), `tile ${key} was walled off by a prop`);
   }
+});
+
+// ─── The wiring ──────────────────────────────────────────────────────────────
+// artLayer being correct is worthless if the screen never calls it. These read
+// the screen source, because the failure they catch is a seam that exists and
+// is not connected to anything — which is exactly what shipped last build.
+
+test('the jobsite screen actually resolves its props through the art layer', () => {
+  const src = readFileSync(new URL('../src/screens/JobsiteScreen.js', import.meta.url), 'utf8');
+
+  assert.match(src, /buildArt\(VECTOR_ART\)/, 'the screen never builds a resolver');
+  assert.match(src, /<Art\b/, 'the screen never draws through the resolver');
+
+  // Every name the screen asks for must be a name the art order knows, or the
+  // atlas can never satisfy it.
+  const asked = [...src.matchAll(/name="([A-Za-z]+)"/g)].map((m) => m[1]);
+  const mapped = [...src.matchAll(/:\s*'([A-Z][A-Za-z]+)',/g)].map((m) => m[1]);
+  const names = new Set([...asked, ...mapped]);
+  assert.ok(names.size > 10, `only found ${names.size} art names in the screen`);
+  for (const n of names) {
+    assert.ok(ART.includes(n), `"${n}" is drawn but is not in the art order`);
+  }
+});
+
+test('every art name the screen can ask for has a vector fallback declared', () => {
+  const src = readFileSync(new URL('../src/screens/JobsiteScreen.js', import.meta.url), 'utf8');
+  const block = src.match(/const VECTOR_ART = \{([\s\S]*?)\};/);
+  assert.ok(block, 'VECTOR_ART is gone, so nothing falls back');
+  const declared = new Set(block[1].split(/[,\s]+/).filter(Boolean));
+
+  const asked = new Set([
+    ...[...src.matchAll(/name="([A-Za-z]+)"/g)].map((m) => m[1]),
+    ...[...src.matchAll(/:\s*'([A-Z][A-Za-z]+)',/g)].map((m) => m[1]),
+  ]);
+  for (const n of asked) {
+    assert.ok(declared.has(n), `"${n}" would render as nothing with no atlas`);
+  }
+});
+
+test('the atlas is declared in one place and is honest about being absent', () => {
+  const src = readFileSync(new URL('../src/screens/jobsiteArt.js', import.meta.url), 'utf8');
+  assert.match(src, /export const ATLAS = null;/,
+    'the atlas must stay null until real art exists — a require of a missing '
+    + 'file is a bundling error that takes the whole app down at launch');
+  // Comment lines are the documented shape of a future atlas, not a require.
+  const code = src.split('\n').filter((l) => !/^\s*(\*|\/\/)/.test(l)).join('\n');
+  assert.equal((code.match(/require\(/g) ?? []).length, 0,
+    'no asset is required until there is one to require');
 });

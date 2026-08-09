@@ -23,7 +23,7 @@ import { ask, ground, inheritParams, modelContext, SYSTEM_RULES, MEMORY_TURNS } 
 import { resolveCitation } from '../src/nec/citations.js';
 import { createDevice, Origin } from '../src/core/blueprint/device.js';
 import { accept } from '../src/core/blueprint/verification.js';
-import { fillFor } from '../src/core/domain/conduitFill.js';
+import { fillFor, maxConductors } from '../src/core/domain/conduitFill.js';
 
 const box = (x) => ({ x1: x, y1: 0, x2: x + 10, y2: 10 });
 const confirmedDevices = () => [
@@ -305,6 +305,74 @@ test('every tool is well formed and cites what it claims', () => {
     assert.ok(t.triggers.length > 0, `${t.id} can never be matched`);
   }
   assert.equal(new Set(TOOLS.map((t) => t.id)).size, TOOLS.length);
+});
+
+// ─── Reachability ────────────────────────────────────────────────────────────
+// A tool nobody can reach is worse than a missing tool: the question falls
+// through to the model, the model states a number, and the answer contract
+// refuses it — so the user is told SparkAI won't guess about something the app
+// computes exactly. These are the phrasings that were doing that.
+
+test('real phrasings reach the calculator instead of the model', () => {
+  const cases = [
+    ['How many 12 AWG THHN fit in 3/4 inch EMT?', 'conduit_fill'],
+    ['how many #12 can I pull in 1 inch conduit', 'conduit_fill'],
+    ['what size conduit for 9 12 AWG conductors', 'conduit_fill'],
+    ['how many 12 AWG wires fit in 1/2 EMT', 'conduit_fill'],
+    ['what size box for 6 12 AWG conductors and 1 device', 'box_fill'],
+    ['how big of a box do I need', 'box_fill'],
+    ['how much voltage will I lose over 150 feet', 'voltage_drop'],
+    ['ampacity after adjustment for more than three', 'derating'],
+  ];
+  for (const [q, expected] of cases) {
+    const d = route(q);
+    assert.equal(d.route, Route.TOOL, `"${q}" went to ${d.route}, not a calculator`);
+    assert.equal(d.tool, expected, `"${q}" reached ${d.tool}`);
+  }
+});
+
+test('the question from the screenshot computes end to end', () => {
+  const d = route('How many 12 AWG THHN fit in 3/4 inch EMT?');
+  assert.ok(readyForTool(d), 'the question supplied everything and still asked for more');
+  const r = runTool(d.tool, d.params);
+  assert.equal(r.provenance, Provenance.ENGINE);
+  assert.equal(r.text, `${maxConductors('EMT', '3/4"', 'THHN', '12')} conductors.`);
+});
+
+test('conduit fill solves in both directions', () => {
+  const forCount = runTool('conduit_fill', { awg: 12, conduitSize: '3/4"' });
+  assert.match(forCount.text, /conductors?\./);
+
+  const forSize = runTool('conduit_fill', { awg: 12, count: 9 });
+  assert.equal(forSize.provenance, Provenance.ENGINE);
+  assert.equal(forSize.text, '1/2" EMT.');
+
+  // Nothing on file is big enough → say so, never round up past the table.
+  const tooMany = runTool('conduit_fill', { awg: 8, count: 40 });
+  assert.equal(tooMany.provenance, Provenance.REFUSED);
+
+  // Neither end given → one specific question, not a circular one.
+  const empty = runTool('conduit_fill', { awg: 12 });
+  assert.equal(empty.provenance, Provenance.REFUSED);
+  assert.ok(empty.needsPrompts?.length, 'a gap must name what it needs');
+  assert.doesNotMatch(empty.needsPrompts[0], /^What trade size conduit\? \(for example/,
+    'answering "what size conduit?" with "what size conduit?" is the bug');
+});
+
+test('a gauge in the sentence is not mistaken for a conductor count', () => {
+  assert.equal(extractParams('6 12 AWG conductors').conductors, 6);
+  assert.equal(extractParams('12 AWG conductors').conductors, null,
+    'an unstated count must stay unstated so the follow-up asks for it');
+  assert.equal(extractParams('how many 12 AWG wires fit in 1/2 EMT').count, null);
+});
+
+test('a stated raceway and insulation are read, not assumed', () => {
+  const p = extractParams('9 12 AWG XHHW in 3/4 PVC');
+  assert.equal(p.conduitType, 'PVC-40');
+  assert.equal(p.insulation, 'XHHW');
+  assert.equal(extractParams('12 AWG in 3/4 EMT').conduitType, 'EMT');
+  assert.equal(extractParams('12 AWG in 3/4 conduit').insulation, null,
+    'unstated insulation stays null so the tool applies its own documented default');
 });
 
 test('tool results carry citations that resolve', () => {

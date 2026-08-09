@@ -109,9 +109,8 @@ export const STICK_FLOOR = 22;
  * added because the value positions the CENTRE, and a centre placed at the
  * floor puts half the control inside it.
  */
-export const stickAnchor = ({
-  width, height, side = 'left', inset = 0, radius = 62,
-} = {}) => {
+export const stickAnchor = (input) => {
+  const { width, height, side = 'left', inset = 0, radius = 62 } = input ?? {};
   const w = Number.isFinite(width) && width > 0 ? width : 390;
   const h = Number.isFinite(height) && height > 0 ? height : 844;
   const safe = Math.max(Number.isFinite(inset) ? inset : 0, HOME_INDICATOR_MIN);
@@ -124,8 +123,18 @@ export const stickAnchor = ({
     bottom,
     x: side === 'left' ? margin : w - margin,
     y: h - bottom,
-    // Everything the HUD must stay clear of, measured from the bottom.
+    // Everything the STICK occupies, measured from the bottom.
     reserved: bottom + radius,
+    // Where the dock sits: BESIDE the stick, not above it.
+    //
+    // Stacking the dock on top of the stick pushed it a fifth of the way up the
+    // screen, so it floated across the middle of the world with the stick's
+    // travel underneath it — which is both ugly and unplayable, because the
+    // stick then had nowhere to go. The dock belongs on the same band as the
+    // stick, clear of the home indicator and no higher.
+    dockBottom: safe + 8,
+    // The horizontal room left for it once the stick has taken its side.
+    dockInset: radius * 2 + 34,
   });
 };
 

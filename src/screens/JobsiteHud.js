@@ -293,7 +293,7 @@ export function Dock({ slots, open, onSelect, badge = {}, motion }) {
             motion={motion}
             onPress={() => onSelect(s.id)}
             accessibilityLabel={s.label}
-            style={{ flex: 1, alignItems: 'center', paddingVertical: 7, borderRadius: HUD.radiusSm, backgroundColor: on ? 'rgba(59,130,246,0.18)' : 'transparent' }}>
+            style={{ flex: 1, alignItems: 'center', paddingVertical: 11, borderRadius: HUD.radiusSm, backgroundColor: on ? 'rgba(59,130,246,0.18)' : 'transparent' }}>
             <View>
               <Ionicons name={s.icon} size={19} color={on ? HUD.system : HUD.textSec} />
               {badge[s.id] ? (
@@ -305,9 +305,10 @@ export function Dock({ slots, open, onSelect, badge = {}, motion }) {
                 </View>
               ) : null}
             </View>
-            <Text style={{ fontSize: 9, fontWeight: '800', color: on ? HUD.system : HUD.textDim, marginTop: 3, letterSpacing: 0.3 }}>
-              {s.label}
-            </Text>
+            {/* No label. Five of them across the width left beside the stick
+                renders as one unreadable word — "TasksMapInventoryLearnScore".
+                The icons are standard and each carries an accessibility label,
+                which is what actually needs to name them. */}
           </Press>
         );
       })}

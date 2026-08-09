@@ -44,6 +44,7 @@ import {
   ScissorLift, TempPower, ConduitBundle,
 } from './topdownArt';
 import { PROPS as SITE_PROPS, PropKind, buildSiteMap } from '../core/game/props';
+import { Art, buildArt } from './jobsiteArt';
 import {
   Panel, DOCK, HUD, panelStyle, stickAnchor, HOME_INDICATOR_MIN, density,
   hudLayout, togglePanel, motion as hudMotion, xpBar, levelFor, currency,
@@ -106,11 +107,34 @@ const PROPS = [
   { k: 'cone', x: 12.5, y: 7.4 },
 ];
 
-const PROP_ART = {
-  panel: Panelboard, jbox: JBox, ladder: AFrameLadder, reel: WireReel,
-  gangbox: GangBox, cart: MaterialCart, print: PrintTable,
-  drywall: DrywallStack, cone: SafetyCone, truck: WorkTruck,
-  dumpster: Dumpster, trailer: SiteTrailer, tree: Tree, palm: Palm, pallet: Pallet,
+/**
+ * The same drawables, under the names the art layer knows them by.
+ *
+ * This is the seam. Every prop below is drawn through `<Art>`, which reaches
+ * for a raster sprite when the atlas has one for that name and falls back to
+ * the vector component here when it does not. With no atlas — today — every
+ * lookup falls back, and the world renders exactly as it did before.
+ *
+ * The structural names in ART (SlabTile, StudWall, BarJoist, DoorOpening,
+ * FenceRun) are absent on purpose: they are drawn by the world layer below, not
+ * as per-prop components, so `coverage()` correctly reports them as the part of
+ * the art order with no component-level art behind it yet.
+ */
+const VECTOR_ART = {
+  Panelboard, JBox, EmtRun,
+  AFrameLadder, WireReel, GangBox, MaterialCart, PrintTable, DrywallStack,
+  SafetyCone, Pallet,
+  WorkTruck, Dumpster, SiteTrailer, Tree, Palm,
+  Worker, ObjectiveMarker, DoneMarker,
+};
+
+/** Prop kind → art name, so the decor list keeps its short keys. */
+const PROP_ART_NAME = {
+  panel: 'Panelboard', jbox: 'JBox', ladder: 'AFrameLadder', reel: 'WireReel',
+  gangbox: 'GangBox', cart: 'MaterialCart', print: 'PrintTable',
+  drywall: 'DrywallStack', cone: 'SafetyCone', truck: 'WorkTruck',
+  dumpster: 'Dumpster', trailer: 'SiteTrailer', tree: 'Tree', palm: 'Palm',
+  pallet: 'Pallet',
 };
 
 /**
@@ -136,6 +160,30 @@ const SITE_PROP_ART = {
   [PropKind.CART]: MaterialCart,
   [PropKind.HVAC]: ConduitBundle,
 };
+
+/** The same, by art name. ScissorLift/TempPower/ConduitBundle are vector-only. */
+const SITE_PROP_ART_NAME = {
+  [PropKind.LADDER]: 'AFrameLadder',
+  [PropKind.PALLET]: 'Pallet',
+  [PropKind.GANG_BOX]: 'GangBox',
+  [PropKind.SPOOL]: 'WireReel',
+  [PropKind.SAWHORSE]: 'PrintTable',
+  [PropKind.DEBRIS]: 'DrywallStack',
+  [PropKind.DRYWALL]: 'DrywallStack',
+  [PropKind.PRINT_TABLE]: 'PrintTable',
+  [PropKind.CART]: 'MaterialCart',
+};
+
+/**
+ * The resolver, built once for the module.
+ *
+ * With no atlas every name falls back to the vector component it has always
+ * used, so this changes nothing until art arrives — which is the property that
+ * made it safe to land the seam ahead of the art. Module scope because both
+ * inputs are module constants: rebuilding it per render would allocate a new
+ * resolver every frame for an answer that cannot change.
+ */
+const art = buildArt(VECTOR_ART);
 
 /**
  * Where daylight lands.
@@ -311,10 +359,11 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
     tone: t.done ? HUD.objective : HUD.textDim, count: t.xp,
   })), [taskRows]);
 
-  // The dock sits above the stick, which sits above the home indicator.
-  const dockBottom = useMemo(
-    () => stickAnchor({ width: SW, height: SH, inset: HOME_INDICATOR_MIN, radius: STICK_R }).reserved + 12,
-    [SW, SH],
+  // One geometry for the whole bottom band: the stick's own reserved strip, and
+  // the room left beside it for the dock. Both measured from the home indicator.
+  const anchor = useMemo(
+    () => stickAnchor({ width: SW, height: SH, side, inset: HOME_INDICATOR_MIN, radius: STICK_R }),
+    [SW, SH, side],
   );
 
   const finishedResult = useMemo(
@@ -397,7 +446,7 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
 
       {/* Lower band — one thing at a time, never a stack of dark cards over
           the strip of world the player is walking through. */}
-      <View pointerEvents="box-none" style={{ position: 'absolute', left: 14, right: 14, bottom: dockBottom + 62 }}>
+      <View pointerEvents="box-none" style={{ position: 'absolute', left: 14, right: 14, bottom: anchor.reserved + 24 }}>
         {layout.dialogue && toast ? (
           <Dialogue portrait={portraitFor(toast.who?.id)} name={toast.who?.name}
             text={toast.text} xp={toast.xp} tone={HUD.objective} motion={mo} />
@@ -415,8 +464,14 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
         ) : null}
       </View>
 
-      {/* Dock — the one-tap layer */}
-      <View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, bottom: dockBottom }}>
+      {/* Dock — BESIDE the stick, on the same band, not stacked above it.
+          Stacked, it floated a fifth of the way up the screen across the middle
+          of the world, and the stick had nowhere left to travel. */}
+      <View pointerEvents="box-none" style={{
+        position: 'absolute', bottom: anchor.dockBottom,
+        [side === 'left' ? 'left' : 'right']: anchor.dockInset,
+        [side === 'left' ? 'right' : 'left']: 12,
+      }}>
         <Dock slots={layout.density.dock} open={layout.panel} motion={mo}
           badge={{ [Panel.TASKS]: rollup.total - rollup.done || null }}
           onSelect={(id) => setOpenPanel((cur) => togglePanel(cur, id))} />
@@ -540,8 +595,8 @@ function World({ grid, pos, progress, near, route, facing, step }) {
           {EXTERIOR.map((e, i) => {
             if (e.k === 'fenceH') return <FenceRun key={`e${i}`} tx={e.x} ty={e.y} len={e.len} horiz />;
             if (e.k === 'fenceV') return <FenceRun key={`e${i}`} tx={e.x} ty={e.y} len={e.len} horiz={false} />;
-            const A = PROP_ART[e.k];
-            return A ? <A key={`e${i}`} tx={e.x} ty={e.y} /> : null;
+            const name = PROP_ART_NAME[e.k];
+            return name ? <Art key={`e${i}`} art={art} name={name} tx={e.x} ty={e.y} tile={TILE} /> : null;
           })}
 
           {floors}
@@ -568,17 +623,23 @@ function World({ grid, pos, progress, near, route, facing, step }) {
           {PROPS.map((p, i) => {
             if (p.k === 'emtH') return <EmtRun key={`p${i}`} tx={p.x} ty={p.y} len={p.len} horiz />;
             if (p.k === 'emtV') return <EmtRun key={`p${i}`} tx={p.x} ty={p.y} len={p.len} horiz={false} />;
-            const A = PROP_ART[p.k];
-            return A ? <A key={`p${i}`} tx={p.x} ty={p.y} /> : null;
+            const name = PROP_ART_NAME[p.k];
+            if (!name) return null;
+            return <Art key={`p${i}`} art={art} name={name} tx={p.x} ty={p.y} tile={TILE} />;
           })}
 
           {/* The clutter you go around. Drawn at the CENTRE of its footprint so
               a two-tile pallet sits over both tiles it blocks — art that does
               not match the collision box is worse than no collision box. */}
           {SITE_PROPS.map((p) => {
+            const cx = p.x + p.w / 2;
+            const cy = p.y + p.h / 2;
+            const name = SITE_PROP_ART_NAME[p.kind];
+            if (name) return <Art key={p.id} art={art} name={name} tx={cx} ty={cy} tile={TILE} />;
+            // No art name yet — lift, temp power, conduit bundle. Vector only,
+            // and drawn directly so nothing disappears while the pack fills in.
             const A = SITE_PROP_ART[p.kind];
-            if (!A) return null;
-            return <A key={p.id} tx={p.x + p.w / 2} ty={p.y + p.h / 2} />;
+            return A ? <A key={p.id} tx={cx} ty={cy} /> : null;
           })}
 
           {walls}
@@ -589,14 +650,16 @@ function World({ grid, pos, progress, near, route, facing, step }) {
             const d = isComplete(progress, s.id);
             return (
               <G key={s.id}>
-                <Worker tx={s.x} ty={s.y} facing="down" {...look}
+                <Art art={art} name="Worker" tx={s.x} ty={s.y} tile={TILE} facing="down" {...look}
                   ring={near?.id === s.id ? SKY.green : null} />
-                {d ? <DoneMarker tx={s.x} ty={s.y} /> : <ObjectiveMarker tx={s.x} ty={s.y} pulse={pulse} />}
+                {d
+                  ? <Art art={art} name="DoneMarker" tx={s.x} ty={s.y} tile={TILE} />
+                  : <Art art={art} name="ObjectiveMarker" tx={s.x} ty={s.y} tile={TILE} pulse={pulse} />}
               </G>
             );
           })}
 
-          <Worker tx={pos.x} ty={pos.y} facing={facing} step={step}
+          <Art art={art} name="Worker" tx={pos.x} ty={pos.y} tile={TILE} facing={facing} step={step}
             hat={SKY.amber} vest={SKY.vestLime} shirt="#1F2937" ring={SKY.green} scale={1.05} />
         </G>
 

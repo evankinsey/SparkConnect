@@ -100,12 +100,30 @@ export const Cause = Object.freeze({
  * costs the sale and looks like a broken app.
  */
 export const BLOCKING_CAUSES = Object.freeze([
-  Cause.SDK_ABSENT,           // react-native-purchases is not in this build
-  Cause.BAD_API_KEY,          // RevenueCat rejected the credentials outright
+  Cause.SDK_ABSENT,           // the SDK is not in this build: literally cannot buy
   Cause.PURCHASE_NOT_ALLOWED, // the device itself refuses purchases
   Cause.IDENTIFIER_MISSING,   // other products came back; this one did not
-  Cause.OFFERING_EMPTY,       // products came back; the Offering is genuinely empty
 ]);
+
+// BAD_API_KEY, AGREEMENT_OR_BUNDLE and OFFERING_EMPTY were on that list and are
+// deliberately off it now.
+//
+// Build 32 greyed out every plan on TestFlight with "Purchases are temporarily
+// unavailable", on an account that buys the same products from the App Store
+// build without trouble. The cause was a credentials error raised by a PREFLIGHT
+// call in the StoreKit sandbox — an environment that routinely reports
+// configuration problems that do not exist in production.
+//
+// That is the build 29 mistake again, one cause over, and I made it while
+// fixing build 29. The rule was already written at the top of this list and I
+// applied it too narrowly: an error from a preflight is a report about the
+// preflight, not proof that a purchase would fail. Only three things here are
+// certain enough to disable a button before it is pressed — no SDK at all, a
+// device that refuses purchases, and a product the store returned others
+// alongside but not this one.
+//
+// Everything else lets the tap through and lets the REAL purchase attempt
+// produce the real error, which is both more accurate and recoverable.
 
 const DIAGNOSES = Object.freeze({
   [Cause.SDK_ABSENT]: {

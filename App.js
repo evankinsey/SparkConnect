@@ -16,6 +16,7 @@ import { HomeCards, HomeCustomizeScreen, useHomeLayout, AllToolsSection } from '
 import ToolsScreen from './src/screens/ToolsScreen';
 import HoursScreen from './src/screens/HoursScreen';
 import EstimateScreen from './src/screens/EstimateScreen';
+import { stepQuantity, materialsFromQuantities } from './src/core/domain/estimateBridge';
 import { ask as sparkAsk, Provenance as SparkProvenance } from './src/core/ai/sparkai';
 import { knowledgeBase } from './src/core/ai/knowledge';
 import { answerFooter } from './src/core/ai/answer';
@@ -749,11 +750,11 @@ const Inp = ({ label, value, onChangeText, unit, placeholder, C, keyboardType = 
     );
 
 // ─── BIG BUTTON ───────────────────────────────────────────────────────────
-const BigBtn = ({ onPress, label, color, icon = 'calculator', C }) => {
+const BigBtn = ({ onPress, label, color, icon = 'calculator', C, disabled = false }) => {
   const bg = color || C.blue;
   return (
-    <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 13, marginTop: 4, marginBottom: 16, backgroundColor: bg, shadowColor: bg, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 12, elevation: 6 }}
-      onPress={onPress} activeOpacity={0.85}>
+    <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 13, marginTop: 4, marginBottom: 16, backgroundColor: bg, opacity: disabled ? 0.5 : 1, shadowColor: bg, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 12, elevation: 6 }}
+      onPress={onPress} disabled={disabled} activeOpacity={0.85}>
       <Ionicons name={icon} size={20} color="#fff" />
       <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>{label}</Text>
     </TouchableOpacity>
@@ -1853,6 +1854,52 @@ const AmpacityScreen = ({ C }) => {
 };
 
 // ─── MATERIAL ESTIMATOR ───────────────────────────────────────────────────────
+// A takeoff is counted, not typed. On a jobsite you are walking a room going
+// "two, three, four" — so the control is a stepper you can hit with a glove on,
+// and the totals move while you count. The number stays editable for anyone who
+// already knows it's 47.
+const QtyRow = ({ C, icon, label, hint, value, onChange, step = 1 }) => {
+  const bump = (delta) => onChange(String(stepQuantity(value, delta)));
+  const Btn = ({ dir, name }) => (
+    <TouchableOpacity
+      onPress={() => bump(dir * step)}
+      hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+      style={{
+        width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+        backgroundColor: C.inputBg, borderWidth: 1, borderColor: C.border,
+      }}>
+      <Ionicons name={name} size={18} color={C.text} />
+    </TouchableOpacity>
+  );
+  return (
+    <View style={{
+      flexDirection: 'row', alignItems: 'center', gap: 10,
+      paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border,
+    }}>
+      <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: C.amberBg, alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name={icon} size={16} color={C.amber} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: 13, fontWeight: '600', color: C.text }}>{label}</Text>
+        {hint ? <Text style={{ fontSize: 10, color: C.textTert, marginTop: 1 }}>{hint}</Text> : null}
+      </View>
+      <Btn dir={-1} name="remove" />
+      <TextInput
+        value={String(value ?? '')}
+        onChangeText={(t) => onChange(t.replace(/[^0-9]/g, ''))}
+        keyboardType="number-pad"
+        selectTextOnFocus
+        maxLength={6}
+        style={{
+          minWidth: 52, textAlign: 'center', fontSize: 17, fontWeight: '800',
+          color: C.text, paddingVertical: 6,
+        }}
+      />
+      <Btn dir={1} name="add" />
+    </View>
+  );
+};
+
 const EstimatorScreen = ({ C, setTab, isPro = false }) => {
   const [estimatorZip, setEstimatorZip] = useState('');
   const [recs, setRecs] = useState('10');
@@ -1862,7 +1909,6 @@ const EstimatorScreen = ({ C, setTab, isPro = false }) => {
   const [dedicated, setDedicated] = useState('3');
   const [homeRuns, setHomeRuns] = useState('6');
   const [conduitFt, setConduitFt] = useState('200');
-  const [result, setResult] = useState(null);
   const [showEstimate, setShowEstimate] = useState(false);
 
   // The price ask stays on THIS screen. Previously the button navigated to the
@@ -1911,66 +1957,94 @@ const EstimatorScreen = ({ C, setTab, isPro = false }) => {
     }
   }, [recs, sw, lights, fans, dedicated, homeRuns, conduitFt, estimatorZip]);
 
-  const calc = () => {
-    const r  = toPositiveInteger(recs,      0, 9999);
-    const s  = toPositiveInteger(sw,        0, 9999);
-    const l  = toPositiveInteger(lights,    0, 9999);
-    const f  = toPositiveInteger(fans,      0, 9999);
-    const d  = toPositiveInteger(dedicated, 0, 9999);
-    const hr = toPositiveInteger(homeRuns,  0, 9999);
-    const cf = toPositiveInteger(conduitFt, 0, 999999);
-    const totalBoxes = r + s + l + f + d;
-    setResult([
-      { name: 'Duplex Receptacles', qty: r, unit: 'ea' },
-      { name: 'Single-Pole Switches', qty: s, unit: 'ea' },
-      { name: 'Light Fixture Boxes', qty: l, unit: 'ea' },
-      { name: 'Ceiling Fan Boxes', qty: f, unit: 'ea' },
-      { name: 'Dedicated Circuit Devices', qty: d, unit: 'ea' },
-      { name: 'Total Device Boxes', qty: totalBoxes, unit: 'ea' },
-      { name: 'Circuit Breakers (est.)', qty: hr + d, unit: 'ea' },
-      { name: 'Wire / Conduit Run (est.)', qty: cf + hr * 8, unit: 'ft' },
-      { name: 'Wire Connectors (est.)', qty: Math.ceil(totalBoxes * 4), unit: 'bag' },
-    ]);
-    // Straight into the estimate workflow. The inline list stays below for
-    // anybody who just wants the counts.
-    setShowEstimate(true);
-  };
-
   const quantities = {
     receptacles: recs, switches: sw, lights, fans,
     dedicated, homeRuns, conduitFt,
   };
 
+  // The material list is DERIVED, not generated on a button press. It is the
+  // same arithmetic the estimate and the invoice use — one expression, so the
+  // list on screen cannot disagree with the document somebody gets billed from.
+  const materials = React.useMemo(
+    () => materialsFromQuantities(quantities),
+    [recs, sw, lights, fans, dedicated, homeRuns, conduitFt],
+  );
+  const totalBoxes = toPositiveInteger(recs, 0, 9999) + toPositiveInteger(sw, 0, 9999)
+    + toPositiveInteger(lights, 0, 9999) + toPositiveInteger(fans, 0, 9999)
+    + toPositiveInteger(dedicated, 0, 9999);
+  const wireFt = toPositiveInteger(conduitFt, 0, 999999) + toPositiveInteger(homeRuns, 0, 9999) * 8;
+  const hasTakeoff = materials.length > 0;
+
+  const calc = () => setShowEstimate(true);
+
   if (showEstimate) {
     return <EstimateScreen C={C} quantities={quantities} onClose={() => setShowEstimate(false)} />;
   }
 
+  const Stat = ({ value, label }) => (
+    <View style={{ flex: 1, alignItems: 'center' }}>
+      <Text style={{ fontSize: 22, fontWeight: '800', color: C.amber }}>{value}</Text>
+      <Text style={{ fontSize: 9, fontWeight: '700', color: C.textTert, letterSpacing: 0.6, marginTop: 2 }}>{label}</Text>
+    </View>
+  );
+
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      {/* Live totals. These move as you count, which is the whole reason to
+          count in the app instead of on the back of a panel schedule. */}
+      <View style={{ backgroundColor: C.cardBg, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 14, flexDirection: 'row', marginBottom: 12 }}>
+        <Stat value={totalBoxes} label="BOXES" />
+        <View style={{ width: 1, backgroundColor: C.border }} />
+        <Stat value={toPositiveInteger(homeRuns, 0, 9999) + toPositiveInteger(dedicated, 0, 9999)} label="BREAKERS" />
+        <View style={{ width: 1, backgroundColor: C.border }} />
+        <Stat value={wireFt} label="FEET OF WIRE" />
+      </View>
+
+      <Card C={C}>
+        <QtyRow C={C} icon="flash-outline" label="Receptacles" value={recs} onChange={setRecs} />
+        <QtyRow C={C} icon="toggle-outline" label="Switches" value={sw} onChange={setSw} />
+        <QtyRow C={C} icon="bulb-outline" label="Light Fixtures" value={lights} onChange={setLights} />
+        <QtyRow C={C} icon="sync-outline" label="Ceiling Fans" hint="Fan-rated boxes" value={fans} onChange={setFans} />
+        <QtyRow C={C} icon="cube-outline" label="Dedicated Circuits" value={dedicated} onChange={setDedicated} />
+        <QtyRow C={C} icon="git-branch-outline" label="Home Runs" hint="Adds 8 ft each to the wire allowance" value={homeRuns} onChange={setHomeRuns} />
+        <QtyRow C={C} icon="resize-outline" label="Conduit / Romex" hint="Feet — steps of 25" value={conduitFt} onChange={setConduitFt} step={25} />
+      </Card>
+
+      {hasTakeoff ? (
+        <>
+          <SectionHeader title="Rough Material List" C={C} />
+          <Card C={C}>{materials.map((item) => (
+            <View key={item.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.inputBg, borderRadius: 6, marginBottom: 3, paddingHorizontal: 10, paddingVertical: 8 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 12, fontWeight: '500', color: C.text }}>{item.description}</Text>
+                <Text style={{ fontSize: 10, color: C.textTert, marginTop: 1 }}>{item.detail}</Text>
+              </View>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.amber }}>{item.quantity} {item.unit}</Text>
+            </View>
+          ))}</Card>
+        </>
+      ) : (
+        <Text style={{ fontSize: 12, color: C.textTert, textAlign: 'center', marginTop: 14, lineHeight: 18 }}>
+          Count what you see. The list builds itself.
+        </Text>
+      )}
+
+      {/* Invoice is not a separate tool — it is the last stage of this one, and
+          the button has to say so or nobody finds it. */}
+      <BigBtn
+        onPress={calc}
+        label={hasTakeoff ? 'Price It → Estimate → Invoice' : 'Add quantities to continue'}
+        icon="document-text-outline"
+        color={C.amber}
+        disabled={!hasTakeoff}
+        C={C}
+      />
+      <Text style={{ fontSize: 10, color: C.textTert, textAlign: 'center', marginTop: -4, marginBottom: 10 }}>
+        Set your prices, then turn the estimate into an invoice you can send.
+      </Text>
+
       <TipBox C={C} type="warn" text="ROUGH ESTIMATE ONLY — for planning purposes. Always verify on site before ordering." />
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={{ flex: 1 }}><Inp label="Receptacles" value={recs} onChangeText={setRecs} placeholder="10" C={C} /></View>
-        <View style={{ flex: 1 }}><Inp label="Switches" value={sw} onChangeText={setSw} placeholder="5" C={C} /></View>
-      </View>
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={{ flex: 1 }}><Inp label="Light Fixtures" value={lights} onChangeText={setLights} placeholder="8" C={C} /></View>
-        <View style={{ flex: 1 }}><Inp label="Ceiling Fans" value={fans} onChangeText={setFans} placeholder="2" C={C} /></View>
-      </View>
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={{ flex: 1 }}><Inp label="Dedicated Circuits" value={dedicated} onChangeText={setDedicated} placeholder="3" C={C} /></View>
-        <View style={{ flex: 1 }}><Inp label="Home Runs" value={homeRuns} onChangeText={setHomeRuns} placeholder="6" C={C} /></View>
-      </View>
-      <Inp label="Conduit / Romex Run (ft)" value={conduitFt} onChangeText={setConduitFt} placeholder="200" C={C} />
-      <BigBtn onPress={calc} label="Generate Estimate" icon="list-outline" color={C.amber} C={C} />
-      {result && <>
-        <SectionHeader title="Rough Material List" C={C} />
-        <Card C={C}>{result.filter(i => i.qty > 0).map((item, i) => (
-          <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.inputBg, borderRadius: 6, marginBottom: 3, paddingHorizontal: 10, paddingVertical: 8 }}>
-            <Text style={{ fontSize: 12, fontWeight: '500', color: C.text, flex: 1 }}>{item.name}</Text>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: C.amber }}>{item.qty} {item.unit}</Text>
-          </View>
-        ))}</Card>
-      </>}
+
       {/* SparkAI price check CTA — smart location-based prompt */}
       <View style={{ backgroundColor: C.amberBg, borderRadius: 14, padding: 16, marginTop: 8, borderWidth: 1, borderColor: C.amber }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
