@@ -18,6 +18,8 @@ import HoursScreen from './src/screens/HoursScreen';
 import { ask as sparkAsk, Provenance as SparkProvenance } from './src/core/ai/sparkai';
 import { knowledgeBase } from './src/core/ai/knowledge';
 import { answerFooter } from './src/core/ai/answer';
+import { fetchConfig, resolveConfig, cacheIsFresh, EMPTY as EMPTY_CONFIG } from './src/core/remoteConfig';
+import { applyRemoteConfig } from './src/core/paywall/registry';
 import {
   Mode, MODES, modeById, promptFor, attachmentTray, Attachment,
   answerActions, AnswerAction, SIMPLIFY_PROMPT, sourceBadge, historyGroups,
@@ -4642,6 +4644,49 @@ export default function App() {
   const [onboardingDone, setOnboardingDone] = useState(false);
   // What the FOCUS answer asked for, offered on Home instead of navigated to.
   const [firstSuggestion, setFirstSuggestion] = useState(null);
+  // ── The kill switch ───────────────────────────────────────────────────
+  // applyRemoteConfig has existed since RC1 and nothing ever called it, so
+  // "leave room to cut a feature off if it does not work" was true in the code
+  // and false in the app. This is the wire.
+  //
+  // Never blocks launch and never fails closed: every error path leaves the app
+  // exactly as it shipped, because a kill switch that bricks the app when the
+  // network is down is worse than the bug it was added to contain.
+  const [remoteConfig, setRemoteConfig] = useState(EMPTY_CONFIG);
+  const featureRegistry = React.useMemo(
+    () => applyRemoteConfig(remoteConfig.features),
+    [remoteConfig],
+  );
+
+  React.useEffect(() => {
+    let live = true;
+    (async () => {
+      let cached = null;
+      let cachedAt = null;
+      try {
+        const raw = await safeStorageGet('@sc_remote_config_v1');
+        if (raw) {
+          const saved = JSON.parse(raw);
+          cached = saved.config ?? null;
+          cachedAt = saved.at ?? null;
+        }
+      } catch (e) { safeLog('config.cache', e); }
+
+      // Apply the cache immediately so a feature turned off yesterday stays off
+      // through a launch with no signal.
+      if (live && cached && cacheIsFresh(cachedAt)) setRemoteConfig(cached);
+
+      const fetched = await fetchConfig(typeof fetch === 'function' ? fetch : null);
+      if (!live) return;
+      const next = resolveConfig({ cached, cachedAt, fetched });
+      setRemoteConfig(next);
+      try {
+        await safeStorageSet('@sc_remote_config_v1', JSON.stringify({ config: next, at: Date.now() }));
+      } catch (e) { safeLog('config.save', e); }
+    })().catch(e => safeLog('config.load', e));
+    return () => { live = false; };
+  }, []);
+
   // The role picked during onboarding. Written since the flow was wired, and
   // until now only ever read once to seed the Home layout — so the answer
   // stopped paying rent the moment the app first launched. Customize Home uses
@@ -4935,7 +4980,37 @@ export default function App() {
     );
   }
 
+  // Which tab is which feature, for the kill switch. Only tabs that CAN be
+  // switched off are listed — Home, Settings and the calculators are not on
+  // this map, so a bad config can never leave somebody with no way out.
+  const TAB_FEATURE = {
+    necai: Feature.SPARK_AI, jobsite: Feature.JOBSITE, wiringlab: Feature.WIRING_LESSON,
+    troubleshoot: Feature.TROUBLESHOOT, blueprint: Feature.BLUEPRINT, projects: Feature.JOB_CAM,
+  };
+
   const renderScreen = () => {
+    // A feature turned off from the website says so, rather than crashing,
+    // hanging or quietly rendering a broken screen.
+    const feat = TAB_FEATURE[tab];
+    if (feat && featureRegistry[feat]?.disabled) {
+      return (
+        <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+          <Ionicons name="construct-outline" size={40} color={C.textTert} />
+          <Text style={{ fontSize: 17, fontWeight: '800', color: C.text, marginTop: 16, textAlign: 'center' }}>
+            Temporarily unavailable
+          </Text>
+          <Text style={{ fontSize: 13, color: C.textSec, marginTop: 8, textAlign: 'center', lineHeight: 19 }}>
+            {remoteConfig.notice
+              || 'This is switched off while we fix something. Everything else works, and it will come back on its own.'}
+          </Text>
+          <TouchableOpacity onPress={() => navigateTo('home')}
+            accessibilityRole="button"
+            style={{ marginTop: 22, backgroundColor: C.blue, borderRadius: 11, paddingHorizontal: 26, paddingVertical: 13 }}>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>Back to Home</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
     switch (tab) {
       case 'home':        return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} homeLayout={homeLayout} suggestion={firstSuggestion} onDismissSuggestion={dismissSuggestion} />;
       case 'calculators': return <CalculatorsScreen setTab={navigateTo} C={C} />;
