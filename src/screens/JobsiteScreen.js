@@ -44,6 +44,15 @@ import {
   ScissorLift, TempPower, ConduitBundle,
 } from './topdownArt';
 import { PROPS as SITE_PROPS, PropKind, buildSiteMap } from '../core/game/props';
+import {
+  Panel, DOCK, HUD, panelStyle, stickAnchor, HOME_INDICATOR_MIN, density,
+  hudLayout, togglePanel, motion as hudMotion, xpBar, levelFor, currency,
+  taskProgress, completion,
+} from '../core/game/hud';
+import {
+  Glass, Press, LevelBar, ObjectiveChip, NextStep, Dialogue,
+  TasksPanel, MapPanel, ListPanel, Dock, CompletionCard,
+} from './JobsiteHud';
 import { portraitFor } from './castImages';
 import WiringLabScreen from './WiringLabScreen';
 import TroubleshootScreen from './TroubleshootScreen';
@@ -160,8 +169,22 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
   const [toast, setToast] = useState(null);
   const [facing, setFacing] = useState('down');
   const [step, setStep] = useState(0);
-  const [tasksOpen, setTasksOpen] = useState(false);
+  const [openPanel, setOpenPanel] = useState(Panel.NONE);
+  const [sawCompletion, setSawCompletion] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
   const [side, setSide] = useState('left');
+
+  // A person who asked the OS for less motion asked for none, not for a brisk
+  // version. Read once; it is a system setting, not a per-frame concern.
+  useEffect(() => {
+    let live = true;
+    try {
+      Promise.resolve(AccessibilityInfo.isReduceMotionEnabled())
+        .then((v) => { if (live) setReduceMotion(!!v); })
+        .catch(() => {});
+    } catch (e) { /* not available in preview */ }
+    return () => { live = false; };
+  }, []);
   const solvedRef = useRef(false);
   const dir = useRef({ x: 0, y: 0 });
 
@@ -245,99 +268,162 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
   const done = progress.completed.length;
   const nearWho = near ? characterForStation(near.id) : null;
 
+  // ── HUD state. Every number is derived, so a panel can never disagree with
+  // the header above it or with the world underneath it.
+  const { width: SW, height: SH } = Dimensions.get('window');
+  const mo = useMemo(() => hudMotion(reduceMotion), [reduceMotion]);
+  const bar = useMemo(() => xpBar(levelFor(progress.xp)), [progress.xp]);
+  const coin = useMemo(() => currency({ balance: progress.xp, enabled: false }), [progress.xp]);
+
+  const taskRows = useMemo(() => STATIONS.map((st) => ({
+    id: st.id, label: st.label, xp: st.xp, done: isComplete(progress, st.id),
+  })), [progress]);
+  const rollup = useMemo(() => taskProgress(taskRows), [taskRows]);
+  const doneRooms = useMemo(
+    () => STATIONS.filter((st) => isComplete(progress, st.id)).map((st) => st.room),
+    [progress],
+  );
+
+  const layout = useMemo(() => hudLayout({
+    openPanel, dialogue: toast || near, nearStation: near, objective,
+    size: { width: SW, height: SH },
+  }), [openPanel, toast, near, objective, SW, SH]);
+
+  // Inventory and tutorials are derived from what the site actually contains,
+  // not invented lists — an empty panel that says why is honest, a padded one
+  // is busywork.
+  const inventory = useMemo(() => SITE_PROPS
+    .filter((p) => p.kind === PropKind.MATERIAL)
+    .slice(0, 12)
+    .map((p) => ({ id: p.id, label: p.label ?? p.kind, sub: p.room, icon: 'cube-outline' })), []);
+
+  const tutorials = useMemo(() => STATIONS
+    .filter((st) => dialogueFor(st.id)?.brief)
+    .map((st) => ({ id: st.id, label: st.label, sub: dialogueFor(st.id).brief, icon: 'book-outline' })), []);
+
+  const scoreRows = useMemo(() => taskRows.map((t) => ({
+    id: t.id, label: t.label, sub: t.done ? 'Signed off' : 'Not started',
+    icon: t.done ? 'checkmark-circle' : 'ellipse-outline',
+    tone: t.done ? HUD.objective : HUD.textDim, count: t.xp,
+  })), [taskRows]);
+
+  // The dock sits above the stick, which sits above the home indicator.
+  const dockBottom = useMemo(
+    () => stickAnchor({ width: SW, height: SH, inset: HOME_INDICATOR_MIN, radius: STICK_R }).reserved + 12,
+    [SW, SH],
+  );
+
+  const finishedResult = useMemo(
+    () => completion({ tasks: taskRows, xpEarned: progress.xp }),
+    [taskRows, progress.xp],
+  );
+  const finished = finishedResult.ready && !sawCompletion ? finishedResult : null;
+
   return (
     <View style={{ flex: 1, backgroundColor: SKY.dirt }}>
       <World grid={grid} pos={pos} progress={progress} near={near} route={route}
         facing={facing} step={step} />
 
-      {/* ── HUD: back, title, XP, tasks. Nothing else permanent. ── */}
+      {/* ── HUD ──────────────────────────────────────────────────────────
+          Four things are permanent: level, objective, stick, action. The task
+          list, map, inventory and tutorials are one tap away in the dock.
+
+          The reference mockup shows all of them at once. That composition is
+          desktop-density — on a 6.1" phone those panels cover roughly 40% of
+          the display, and all of it sits over the part you are walking
+          through. Same visual language, a hierarchy instead of a wall.
+          Layout decisions live in core/game/hud.js. */}
+
+      {/* Top strip — always */}
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 14, left: 12, right: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <TouchableOpacity onPress={() => setTab && setTab('home')} activeOpacity={0.8}
-            accessibilityRole="button" accessibilityLabel="Leave the job site" style={hudBtn}>
-            <Ionicons name="chevron-back" size={19} color="#fff" />
-          </TouchableOpacity>
-
-          <View style={[hudCard, { flex: 1 }]}>
-            <Text style={{ fontSize: 11.5, fontWeight: '800', color: '#fff', letterSpacing: 0.3 }}>
-              COMMERCIAL ROUGH-IN
-            </Text>
-            <View style={{ height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.2)', marginTop: 4, overflow: 'hidden' }}>
-              <View style={{ width: `${jobsitePercent(progress)}%`, height: 4, backgroundColor: SKY.green }} />
-            </View>
-          </View>
-
-          <TouchableOpacity onPress={() => setTasksOpen((v) => !v)} activeOpacity={0.8}
-            accessibilityRole="button" accessibilityLabel={`Task list, ${done} of ${STATIONS.length} complete`}
-            style={[hudCard, { flexDirection: 'row', alignItems: 'center', gap: 5 }]}>
-            <Ionicons name="list" size={14} color={SKY.green} />
-            <Text style={{ fontSize: 11.5, fontWeight: '800', color: '#fff' }}>{done}/{STATIONS.length}</Text>
-          </TouchableOpacity>
+          <Press motion={mo} onPress={() => setTab && setTab('home')}
+            accessibilityLabel="Leave the job site"
+            style={[panelStyle(), { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' }]}>
+            <Ionicons name="chevron-back" size={19} color={HUD.text} />
+          </Press>
+          <LevelBar bar={bar} phase="COMMERCIAL ROUGH-IN" percent={jobsitePercent(progress)}
+            coin={coin} motion={mo} />
         </View>
 
-        {tasksOpen && (
-          <View style={[hudCard, { marginTop: 8, padding: 12 }]}>
-            <ScrollView style={{ maxHeight: 210 }}>
-              {STATIONS.map((st) => {
-                const d = isComplete(progress, st.id);
-                return (
-                  <View key={st.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 7 }}>
-                    <Ionicons name={d ? 'checkbox' : 'square-outline'} size={15} color={d ? SKY.green : 'rgba(255,255,255,0.45)'} />
-                    <Text numberOfLines={1} style={{ flex: 1, fontSize: 12, color: d ? 'rgba(255,255,255,0.42)' : '#fff', textDecorationLine: d ? 'line-through' : 'none' }}>
-                      {st.label}
-                    </Text>
-                    <Text style={{ fontSize: 10.5, color: SKY.amber, fontWeight: '700' }}>{st.xp}</Text>
-                  </View>
-                );
-              })}
-            </ScrollView>
+        {/* Next step — collapses on a small screen; its content is already in
+            the task list and the objective chip. */}
+        {layout.nextStep && objective ? (
+          <View style={{ alignSelf: 'flex-end', marginTop: 10 }}>
+            <NextStep
+              title={objective.label}
+              hint={dialogueFor(objective.id)?.brief}
+              feet={distanceFeet(pos, objective)}
+              icon={objective.icon}
+            />
           </View>
-        )}
+        ) : null}
       </View>
 
-      {/* ── Instruction / sign-off, clear of the controls ── */}
-      <View pointerEvents="box-none" style={{ position: 'absolute', left: 14, right: 14, bottom: 205 }}>
-        {toast ? (
-          <View style={{ backgroundColor: 'rgba(16,24,20,0.93)', borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 11, borderWidth: 1.5, borderColor: SKY.green }}>
-            {toast.who && portraitFor(toast.who.id) && (
-              <Image source={portraitFor(toast.who.id)} style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: SKY.green }} />
-            )}
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 11.5, fontWeight: '800', color: SKY.green }}>{toast.who?.name}</Text>
-              <Text style={{ fontSize: 11.5, color: '#fff', lineHeight: 16 }}>“{toast.text}”</Text>
-            </View>
-            <Text style={{ fontSize: 12.5, fontWeight: '800', color: SKY.green }}>+{toast.xp}</Text>
-          </View>
-        ) : near ? (
-          <View style={{ backgroundColor: 'rgba(14,18,22,0.92)', borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 11, borderWidth: 1.5, borderColor: SKY.amber }}>
-            {nearWho && portraitFor(nearWho.id) && (
-              <Image source={portraitFor(nearWho.id)}
-                style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: SKY.amber }} />
-            )}
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 11.5, fontWeight: '800', color: SKY.amber }}>
-                {nearWho?.name} · {near.label}
-              </Text>
-              <Text numberOfLines={2} style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.86)', lineHeight: 16 }}>
-                “{isComplete(progress, near.id) ? dialogueFor(near.id)?.done : dialogueFor(near.id)?.brief}”
-              </Text>
-            </View>
-          </View>
-        ) : objective ? (
-          <View style={{ alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(14,18,22,0.88)', borderRadius: 13, paddingHorizontal: 14, paddingVertical: 10 }}>
-            <Ionicons name="navigate" size={14} color={SKY.green} />
-            <Text style={{ fontSize: 12, color: '#fff' }}>
-              {objective.room} · {distanceFeet(pos, objective)} ft
-            </Text>
-          </View>
-        ) : (
-          <View style={{ alignSelf: 'center', backgroundColor: 'rgba(14,18,22,0.88)', borderRadius: 13, paddingHorizontal: 14, paddingVertical: 10 }}>
-            <Text style={{ fontSize: 12, color: '#fff' }}>Every station signed off. Nice work.</Text>
-          </View>
-        )}
+      {/* Opened panel — sits over the world because the player asked for it */}
+      {layout.panel !== Panel.NONE ? (
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, top: 68 }}>
+          {layout.panel === Panel.TASKS ? (
+            <TasksPanel tasks={taskRows} rollup={rollup} motion={mo}
+              onClose={() => setOpenPanel(Panel.NONE)} />
+          ) : null}
+          {layout.panel === Panel.MAP ? (
+            <MapPanel rooms={ROOMS} player={pos} objective={objective}
+              doneRooms={doneRooms} mapW={MAP_W} mapH={MAP_H}
+              size={layout.density.minimapSize * 2.2}
+              onClose={() => setOpenPanel(Panel.NONE)} />
+          ) : null}
+          {layout.panel === Panel.INVENTORY ? (
+            <ListPanel title="INVENTORY" items={inventory}
+              empty="Nothing staged yet. Materials you are issued on a station show up here."
+              onClose={() => setOpenPanel(Panel.NONE)} />
+          ) : null}
+          {layout.panel === Panel.TUTORIALS ? (
+            <ListPanel title="TUTORIALS" items={tutorials}
+              empty="No walkthroughs for this phase yet."
+              onClose={() => setOpenPanel(Panel.NONE)} />
+          ) : null}
+          {layout.panel === Panel.SCORE ? (
+            <ListPanel title="PROGRESS" items={scoreRows}
+              empty="Nothing signed off yet."
+              onClose={() => setOpenPanel(Panel.NONE)} />
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* Lower band — one thing at a time, never a stack of dark cards over
+          the strip of world the player is walking through. */}
+      <View pointerEvents="box-none" style={{ position: 'absolute', left: 14, right: 14, bottom: dockBottom + 62 }}>
+        {layout.dialogue && toast ? (
+          <Dialogue portrait={portraitFor(toast.who?.id)} name={toast.who?.name}
+            text={toast.text} xp={toast.xp} tone={HUD.objective} motion={mo} />
+        ) : layout.dialogue && near ? (
+          <Dialogue portrait={portraitFor(nearWho?.id)}
+            name={`${nearWho?.name ?? ''} · ${near.label}`}
+            text={isComplete(progress, near.id) ? dialogueFor(near.id)?.done : dialogueFor(near.id)?.brief}
+            tone={HUD.warn} motion={mo} />
+        ) : layout.always.objective && objective ? (
+          <ObjectiveChip room={objective.room} feet={distanceFeet(pos, objective)} />
+        ) : rollup.allDone ? (
+          <Glass style={{ alignSelf: 'center', paddingHorizontal: 14, paddingVertical: 10 }}>
+            <Text style={{ fontSize: 12, color: HUD.text }}>Every station signed off. Nice work.</Text>
+          </Glass>
+        ) : null}
       </View>
 
-      <Stick dir={dir} side={side} onSwap={swapSide} />
+      {/* Dock — the one-tap layer */}
+      <View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, bottom: dockBottom }}>
+        <Dock slots={layout.density.dock} open={layout.panel} motion={mo}
+          badge={{ [Panel.TASKS]: rollup.total - rollup.done || null }}
+          onSelect={(id) => setOpenPanel((cur) => togglePanel(cur, id))} />
+      </View>
+
+      {finished ? (
+        <CompletionCard result={finished} onClose={() => setSawCompletion(true)}
+          onLeave={() => setTab && setTab('home')} />
+      ) : null}
+
+      <Stick dir={dir} side={side} onSwap={swapSide} bottomInset={HOME_INDICATOR_MIN} />
 
       {/* Interact — opposite the stick, above the home indicator */}
       {near && !toast && (
@@ -362,16 +448,6 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
     </View>
   );
 }
-
-const hudCard = {
-  backgroundColor: 'rgba(14,18,22,0.86)', borderRadius: 11,
-  paddingHorizontal: 11, paddingVertical: 8,
-  borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
-};
-const hudBtn = {
-  ...hudCard, width: 38, height: 38, alignItems: 'center', justifyContent: 'center',
-  paddingHorizontal: 0, paddingVertical: 0,
-};
 
 // ─── World ───────────────────────────────────────────────────────────────────
 
@@ -538,15 +614,20 @@ function World({ grid, pos, progress, near, route, facing, step }) {
  * positioned by the touch rather than by a fixed offset guessing at the safe
  * area, which is what clipped the old pad.
  */
-function Stick({ dir, side, onSwap }) {
+function Stick({ dir, side, onSwap, bottomInset = 0 }) {
   const { width: W, height: H } = Dimensions.get('window');
-  // Sits higher than it did. At H-155 the base was inside the bottom dock and
-  // the home-indicator strip, so a downward pull either clipped or got taken
-  // by the system gesture. STICK_R + travel + inset is the floor.
-  const rest = useMemo(
-    () => ({ x: side === 'left' ? 104 : W - 104, y: H - 232 }),
-    [side, W, H],
+  // The rest position comes from stickAnchor, which refuses to place the
+  // control within HOME_INDICATOR_MIN of the bottom whatever it is handed —
+  // including an inset of 0, which is usually a measurement that has not
+  // arrived rather than a phone without an indicator. A stick whose lower
+  // travel is inside that strip cannot be pulled downward: the OS takes the
+  // gesture, so the player cannot walk down. A test asserts the clearance on
+  // every screen size rather than trusting a number typed here.
+  const anchor = useMemo(
+    () => stickAnchor({ width: W, height: H, side, inset: bottomInset, radius: STICK_R }),
+    [W, H, side, bottomInset],
   );
+  const rest = useMemo(() => ({ x: anchor.x, y: anchor.y }), [anchor]);
   const [origin, setOrigin] = useState(rest);
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const [active, setActive] = useState(false);
@@ -557,7 +638,7 @@ function Stick({ dir, side, onSwap }) {
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: (e) => {
       const o = floatingOrigin(e.nativeEvent.pageX, e.nativeEvent.pageY, W, H, {
-        side, margin: STICK_R + 16, bottomInset: 110,
+        side, margin: STICK_R + 16, bottomInset: anchor.reserved,
       });
       if (o) setOrigin(o);
       setActive(true);
@@ -585,7 +666,7 @@ function Stick({ dir, side, onSwap }) {
         accessibilityRole="adjustable"
         accessibilityLabel="Movement stick. Drag to walk."
         style={{
-          position: 'absolute', bottom: 0, height: H * 0.45,
+          position: 'absolute', bottom: Math.max(bottomInset, HOME_INDICATOR_MIN), height: H * 0.42,
           [side === 'left' ? 'left' : 'right']: 0, width: W * 0.5,
         }}
       />
@@ -606,7 +687,7 @@ function Stick({ dir, side, onSwap }) {
       </View>
       <TouchableOpacity onPress={onSwap} hitSlop={{ top: 10, bottom: 10, left: 14, right: 14 }}
         accessibilityRole="button" accessibilityLabel="Swap the stick to the other side"
-        style={{ position: 'absolute', bottom: 24, [side === 'left' ? 'left' : 'right']: 28 }}>
+        style={{ position: 'absolute', bottom: Math.max(bottomInset, HOME_INDICATOR_MIN) + 6, [side === 'left' ? 'left' : 'right']: 28 }}>
         <Text style={{ fontSize: 9, fontWeight: '800', letterSpacing: 1, color: 'rgba(255,255,255,0.55)' }}>
           SWAP SIDE
         </Text>
