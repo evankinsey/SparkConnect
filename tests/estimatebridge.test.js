@@ -188,3 +188,53 @@ test('no send option is offered before it works', () => {
 
   assert.equal(SEND_OPTIONS.length, 3);
 });
+
+// ─── The screen contract ─────────────────────────────────────────────────────
+
+test('the estimate screen does no arithmetic of its own', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync('src/screens/EstimateScreen.js', 'utf8');
+  // Two ideas of what a job costs is how an invoice ends up disagreeing with
+  // the estimate it came from. Every figure comes from the shared model.
+  assert.match(src, /computeTotals/);
+  assert.match(src, /lineTotalCents/);
+  assert.match(src, /convertEstimateToInvoice/);
+  // No hand-rolled totalling.
+  assert.doesNotMatch(src, /reduce\(\(sum/, 'the screen is adding money up itself');
+});
+
+test('the safety language survives on the estimate screen', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync('src/screens/EstimateScreen.js', 'utf8');
+  assert.match(src, /ROUGH ESTIMATE ONLY/);
+  assert.match(src, /verify on site before ordering/i);
+});
+
+test('no unsupported pricing claim appears anywhere in the workflow', async () => {
+  const fs = await import('node:fs');
+  const files = ['src/screens/EstimateScreen.js', 'src/core/domain/estimateBridge.js', 'src/core/ai/estimatorAsk.js'];
+  for (const f of files) {
+    const src = fs.readFileSync(f, 'utf8');
+    // We have no supplier feed and no live prices. Claiming either is a promise
+    // the product cannot keep and a number somebody bids against.
+    assert.doesNotMatch(src, /real[- ]time pricing|live pricing|supplier integration|exact local pricing/i,
+      `${f} claims pricing we do not have`);
+  }
+});
+
+test('an invoice cannot be reached until one has been created', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync('src/screens/EstimateScreen.js', 'utf8');
+  // The INVOICE tab is disabled until `invoice` exists, so an estimate can
+  // never look like a bill by accident.
+  assert.match(src, /enabled=\{!!invoice\}/);
+  assert.match(src, /Create Invoice/);
+});
+
+test('nothing that takes a card is rendered', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync('src/screens/EstimateScreen.js', 'utf8');
+  assert.match(src, /onlinePaymentsAvailable/);
+  assert.doesNotMatch(src, /card number|cardNumber|cvv|Pay now/i, 'a payment field was rendered');
+  assert.match(src, /does not process payments/i);
+});

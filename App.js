@@ -15,6 +15,7 @@ import { analytics } from './src/analytics';
 import { HomeCards, HomeCustomizeScreen, useHomeLayout, AllToolsSection } from './src/screens/HomeCards';
 import ToolsScreen from './src/screens/ToolsScreen';
 import HoursScreen from './src/screens/HoursScreen';
+import EstimateScreen from './src/screens/EstimateScreen';
 import { ask as sparkAsk, Provenance as SparkProvenance } from './src/core/ai/sparkai';
 import { knowledgeBase } from './src/core/ai/knowledge';
 import { answerFooter } from './src/core/ai/answer';
@@ -1861,6 +1862,7 @@ const EstimatorScreen = ({ C, setTab, isPro = false }) => {
   const [homeRuns, setHomeRuns] = useState('6');
   const [conduitFt, setConduitFt] = useState('200');
   const [result, setResult] = useState(null);
+  const [showEstimate, setShowEstimate] = useState(false);
 
   // The price ask stays on THIS screen. Previously the button navigated to the
   // chat tab, which destroyed the takeoff the question was about.
@@ -1928,7 +1930,19 @@ const EstimatorScreen = ({ C, setTab, isPro = false }) => {
       { name: 'Wire / Conduit Run (est.)', qty: cf + hr * 8, unit: 'ft' },
       { name: 'Wire Connectors (est.)', qty: Math.ceil(totalBoxes * 4), unit: 'bag' },
     ]);
+    // Straight into the estimate workflow. The inline list stays below for
+    // anybody who just wants the counts.
+    setShowEstimate(true);
   };
+
+  const quantities = {
+    receptacles: recs, switches: sw, lights, fans,
+    dedicated, homeRuns, conduitFt,
+  };
+
+  if (showEstimate) {
+    return <EstimateScreen C={C} quantities={quantities} onClose={() => setShowEstimate(false)} />;
+  }
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
