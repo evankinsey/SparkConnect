@@ -4265,7 +4265,7 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
         </View>
       </Card>
 
-      {/* 2 — AI Query Packs */}
+      {/* 2 — SparkAI Answer Packs */}
       <SectionTitle title="SparkAI Answer Packs" />
       <Card C={C} style={{ marginBottom: 20, padding: 0, overflow: 'hidden' }}>
         <View style={{ padding: 12, backgroundColor: C.amberBg, borderBottomWidth: 1, borderBottomColor: C.border }}>

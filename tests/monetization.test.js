@@ -212,6 +212,12 @@ test('the paywall renders four pillars and says what stays free', async () => {
 
 test('the packs are named for what they are', async () => {
   const src = fs.readFileSync('App.js', 'utf8');
-  assert.doesNotMatch(src, /Query Packs/, '"Query Packs" survived the rename');
-  assert.match(src, /SparkAI Answer Packs/);
+  // Only what a user can read. Scanning the whole file matched a source comment
+  // and reported it as shipped copy, which is a false positive that trains
+  // people to ignore the test.
+  const rendered = [...src.matchAll(/(?:title|text|label)=["'{]([^"'}]{3,80})["'}]/g)].map((m) => m[1])
+    .concat([...src.matchAll(/<Text[^>]*>([^<{]{3,80})</g)].map((m) => m[1]));
+  const blob = rendered.join(' | ');
+  assert.doesNotMatch(blob, /Query Pack/i, '"Query Packs" survived the rename');
+  assert.match(blob, /SparkAI Answer Packs/);
 });
