@@ -34,6 +34,11 @@ import { buildExport, renderExportText, exportSummary, Audience, AUDIENCE_LABEL 
 import { lifecycle, timeline, timelineText, EventKind } from '../core/domain/lifecycle';
 import { intelligenceReport } from '../core/domain/fieldIntelligence';
 import { readScoped, LegacyAdapters } from '../core/domain/scopedStore';
+import {
+  recentPhotos, whenLabel, projectCard, showExplainer, EXPLAINER,
+  documentationChecklist, Coverage, CAPTURE_TAGS, captureDraft,
+  captureBlocker, captureToPhoto,
+} from '../core/domain/jobLog';
 
 const KEY = '@sc_projects_v1';
 const LOGS_KEY = '@sc_daily_logs_v1';
@@ -62,6 +67,7 @@ export default function ProjectsScreen({ C, setTab }) {
   const [linked, setLinked] = useState({ materialLists: [], panels: [] });
   const [openId, setOpenId] = useState(null);
   const [migrationNote, setMigrationNote] = useState(null);
+  const [draft, setDraft] = useState(null);   // photo awaiting its tag
 
   useEffect(() => {
     (async () => {
@@ -155,6 +161,50 @@ export default function ProjectsScreen({ C, setTab }) {
   // them, it does not own them.
   const world = { ...emptyWorld(), logs, materialLists: linked.materialLists };
 
+  // ── Capture from the main screen ──────────────────────────────────────
+  // Tagging happens NOW, standing in front of the thing, rather than three
+  // weeks later from memory. That is the whole difference between this and the
+  // camera roll.
+  const capture = async (fromLibrary) => {
+    const picker = await loadPicker();
+    if (!picker) { Alert.alert('Camera unavailable', 'Photo capture needs the full app, not Expo Go web.'); return; }
+    if (projects.length === 0) {
+      Alert.alert('Start a project first', 'A photo needs a job to live in, or you will never find it again.');
+      return;
+    }
+    try {
+      const perm = fromLibrary
+        ? await picker.requestMediaLibraryPermissionsAsync()
+        : await picker.requestCameraPermissionsAsync();
+      if (!perm.granted) { Alert.alert('Permission needed', 'Allow access to add photos to a project.'); return; }
+      const res = fromLibrary
+        ? await picker.launchImageLibraryAsync({ quality: 0.7 })
+        : await picker.launchCameraAsync({ quality: 0.7 });
+      const uri = res?.assets?.[0]?.uri;
+      if (res?.canceled || !uri) return;
+      // Default to the job most recently worked on — usually the right one, and
+      // always changeable before Save.
+      const newest = [...projects].sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')))[0];
+      setDraft(captureDraft({ uri, projectId: newest?.id ?? null }));
+    } catch (e) {
+      Alert.alert('Could not add photo', 'Something went wrong opening the camera.');
+    }
+  };
+
+  const saveDraft = async () => {
+    const blocked = captureBlocker(draft);
+    if (blocked) { Alert.alert('Not saved', blocked); return; }
+    const fields = captureToPhoto(draft);
+    const target = projects.find((p) => p.id === draft.projectId);
+    if (!target) { Alert.alert('Not saved', 'That project no longer exists.'); return; }
+    const next = addPhoto(target, photo({
+      id: `ph${Date.now()}`, uri: fields.uri, capturedAt: nowIso(),
+      folderId: target.folders[0]?.id ?? null, tags: fields.tags, note: fields.note,
+    }));
+    await persist(projects.map((p) => (p.id === next.id ? next : p)));
+    setDraft(null);
+  };
+
   const open = projects.find((p) => p.id === openId);
   if (open) {
     return (
@@ -186,6 +236,7 @@ export default function ProjectsScreen({ C, setTab }) {
   }
 
   return (
+    <>
     <ProjectList
       C={C} projects={projects} onCreate={persist} setTab={setTab}
       onOpen={(id) => {
@@ -196,13 +247,107 @@ export default function ProjectsScreen({ C, setTab }) {
       }}
       migrationNote={migrationNote}
       onDismissNote={() => setMigrationNote(null)}
+      onCapture={capture}
     />
+    {/* ── What is this? ─────────────────────────────────────────────────
+        Asked at the shutter, not later. A photo tagged three weeks after the
+        fact is tagged from memory; one tagged while you are still standing in
+        front of the thing is tagged from the thing. */}
+    <Modal visible={!!draft} transparent animationType="slide" onRequestClose={() => setDraft(null)}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'flex-end' }}>
+        <View style={{ backgroundColor: C.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '92%' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16 }}>
+            <TouchableOpacity onPress={() => setDraft(null)} accessibilityRole="button" accessibilityLabel="Discard this photo">
+              <Text style={{ fontSize: 14, color: C.textSec }}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={{ flex: 1, textAlign: 'center', fontSize: 15, fontWeight: '800', color: C.text }}>Add Photo</Text>
+            <TouchableOpacity onPress={saveDraft} accessibilityRole="button" accessibilityLabel="Save this photo">
+              <Text style={{ fontSize: 14, fontWeight: '800', color: C.teal }}>Save</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16, paddingTop: 0, paddingBottom: 34 }} keyboardShouldPersistTaps="handled">
+            {draft?.uri ? (
+              <Image source={{ uri: draft.uri }} style={{ width: '100%', height: 220, borderRadius: 12, backgroundColor: C.inputBg }} resizeMode="cover" />
+            ) : null}
+
+            <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5, marginTop: 18, marginBottom: 9 }}>
+              WHAT IS THIS?
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {CAPTURE_TAGS.map((t) => {
+                const on = draft?.tagId === t.id;
+                return (
+                  <TouchableOpacity key={t.id} onPress={() => setDraft((d) => ({ ...d, tagId: t.id }))}
+                    accessibilityRole="radio" accessibilityState={{ selected: on }}
+                    style={{
+                      paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, minHeight: 44, justifyContent: 'center',
+                      backgroundColor: on ? C.teal : C.surface,
+                      borderWidth: 1.5, borderColor: on ? C.teal : C.border,
+                    }}>
+                    <Text style={{ fontSize: 12.5, fontWeight: '700', color: on ? '#fff' : C.textSec }}>{t.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5, marginTop: 20, marginBottom: 9 }}>
+              ADD TO PROJECT
+            </Text>
+            {projects.map((p) => {
+              const on = draft?.projectId === p.id;
+              return (
+                <TouchableOpacity key={p.id} onPress={() => setDraft((d) => ({ ...d, projectId: p.id }))}
+                  accessibilityRole="radio" accessibilityState={{ selected: on }}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 11, padding: 13, borderRadius: 11, marginBottom: 7,
+                    backgroundColor: C.surface, borderWidth: 1.5, borderColor: on ? C.teal : C.border,
+                  }}>
+                  <Ionicons name={on ? 'radio-button-on' : 'radio-button-off'} size={18} color={on ? C.teal : C.textTert} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.text }}>{p.name}</Text>
+                    {p.address ? <Text style={{ fontSize: 10.5, color: C.textTert, marginTop: 1 }}>{p.address}</Text> : null}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+
+            <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5, marginTop: 14, marginBottom: 7 }}>
+              AREA (OPTIONAL)
+            </Text>
+            <TextInput
+              value={draft?.area ?? ''}
+              onChangeText={(v) => setDraft((d) => ({ ...d, area: v }))}
+              placeholder="Bedroom 2, Electrical Room…"
+              placeholderTextColor={C.placeholder}
+              style={{ backgroundColor: C.inputBg, borderRadius: 10, padding: 12, color: C.inputText, fontSize: 13.5, borderWidth: 1, borderColor: C.border }}
+            />
+
+            <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5, marginTop: 14, marginBottom: 7 }}>
+              NOTE (OPTIONAL)
+            </Text>
+            <TextInput
+              value={draft?.note ?? ''}
+              onChangeText={(v) => setDraft((d) => ({ ...d, note: v }))}
+              placeholder="200A main panel. Utility feed on left."
+              placeholderTextColor={C.placeholder}
+              multiline
+              style={{ backgroundColor: C.inputBg, borderRadius: 10, padding: 12, color: C.inputText, fontSize: 13.5, borderWidth: 1, borderColor: C.border, minHeight: 66, textAlignVertical: 'top' }}
+            />
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+    </>
   );
 }
 
 // ─── List + create ───────────────────────────────────────────────────────────
 
-function ProjectList({ C, projects, onOpen, onCreate, setTab, migrationNote, onDismissNote }) {
+function ProjectList({ C, projects, onOpen, onCreate, setTab, migrationNote, onDismissNote, onCapture }) {
+  // Derived, never stored, so the grid can never drift out of step with the
+  // projects it came from.
+  const recent = useMemo(() => recentPhotos(projects, 6), [projects]);
+  const explain = useMemo(() => showExplainer(projects), [projects]);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [template, setTemplate] = useState(ProjectTemplate.SERVICE_CALL);
@@ -223,36 +368,101 @@ function ProjectList({ C, projects, onOpen, onCreate, setTab, migrationNote, onD
         </View>
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 20, fontWeight: '800', color: C.text }}>Projects</Text>
-          <Text style={{ fontSize: 12, color: C.textTert }}>Where your job photos and numbers live</Text>
+          <Text style={{ fontSize: 12, color: C.textTert }}>Your visual job record</Text>
         </View>
       </View>
 
-      {/* WHAT THIS IS FOR, in the words of the thing people actually do with it.
-          "Job records you can defend an inspection with" is true and it reads
-          like paperwork for a PM — an apprentice sees that and decides the tab
-          is not for them. Everyone photographs a trench before it gets covered.
-          That is the same feature, described by the moment somebody needs it. */}
-      {projects.length === 0 && (
+      {/* ── CAMERA FIRST ───────────────────────────────────────────────
+          The tab used to open with two paragraphs explaining what a project is,
+          above a list of NAMES WITH PHOTO COUNTS. A documentation tool whose
+          main screen contains no documentation is a filing cabinet with the
+          drawers welded shut.
+
+          Order is now camera → recent photos → projects. Calculations, notes
+          and reports moved inside a project rather than competing with the
+          photography on the way in. */}
+      <View style={{
+        backgroundColor: C.surface, borderRadius: 16, padding: 16, marginBottom: 16,
+        borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: C.teal,
+      }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11, marginBottom: 12 }}>
+          <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: C.tealBg, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="camera" size={21} color={C.teal} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: C.text }}>Capture jobsite</Text>
+            <Text style={{ fontSize: 11.5, color: C.textTert, marginTop: 2, lineHeight: 16 }}>
+              Saved to a project with the date and time on it.
+            </Text>
+          </View>
+        </View>
+        <View style={{ flexDirection: 'row', gap: 9 }}>
+          <TouchableOpacity onPress={() => onCapture(false)} activeOpacity={0.88}
+            accessibilityRole="button" accessibilityLabel="Take a jobsite photo"
+            style={{ flex: 1, backgroundColor: C.teal, borderRadius: 12, paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 7 }}>
+            <Ionicons name="camera" size={17} color="#fff" />
+            <Text style={{ fontSize: 14, fontWeight: '800', color: '#fff' }}>Take Photo</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => onCapture(true)} activeOpacity={0.88}
+            accessibilityRole="button" accessibilityLabel="Upload from the photo library"
+            style={{ paddingHorizontal: 20, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7, borderWidth: 1.5, borderColor: C.border }}>
+            <Ionicons name="images-outline" size={16} color={C.textSec} />
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.textSec }}>Upload</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Recent job photos — the answer to "what did I shoot on this job?",
+          which is the question somebody opens this tab holding. */}
+      {recent.length > 0 && (
+        <>
+          <Text style={{ fontSize: 10.5, fontWeight: '800', color: C.textSec, letterSpacing: 0.6, marginBottom: 9 }}>
+            RECENT JOB PHOTOS
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 }}>
+            {recent.map((ph) => (
+              <TouchableOpacity key={ph.id} onPress={() => onOpen(ph.projectId)} activeOpacity={0.88}
+                accessibilityRole="imagebutton"
+                accessibilityLabel={`${ph.label} on ${ph.projectName}`}
+                style={{ width: '48%' }}>
+                <Image source={{ uri: ph.uri }}
+                  style={{ width: '100%', height: 116, borderRadius: 11, backgroundColor: C.inputBg }}
+                  resizeMode="cover" />
+                <Text numberOfLines={1} style={{ fontSize: 9.5, fontWeight: '900', color: C.teal, letterSpacing: 0.5, marginTop: 6 }}>
+                  {ph.label}
+                </Text>
+                <Text numberOfLines={1} style={{ fontSize: 10.5, color: C.textTert, marginTop: 1 }}>
+                  {ph.projectName} · {whenLabel(ph.capturedAt)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </>
+      )}
+
+      {/* The explainer retires once somebody has used the feature. Onboarding
+          copy that never leaves is a permanent tax on the people who use a
+          feature most. */}
+      {explain && (
         <View style={{
-          backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 14,
+          backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 16,
           borderWidth: 1, borderColor: C.border,
         }}>
-          <Text style={{ fontSize: 13.5, fontWeight: '700', color: C.text, marginBottom: 8 }}>
-            Photograph it before it gets covered
+          <Text style={{ fontSize: 13.5, fontWeight: '700', color: C.text, marginBottom: 3 }}>
+            {EXPLAINER.headline}
           </Text>
-          {[
-            { icon: 'camera', text: 'Buried pipe, trench depth, rough-in — before the concrete or the drywall goes on' },
-            { icon: 'calculator', text: 'Any calculation you ran, kept with the job it was for' },
-            { icon: 'chatbubble-ellipses', text: 'What the inspector said, on the day they said it' },
-          ].map((r) => (
-            <View key={r.icon} style={{ flexDirection: 'row', gap: 9, alignItems: 'flex-start', marginBottom: 7 }}>
-              <Ionicons name={r.icon} size={15} color={C.teal} style={{ marginTop: 1.5 }} />
-              <Text style={{ flex: 1, fontSize: 12, color: C.textSec, lineHeight: 17 }}>{r.text}</Text>
-            </View>
-          ))}
-          <Text style={{ fontSize: 11.5, color: C.textTert, lineHeight: 16, marginTop: 3 }}>
-            One job, one place. Six months later, when somebody asks what was down there, you have it.
+          <Text style={{ fontSize: 12, color: C.textSec, lineHeight: 17, marginBottom: 11 }}>
+            {EXPLAINER.sub}
           </Text>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            {EXPLAINER.points.map((pt) => (
+              <View key={pt.icon} style={{ flex: 1, alignItems: 'center' }}>
+                <Ionicons name={pt.icon} size={17} color={C.teal} />
+                <Text style={{ fontSize: 10.5, fontWeight: '700', color: C.text, marginTop: 5, textAlign: 'center' }}>{pt.label}</Text>
+                <Text style={{ fontSize: 9.5, color: C.textTert, marginTop: 2, textAlign: 'center', lineHeight: 13 }}>{pt.sub}</Text>
+              </View>
+            ))}
+          </View>
         </View>
       )}
 
@@ -337,6 +547,7 @@ function ProjectList({ C, projects, onOpen, onCreate, setTab, migrationNote, onD
 
       {projects.map((p) => {
         const stats = projectStats(p);
+        const card = projectCard(p);
         return (
           <TouchableOpacity
             key={p.id}
@@ -345,9 +556,12 @@ function ProjectList({ C, projects, onOpen, onCreate, setTab, migrationNote, onD
             style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 9, borderWidth: 1, borderColor: C.border, borderLeftWidth: 4, borderLeftColor: C.teal }}>
             <Text style={{ fontSize: 15, fontWeight: '700', color: C.text }}>{p.name}</Text>
             <Text style={{ fontSize: 11.5, color: C.textTert, marginTop: 3 }}>
-              {TEMPLATES[p.template]?.label ?? 'Custom'} · {stats.photoCount} photo{stats.photoCount === 1 ? '' : 's'}
+              {card.address ? `${card.address} · ` : ''}{TEMPLATES[p.template]?.label ?? 'Custom'} · {stats.photoCount} photo{stats.photoCount === 1 ? '' : 's'}
               {stats.untagged > 0 ? ` · ${stats.untagged} untagged` : ''}
             </Text>
+            {card.emptyNote ? (
+              <Text style={{ fontSize: 11, color: C.textTert, marginTop: 6, fontStyle: 'italic' }}>{card.emptyNote}</Text>
+            ) : null}
             {/* Thumbnails on the list itself. "1 photo" as text asks you to
                 remember what you shot; the strip shows you. */}
             {(() => {
@@ -414,6 +628,7 @@ function ProjectDetail({ C, proj, world, setTab, onChange, onLogsChange, allLogs
   const stats = useMemo(() => projectStats(proj), [proj]);
   const pairs = useMemo(() => beforeAfterPairs(proj), [proj]);
   const missing = useMemo(() => missingShots(proj), [proj]);
+  const checklist = useMemo(() => documentationChecklist(proj), [proj]);
   const overview = useMemo(() => hubOverview(proj, world, { today: today() }), [proj, world]);
   const done = useMemo(() => completeness(proj, world, { today: today() }), [proj, world]);
 
@@ -501,10 +716,52 @@ function ProjectDetail({ C, proj, world, setTab, onChange, onLogsChange, allLogs
 
       {view !== 'photos' ? null : (
       <>
-      {missing.length > 0 && (
-        <View style={{ backgroundColor: C.amberBg, borderRadius: 12, padding: 13, marginBottom: 12 }}>
-          <Text style={{ fontSize: 11, fontWeight: '800', color: C.amber, marginBottom: 5 }}>SHOTS STILL TO TAKE</Text>
-          <Text style={{ fontSize: 12.5, color: C.text, lineHeight: 19 }}>{missing.slice(0, 4).join(' · ')}</Text>
+      {/* ── Before it gets covered ─────────────────────────────────────
+          "Photograph it before it gets covered" was a sentence on the old
+          screen. This is the behaviour: the stages are chronological and
+          irreversible, so the list separates what can STILL be shot from what
+          the building already buried. Nagging somebody to photograph the
+          underground on a job with drywall up is advice they cannot take, and
+          an app that does that gets muted. */}
+      {checklist.rows.length > 0 && (
+        <View style={{ backgroundColor: C.surface, borderRadius: 12, padding: 13, marginBottom: 12, borderWidth: 1, borderColor: C.border }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 9 }}>
+            <Text style={{ flex: 1, fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5 }}>
+              BEFORE IT GETS COVERED
+            </Text>
+            <Text style={{ fontSize: 11, fontWeight: '800', color: C.teal }}>
+              {checklist.doneCount}/{checklist.total}
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
+            {checklist.rows.map((r) => {
+              const tone = r.done ? C.teal
+                : r.state === Coverage.URGENT ? C.amber
+                : r.state === Coverage.MISSED ? C.textTert : C.textTert;
+              return (
+                <View key={r.id} style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 5,
+                  paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8,
+                  backgroundColor: r.state === Coverage.URGENT ? C.amberBg : C.inputBg,
+                  borderWidth: 1, borderColor: r.done ? C.teal : r.state === Coverage.URGENT ? C.amber : C.border,
+                  opacity: r.state === Coverage.MISSED ? 0.55 : 1,
+                }}>
+                  <Ionicons
+                    name={r.done ? 'checkmark-circle' : r.state === Coverage.MISSED ? 'remove-circle-outline' : 'ellipse-outline'}
+                    size={13} color={tone} />
+                  <Text style={{
+                    fontSize: 11.5, fontWeight: r.state === Coverage.URGENT ? '800' : '600', color: tone,
+                    textDecorationLine: r.state === Coverage.MISSED ? 'line-through' : 'none',
+                  }}>{r.label}</Text>
+                </View>
+              );
+            })}
+          </View>
+          {checklist.nudge ? (
+            <Text style={{ fontSize: 11.5, color: checklist.urgent.length ? C.amber : C.teal, marginTop: 10, lineHeight: 16 }}>
+              {checklist.nudge}
+            </Text>
+          ) : null}
         </View>
       )}
 
