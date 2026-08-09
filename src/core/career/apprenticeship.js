@@ -205,6 +205,89 @@ export const FIRST_STEPS = Object.freeze([
 ]);
 
 /**
+ * The two hour ledgers, which are the same mechanism at different stages.
+ *
+ * An apprentice logs on-the-job hours toward turning out. A licensed
+ * electrician logs continuing education toward renewal. Both are "hours you
+ * will be asked to prove, by somebody who will not take your word for it", and
+ * both are lost the same way — not written down the week they happened.
+ *
+ * Treating them as one thing with two labels is what lets the same tracker
+ * serve an apprentice and a journeyman, which is the whole reason role belongs
+ * on Home.
+ */
+export const HoursKind = Object.freeze({
+  OJT: 'OJT',
+  CONTINUING_ED: 'CONTINUING_ED',
+});
+
+export const HOURS_KIND = Object.freeze({
+  [HoursKind.OJT]: Object.freeze({
+    id: HoursKind.OJT,
+    label: 'On-the-job hours',
+    short: 'OJT',
+    unit: 'hours',
+    who: 'Apprentices and trainees',
+    why: 'Your programme signs off on these before you turn out. Log them the week '
+      + 'they happen — reconstructing a year of hours from memory is how people lose them.',
+    // NOT a default target. Programmes differ and stating one as fact is how
+    // somebody plans around 8,000 and is told 10,000 in their final year.
+    targetPrompt: 'How many hours does your programme require?',
+    targetHint: 'It is on your apprenticeship paperwork. Commonly somewhere around 8,000.',
+  }),
+  [HoursKind.CONTINUING_ED]: Object.freeze({
+    id: HoursKind.CONTINUING_ED,
+    label: 'Continuing education',
+    short: 'CE',
+    unit: 'hours',
+    who: 'Licensed electricians',
+    why: 'Most states want a set number of CE hours each renewal cycle, and some want '
+      + 'a share of it on the code update specifically. Keep the certificates.',
+    targetPrompt: 'How many CE hours does your state require this cycle?',
+    targetHint: 'Set by your state board, and it changes. Confirm it with them, not with us.',
+  }),
+});
+
+export const hoursKind = (id) => HOURS_KIND[id] ?? HOURS_KIND[HoursKind.OJT];
+
+/** Which ledger a role is likely to want. Suggestion only — both stay available. */
+export const hoursKindForRole = (role) => {
+  const r = String(role ?? '').toLowerCase();
+  return (r === 'apprentice' || r === 'student') ? HoursKind.OJT : HoursKind.CONTINUING_ED;
+};
+
+/** One logged block of time. `note` is what makes it defensible a year later. */
+export const hoursEntry = (input) => {
+  // Defaults only fire for `undefined`, so an explicit null — which is what a
+  // storage read that found nothing returns — would throw here.
+  const { hours, date, category = null, note = '' } = input ?? {};
+  const h = Number(hours);
+  if (!Number.isFinite(h) || h <= 0) return null;
+  // A day longer than 24 hours is a typo, and a typo in a record somebody will
+  // be asked to prove is worse than a rejected entry.
+  if (h > 24) return null;
+  return Object.freeze({
+    id: `h${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
+    hours: Math.round(h * 100) / 100,
+    date: date || new Date().toISOString().slice(0, 10),
+    category: category || null,
+    note: String(note ?? '').slice(0, 200),
+  });
+};
+
+export const totalHours = (entries = []) =>
+  (Array.isArray(entries) ? entries : [])
+    .reduce((sum, e) => sum + (Number.isFinite(e?.hours) ? e.hours : 0), 0);
+
+/** Hours in the last seven days, which is the number that tells you if you are logging. */
+export const hoursThisWeek = (entries = [], today = new Date()) => {
+  const cutoff = new Date(today);
+  cutoff.setDate(cutoff.getDate() - 6);
+  const from = cutoff.toISOString().slice(0, 10);
+  return totalHours((Array.isArray(entries) ? entries : []).filter((e) => e?.date >= from));
+};
+
+/**
  * On-the-job hours, tracked against the programme you are actually in.
  *
  * `target` is not a constant in this module on purpose. Every programme sets

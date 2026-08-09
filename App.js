@@ -14,6 +14,7 @@ import { analytics } from './src/analytics';
 // layout hook runs during the root render.
 import { HomeCards, HomeCustomizeScreen, useHomeLayout, AllToolsSection } from './src/screens/HomeCards';
 import ToolsScreen from './src/screens/ToolsScreen';
+import HoursScreen from './src/screens/HoursScreen';
 import { ask as sparkAsk, Provenance as SparkProvenance } from './src/core/ai/sparkai';
 import { knowledgeBase } from './src/core/ai/knowledge';
 import { answerFooter } from './src/core/ai/answer';
@@ -4581,6 +4582,11 @@ export default function App() {
   const [onboardingDone, setOnboardingDone] = useState(false);
   // What the FOCUS answer asked for, offered on Home instead of navigated to.
   const [firstSuggestion, setFirstSuggestion] = useState(null);
+  // The role picked during onboarding. Written since the flow was wired, and
+  // until now only ever read once to seed the Home layout — so the answer
+  // stopped paying rent the moment the app first launched. Customize Home uses
+  // it to suggest, and the hours screen uses it to pick a ledger.
+  const [role, setRole] = useState(null);
   const [onboardingChecked, setOnboardingChecked] = useState(false);
   const [showDailyQ, setShowDailyQ] = useState(true);
   const [streak, setStreak] = useState(0);
@@ -4720,7 +4726,7 @@ export default function App() {
   // src/core/home/layout.js so adding a Home feature is a data change.
   const { layout: homeLayout, save: saveHomeLayout } = useHomeLayout();
 
-  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','tools','wiringlab','troubleshoot','jobsite','flashcards','customizehome','projects','materials','community','permits','blueprint','panelschedule'];
+  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','tools','wiringlab','troubleshoot','jobsite','flashcards','customizehome','hours','projects','materials','community','permits','blueprint','panelschedule'];
 
   // The first-run suggestion is shown once and then gone for good. A prompt
   // that keeps coming back is a nag, and the whole point of it is that it is a
@@ -4728,6 +4734,14 @@ export default function App() {
   const dismissSuggestion = React.useCallback(() => {
     setFirstSuggestion(null);
     safeStorageSet('@sc_first_suggestion_v1', '');
+  }, []);
+
+  React.useEffect(() => {
+    let live = true;
+    safeStorageGet('@sc_role')
+      .then((r) => { if (live && r) setRole(r); })
+      .catch(e => safeLog('role.load', e));
+    return () => { live = false; };
   }, []);
 
   React.useEffect(() => {
@@ -4833,7 +4847,7 @@ export default function App() {
           await safeStorageSet('@sc_onboarding_done', 'true');
           // HOME_LAYOUT. Written before the app renders Home, so the first
           // Home a person sees is already theirs.
-          if (result?.role) await safeStorageSet('@sc_role', result.role);
+          if (result?.role) { await safeStorageSet('@sc_role', result.role); setRole(result.role); }
           if (result?.layout?.length) await safeStorageSet('@sc_home_layout_v1', JSON.stringify(result.layout));
           // What they came for, kept as a SUGGESTION on Home rather than a
           // redirect. Answering "getting better at the trade" used to launch
@@ -4898,7 +4912,8 @@ export default function App() {
           askBackend={askNecBackend}
         />
       );
-      case 'customizehome': return <HomeCustomizeScreen C={C} layout={homeLayout} onSave={saveHomeLayout} onDone={() => { setHomeKey(k => k + 1); navigateTo('home'); }} />;
+      case 'customizehome': return <HomeCustomizeScreen C={C} layout={homeLayout} onSave={saveHomeLayout} role={role} onDone={() => { setHomeKey(k => k + 1); navigateTo('home'); }} />;
+      case 'hours':       return <HoursScreen C={C} role={role} setTab={navigateTo} />;
       case 'settings':    return <SettingsScreen C={C} themePreference={themePreference} setThemePreference={chooseTheme} showDailyQ={showDailyQ} onDailyQToggle={handleDailyQToggle} appLanguage={appLanguage} setAppLanguage={setAppLanguage} isPro={isPro} onUpgrade={() => setPaywall('pro')} onBuyPacks={() => setPaywall('packs')} onRestore={handleRestorePurchases} />;
       // Job Cam is a feature inside a project now. Anything still pointing
       // here — a deep link, saved nav state, an old shortcut — lands on
