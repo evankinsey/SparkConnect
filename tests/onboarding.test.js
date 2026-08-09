@@ -182,8 +182,43 @@ test('benefits are reasons, not tier contents', () => {
   const learner = offerFor('apprentice');
   const pro = offerFor('contractor');
   assert.notDeepEqual([...learner.benefits], [...pro.benefits], 'the offer should know who it is talking to');
-  // "Ask as many times as you need in a day" beats "unlimited SparkAI".
-  assert.ok(learner.benefits.some((b) => /as many times as you need/i.test(b)));
+  // The benefit names the gain against what free already gives, so the number
+  // means something: "20 a day — up from 3" rather than a bare count.
+  assert.ok(learner.benefits.some((b) => /up from/i.test(b)));
+});
+
+test('the trial screen never promises an allowance the app meters', async () => {
+  const { PRO_LIMITS, FREE_LIMITS, Feature } = await import('../src/core/paywall/entitlements.js');
+  // This screen is the last thing read before a card is charged. It used to say
+  // "Ask SparkAI as many times as you need in a day" and "without a daily
+  // ceiling" while Pro is metered at 20/day — so a new subscriber hits a wall
+  // the purchase screen told them did not exist. That is the claim App Review
+  // reads and the sentence a refund request quotes back.
+  const perDay = PRO_LIMITS[Feature.SPARK_AI].limit;
+  for (const roleId of ['apprentice', 'contractor', 'journeyman', 'foreman']) {
+    const o = offerFor(roleId);
+    const text = JSON.stringify([o.sub, ...o.benefits]);
+    assert.doesNotMatch(text, /as many times as you need/i, `${roleId}: promises unmetered asking`);
+    assert.doesNotMatch(text, /without a daily ceiling/i, `${roleId}: denies the ceiling it enforces`);
+    assert.doesNotMatch(text, /unlimited (sparkai|ai|answers)/i, `${roleId}: sells AI as unlimited`);
+    // And it states the real number.
+    assert.ok(text.includes(String(perDay)), `${roleId}: never says what the allowance is`);
+  }
+
+  // The free number quoted alongside it is the one actually enforced.
+  assert.equal(FREE_LIMITS[Feature.SPARK_AI].limit, 3);
+});
+
+test('one allowance number reaches every screen that sells it', async () => {
+  const fs = await import('node:fs');
+  const { proAskAllowanceLabel } = await import('../src/core/paywall/entitlements.js');
+  const { PRO_BENEFITS } = await import('../src/core/paywall/config.js');
+  // Three hand-typed copies of "20 a day" is how one of them became "as many
+  // times as you need" without anybody noticing.
+  assert.match(PRO_BENEFITS.map((b) => b.sub).join(' '), new RegExp(proAskAllowanceLabel()));
+  for (const f of ['src/core/onboarding/flow.js', 'src/core/paywall/config.js']) {
+    assert.match(fs.readFileSync(f, 'utf8'), /proAskAllowanceLabel/, `${f} hardcodes the allowance`);
+  }
 });
 
 test('none of the pressure tactics are present', () => {

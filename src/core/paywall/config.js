@@ -9,6 +9,8 @@
 // App Store rule this file enforces: price, billing interval, renewal and
 // cancellation terms must be stated wherever a trial is offered (PWL-03).
 
+import { proAskAllowanceLabel } from './entitlements.js';
+
 export const ProductId = {
   // MUST match App Store Connect exactly. The shipping build on the App Store
   // sells the annual plan as `sparkconnect_pro_yearly`, and that build takes
@@ -182,7 +184,7 @@ export const PLACEMENT_COPY = Object.freeze({
   [Placement.AI_LIMIT_REACHED]: {
     eyebrow: 'SparkAI',
     headline: 'Out of answers for today',
-    sub: 'Pro gives you 20 answers a day, with your calculator and job already in context.',
+    sub: `Pro gives you ${proAskAllowanceLabel()}, with your calculator and job already in context.`,
   },
   [Placement.CALCULATOR_LIMIT_REACHED]: {
     eyebrow: 'Calculators',
@@ -224,7 +226,7 @@ export const copyForPlacement = (placement) =>
 // "what you get out of it", not "what we built" (UI-05 still applies: no
 // vague promises, every benefit has a specific sub).
 export const PRO_BENEFITS = Object.freeze([
-  { icon: 'flash', title: 'Get unstuck in the field, fast', sub: '20 SparkAI answers a day, your job in context' },
+  { icon: 'flash', title: 'Get unstuck in the field, fast', sub: `${proAskAllowanceLabel()}, your job in context` },
   { icon: 'calculator', title: 'Never lose another calculation', sub: 'Every calculator unlimited, history saved to the job' },
   { icon: 'school', title: 'Wire it wrong here, not on the job', sub: 'Full wiring & troubleshooting simulator' },
   { icon: 'camera', title: 'Save thousands documenting every job', sub: 'Unlimited Job Cam, your branding on exports' },

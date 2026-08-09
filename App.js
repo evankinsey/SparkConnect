@@ -17,6 +17,8 @@ import ToolsScreen from './src/screens/ToolsScreen';
 import { ask as sparkAsk, Provenance as SparkProvenance } from './src/core/ai/sparkai';
 import { knowledgeBase } from './src/core/ai/knowledge';
 import { answerFooter } from './src/core/ai/answer';
+import { buildPriceQuestion, priceAskBlocker, PRICE_DISCLAIMER } from './src/core/ai/estimatorAsk';
+import { FREE_LIMITS, Feature } from './src/core/paywall/entitlements';
 import { CAST_IMAGES } from './src/screens/castImages';
 import { buildPulse, dayIndexFor } from './src/core/home/pulse';
 import { getDailyQuestion } from './src/core/content/dailyQuestions';
@@ -36,7 +38,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput,
   SafeAreaView, StatusBar, Platform, Switch, Dimensions, useColorScheme,
-  Share, Alert, Animated, Linking, AppState, Keyboard, Image,
+  Share, Alert, Animated, Linking, AppState, Keyboard, Image, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 // expo-image-picker & expo-sharing — lazy-loaded so the app never crashes if package isn't installed
@@ -498,6 +500,20 @@ const scoredSearch = (rawQuery) => {
   });
   return scored.filter(s => s.score > 0).sort((a, b) => b.score - a.score).map(s => s.article);
 };
+
+/**
+ * What we say when the daily allowance runs out.
+ *
+ * The number is READ, not typed. This sentence used to hardcode "5 daily free
+ * answers" while useGating.js and FREE_LIMITS both enforce 3 — so the app cut
+ * a user off two answers early and then told them, in writing, that they had
+ * received five. A number that appears in copy and again in a limit check is
+ * one number, and it lives in the module that enforces it.
+ */
+const FREE_ASK_LIMIT = FREE_LIMITS[Feature.SPARK_AI]?.limit ?? 3;
+const RATE_LIMIT_MESSAGE =
+  `You've used your ${FREE_ASK_LIMIT} free answers for today. `
+  + 'Upgrade to Pro for more, or grab a quick answer pack.';
 
 // Backend placeholder — returns null until URL is configured
 const askNecBackend = async (payload) => {
@@ -1780,7 +1796,7 @@ const AmpacityScreen = ({ C }) => {
 };
 
 // ─── MATERIAL ESTIMATOR ───────────────────────────────────────────────────────
-const EstimatorScreen = ({ C, setTab }) => {
+const EstimatorScreen = ({ C, setTab, isPro = false }) => {
   const [estimatorZip, setEstimatorZip] = useState('');
   const [recs, setRecs] = useState('10');
   const [sw, setSw] = useState('5');
@@ -1790,6 +1806,52 @@ const EstimatorScreen = ({ C, setTab }) => {
   const [homeRuns, setHomeRuns] = useState('6');
   const [conduitFt, setConduitFt] = useState('200');
   const [result, setResult] = useState(null);
+
+  // The price ask stays on THIS screen. Previously the button navigated to the
+  // chat tab, which destroyed the takeoff the question was about.
+  const [priceAsk, setPriceAsk] = useState(null);
+  const priceQuantities = {
+    receptacles: recs, switches: sw, lights, fans,
+    dedicated, homeRuns, conduitFt, zip: estimatorZip,
+  };
+  const priceBlocker = priceAskBlocker(priceQuantities);
+
+  const askForPrice = React.useCallback(async () => {
+    const question = buildPriceQuestion(priceQuantities);
+    // Never send an empty takeoff. A request with no quantities is exactly the
+    // bug this replaced — an answer that could not have been about this job.
+    if (!question) return;
+    setPriceAsk({ state: 'PENDING', text: null, error: null });
+    try {
+      // Same identity and plan the chat sends. Without deviceId the backend
+      // cannot meter this against the user's allowance, so a request from here
+      // would either be rejected or counted as a stranger's.
+      const res = await askNecBackend({
+        question,
+        deviceId: await getDeviceId(),
+        appVersion: '1.0.0',
+        planType: isPro ? 'pro' : 'free',
+      });
+      if (res === 'rate_limited') {
+        setPriceAsk({ state: 'FAILED', text: null, error: RATE_LIMIT_MESSAGE });
+        return;
+      }
+      if (!res?.answer) {
+        setPriceAsk({
+          state: 'FAILED', text: null,
+          error: 'That did not come back. Your takeoff is still here — try again in a moment.',
+        });
+        return;
+      }
+      setPriceAsk({ state: 'READY', text: res.answer, error: null });
+    } catch (e) {
+      safeLog('estimator.price', e);
+      setPriceAsk({
+        state: 'FAILED', text: null,
+        error: 'That did not come back. Your takeoff is still here — try again in a moment.',
+      });
+    }
+  }, [recs, sw, lights, fans, dedicated, homeRuns, conduitFt, estimatorZip]);
 
   const calc = () => {
     const r  = toPositiveInteger(recs,      0, 9999);
@@ -1858,15 +1920,41 @@ const EstimatorScreen = ({ C, setTab }) => {
           style={{ backgroundColor: C.inputBg, borderRadius: 8, padding: 10, color: C.inputText, fontSize: 14, borderWidth: 1, borderColor: C.border, marginBottom: 10 }}
         />
         <TouchableOpacity
-          onPress={() => {
-            const zip = estimatorZip.trim() || 'my area';
-            const query = `material pricing estimate electrician supply ${zip} THHN wire conduit EMT boxes`;
-            if (setTab) setTab('necai', query);
-          }}
-          style={{ backgroundColor: C.amber, borderRadius: 10, padding: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
-          <Ionicons name="flash" size={16} color="#fff" />
-          <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>⚡ Get Local Price Estimate</Text>
+          onPress={askForPrice}
+          disabled={!!priceBlocker || priceAsk?.state === 'PENDING'}
+          style={{ backgroundColor: C.amber, opacity: (priceBlocker || priceAsk?.state === 'PENDING') ? 0.5 : 1, borderRadius: 10, padding: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
+          {priceAsk?.state === 'PENDING'
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <Ionicons name="flash" size={16} color="#fff" />}
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>
+            {priceAsk?.state === 'PENDING' ? 'Pricing it…' : 'Get Local Price Estimate'}
+          </Text>
         </TouchableOpacity>
+
+        {/* The answer lands HERE, on the screen that asked. Navigating to the
+            chat threw away the whole filled-in takeoff, and the takeoff is the
+            question — see src/core/ai/inlineAsk.js. */}
+        {priceBlocker && !priceAsk ? (
+          <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8, textAlign: 'center' }}>{priceBlocker}</Text>
+        ) : null}
+        {priceAsk?.state === 'PENDING' ? (
+          <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8, textAlign: 'center' }}>
+            Looking that up — you can keep working.
+          </Text>
+        ) : null}
+        {priceAsk?.state === 'FAILED' ? (
+          <View style={{ backgroundColor: C.cardBg, borderRadius: 10, padding: 12, marginTop: 10, borderWidth: 1, borderColor: C.border }}>
+            <Text style={{ fontSize: 12, color: C.textSec, lineHeight: 18 }}>{priceAsk.error}</Text>
+          </View>
+        ) : null}
+        {priceAsk?.state === 'READY' && priceAsk.text ? (
+          <View style={{ backgroundColor: C.cardBg, borderRadius: 10, padding: 12, marginTop: 10, borderWidth: 1, borderColor: C.border }}>
+            <Text style={{ fontSize: 10, fontWeight: '800', color: C.amber, letterSpacing: 0.6, marginBottom: 6 }}>SPARKAI ESTIMATE</Text>
+            <Text style={{ fontSize: 13, color: C.text, lineHeight: 20 }}>{priceAsk.text}</Text>
+            <Text style={{ fontSize: 10, color: C.textTert, marginTop: 10, lineHeight: 15 }}>{PRICE_DISCLAIMER}</Text>
+          </View>
+        ) : null}
+
         <Text style={{ fontSize: 10, color: C.textTert, marginTop: 8, textAlign: 'center' }}>Material prices vary by region. Always verify current pricing with your supplier.</Text>
       </View>
       <DisclaimerFooter C={C} />
@@ -2432,7 +2520,9 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
     if (rateLimited) {
       setMessages(prev => [...prev, {
         id: Date.now().toString(), role: 'sparky', isRateLimit: true,
-        text: `You've used your ${isPro ? '100 monthly' : '5 daily'} free answers. Upgrade to Pro for 100 answers/month, or grab a quick answer pack.`,
+        text: isPro
+          ? "You've reached this month's SparkAI allowance. An answer pack tops you back up straight away."
+          : RATE_LIMIT_MESSAGE,
       }]);
     } else if (pipeline.provenance !== SparkProvenance.REFUSED) {
       setMessages(prev => [...prev, {
@@ -4723,7 +4813,7 @@ export default function App() {
       case 'boxfill':     return <BoxFillScreen C={C} setTab={navigateTo} />;
       case 'conduitfill': return <ConduitFillScreen C={C} setTab={navigateTo} />;
       case 'ampacity':    return <AmpacityScreen C={C} />;
-      case 'estimator':   return <EstimatorScreen C={C} setTab={navigateTo} />;
+      case 'estimator':   return <EstimatorScreen C={C} setTab={navigateTo} isPro={isPro} />;
       case 'necai':       return <NecAiScreen C={C} setTab={navigateTo} initialSearch={necaiInitSearch} clearInitSearch={() => setNecaiInitSearch('')} onUpgrade={() => setPaywall('pro')} onBuyPacks={() => setPaywall('packs')} isPro={isPro} />;
       case 'examprep':    return <ExamPrepScreen C={C} onStreakUpdate={updateStreak} isPro={isPro} />;
       case 'tools':       return <ToolsScreen C={C} setTab={navigateTo} />;

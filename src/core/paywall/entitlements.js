@@ -67,6 +67,27 @@ export const FREE_LIMITS = Object.freeze({
 });
 
 /**
+ * What Pro actually gets. One number, because it is sold in several places.
+ *
+ * The onboarding trial screen promised "Ask SparkAI as many times as you need
+ * in a day" while the paywall two screens away said 20 a day and the live
+ * build's own paywall said 20 a day with a 400/month fair-use cap. The trial
+ * screen is the last thing somebody reads before being charged, and it was the
+ * one making a claim the product does not honour — a subscriber hits the
+ * ceiling on day one and the app has already told them there is not one.
+ *
+ * Advertising an unlimited allowance you meter is not a copy slip. It is the
+ * claim App Review reads, and the one a refund request quotes back.
+ */
+export const PRO_LIMITS = Object.freeze({
+  [Feature.SPARK_AI]: { limit: 20, period: 'day', monthlyCap: 400 },
+});
+
+/** "20 a day" — written once, read wherever Pro's AI allowance is sold. */
+export const proAskAllowanceLabel = () =>
+  `${PRO_LIMITS[Feature.SPARK_AI].limit} SparkAI answers a day`;
+
+/**
  * Paywall copy per feature. Sells the outcome, and states the free allowance
  * plainly so the gate never feels like a trick.
  */
@@ -74,7 +95,7 @@ export const GATE_COPY = Object.freeze({
   [Feature.SPARK_AI]: {
     eyebrow: 'SparkAI',
     headline: 'Out of answers for today',
-    sub: 'Pro gives you 20 a day, with the calculator you are in and the job you are on already in context.',
+    sub: `Pro gives you ${PRO_LIMITS[Feature.SPARK_AI].limit} a day, with the calculator you are in and the job you are on already in context.`,
   },
   [Feature.VOICE_ASK]: {
     eyebrow: 'Hands-free',
@@ -187,6 +208,27 @@ export const freeTierSummary = () =>
 // is a hole in the revenue model.
 
 export const PRICING_DISCREPANCIES = Object.freeze([
+  {
+    id: 'pro-ai-allowance-unresolved',
+    feature: Feature.SPARK_AI,
+    paywallSays: 'live App Store build: "20 Sparky AI answers/day (400/month fair-use cap)"; '
+      + 'this branch previously told Pro users "100 answers/month" in the rate-limit message, '
+      + 'and the onboarding trial screen promised no daily ceiling at all',
+    liveBuildEnforces: 'the SERVER meters it — /api/ask-nec returns 429 and the client only '
+      + 'learns the number from `remainingQuestions`. The real ceiling is not in this repo.',
+    thisCodeDoes: 'PRO_LIMITS says 20/day + 400/month, matching the live paywall, and '
+      + 'checkAccess() still returns unmetered for Pro because the client does not do the '
+      + 'counting',
+    severity: 'HIGH',
+    why: 'Three numbers were being shown to the same paying user — 20/day, 100/month and '
+      + 'unlimited — and none of them is checked against the backend that actually enforces '
+      + 'the cap. The unlimited claim is fixed because it is false under every reading. The '
+      + 'remaining number is copied from the shipping paywall, which is the best evidence '
+      + 'available from inside the app, NOT a verified fact.',
+    decision: 'OPEN — read the real limit off the /api/ask-nec handler and make PRO_LIMITS '
+      + 'match it. Until then no screen should state a Pro monthly number, because nothing '
+      + 'here can confirm one.',
+  },
   {
     id: 'calculators-advertised-as-pro',
     feature: Feature.CALCULATOR,

@@ -599,3 +599,71 @@ test('an empty offering does not black out the packs, or the reverse', async () 
   assert.equal(unknown.subscriptionsSellable, true);
   assert.equal(unknown.healthy, true);
 });
+
+test('the free-answer count in the copy is the one the app enforces', async () => {
+  const fs = await import('node:fs');
+  const { FREE_LIMITS, Feature } = await import('../src/core/paywall/entitlements.js');
+  const src = fs.readFileSync('App.js', 'utf8');
+
+  // The rate-limit message said "You've used your 5 daily free answers" while
+  // useGating.js enforces 3 and FREE_LIMITS says 3. So the app cut somebody off
+  // after three and told them in writing that they had received five. Whichever
+  // number is right, there is only one of it, and it lives where it is checked.
+  assert.equal(FREE_LIMITS[Feature.SPARK_AI].limit, 3);
+  const gating = fs.readFileSync('src/useGating.js', 'utf8');
+  const enforced = gating.match(/LIMITS\s*=\s*\{\s*sparky:\s*(\d+)/);
+  assert.ok(enforced, 'useGating must state the sparky limit');
+  assert.equal(Number(enforced[1]), FREE_LIMITS[Feature.SPARK_AI].limit,
+    'the gate and the entitlement table disagree about the free allowance');
+
+  // The message reads the constant rather than spelling a number.
+  assert.match(src, /const FREE_ASK_LIMIT = FREE_LIMITS/);
+  assert.match(src, /RATE_LIMIT_MESSAGE/);
+  assert.doesNotMatch(src, /used your \$\{isPro \? '100 monthly' : '5 daily'\}/,
+    'the hardcoded mismatched count is back');
+});
+
+test('the estimator asks a question, and it carries the takeoff', async () => {
+  const { buildPriceQuestion, takeoffSummary, normalizeZip, priceAskBlocker } =
+    await import('../src/core/ai/estimatorAsk.js');
+
+  // The old button sent `material pricing estimate electrician supply 33701
+  // THHN wire conduit EMT boxes` — keywords, not a question, and carrying none
+  // of the quantities the screen above it promised to price.
+  const q = buildPriceQuestion({
+    receptacles: 10, switches: 5, lights: 8, fans: 2,
+    dedicated: 3, homeRuns: 6, conduitFt: 200, zip: '33701',
+  });
+  for (const n of ['10 duplex receptacles', '5 single-pole switches', '8 light fixtures',
+    '200 ft', '33701']) {
+    assert.ok(q.includes(n), `the request never mentions ${n}`);
+  }
+  assert.match(q, /broken down by line item/, 'one total cannot be checked against a quote');
+  assert.match(q, /where you are uncertain/, 'a guessed price must be flagged as one');
+
+  // A zip that is not a zip is dropped, never passed through as prose. Telling
+  // a model "my area" invites it to pick one, and a made-up region makes every
+  // price in the answer quietly wrong.
+  assert.equal(normalizeZip('my area'), null);
+  assert.equal(normalizeZip('337'), null);
+  assert.equal(normalizeZip(' 33701 '), '33701');
+  assert.doesNotMatch(buildPriceQuestion({ receptacles: 4, zip: 'nope' }), /ZIP code|my area/i);
+
+  // Nothing entered is refused at the source rather than sent empty.
+  assert.equal(takeoffSummary({}), null);
+  assert.equal(buildPriceQuestion({}), null);
+  assert.match(priceAskBlocker({}), /Enter at least one quantity/);
+  assert.equal(priceAskBlocker({ receptacles: 1 }), null);
+});
+
+test('asking for a price never leaves the estimator', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync('App.js', 'utf8');
+  // Navigating to the chat tab destroyed the filled-in takeoff — and the
+  // takeoff IS the question. Same bug as the Permit Assistant AHJ lookup.
+  const btn = src.slice(src.indexOf('Get a SparkAI Price Estimate'),
+    src.indexOf('Material prices vary by region'));
+  assert.doesNotMatch(btn, /setTab\(/, 'the price ask navigates away from its own question');
+  assert.match(src, /askForPrice/);
+  assert.match(src, /PRICE_DISCLAIMER/, 'a model-written price must not read like a quote');
+});

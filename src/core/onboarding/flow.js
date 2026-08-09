@@ -43,6 +43,7 @@
 // Pure module: no React, no storage, no navigation.
 
 import { ROLE_LAYOUTS, layoutForRole } from '../home/layout.js';
+import { FREE_LIMITS, PRO_LIMITS, Feature, proAskAllowanceLabel } from '../paywall/entitlements.js';
 
 export const StepId = Object.freeze({
   ROLE: 'ROLE',
@@ -383,18 +384,23 @@ export const offerFor = (roleId) => {
 
   return Object.freeze({
     headline: 'Try Pro free for 3 days',
+    // The allowance is READ from the module that meters it. This screen used to
+    // promise SparkAI "without a daily ceiling" and "as many times as you need
+    // in a day" — while Pro is metered at 20 a day. It is the last screen
+    // somebody reads before being charged, so it is the worst possible place
+    // to advertise a limit the product does not honour.
     sub: learning
-      ? 'The full simulator and troubleshooting libraries, and SparkAI without a daily ceiling.'
-      : 'SparkAI without a daily ceiling, unlimited projects, and every export.',
+      ? `The full simulator and troubleshooting libraries, and ${proAskAllowanceLabel()}.`
+      : `${proAskAllowanceLabel()}, unlimited projects, and every export.`,
     benefits: Object.freeze(learning
       ? [
         'Every simulator lesson, not just the first two',
         'All 270 troubleshooting scenarios',
-        'Ask SparkAI as many times as you need in a day',
+        `${proAskAllowanceLabel()} — up from ${FREE_LIMITS[Feature.SPARK_AI].limit} on free`,
         'Keep every job you photograph',
       ]
       : [
-        'Ask SparkAI as many times as you need in a day',
+        `${proAskAllowanceLabel()} — up from ${FREE_LIMITS[Feature.SPARK_AI].limit} on free`,
         'Unlimited projects, photos and daily logs',
         'Exports scoped for the customer, the GC or the inspector',
         'Every simulator lesson and troubleshooting scenario',
