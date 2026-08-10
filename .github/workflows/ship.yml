@@ -37,6 +37,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # THIS CHECK EXISTS BECAUSE THE MISTAKE IS INVISIBLE UNTIL APPLE MAKES IT
+      # VISIBLE. "Re-run jobs" on an old run replays that run's ORIGINAL commit,
+      # not the branch as it stands now — so it rebuilds an old app.json, ships
+      # a build number that has already been uploaded, and dies at the submit
+      # step 25 minutes and one paid build credit later with "You've already
+      # submitted this build of the app." Nothing earlier in the log looks
+      # wrong: credentials resolve, the archive uploads, the build goes green.
+      #
+      # A stale re-run is exactly "HEAD is not the tip of the branch it claims
+      # to be on", which is cheap to detect right here.
+      - name: This is not a stale re-run
+        run: |
+          BRANCH='${{ github.ref_name }}'
+          git fetch --depth=1 origin "$BRANCH"
+          TIP=$(git rev-parse FETCH_HEAD)
+          HERE=$(git rev-parse HEAD)
+          echo "branch    $BRANCH"
+          echo "building  $HERE"
+          echo "tip is    $TIP"
+          if [ "$TIP" != "$HERE" ]; then
+            echo "::error title=Stale re-run::This run is building ${HERE:0:7}, but ${BRANCH} is now at ${TIP:0:7}. Re-running an old run rebuilds its old commit — including its old build number, which Apple will reject as a duplicate. Start a fresh run instead: Actions → Ship to TestFlight → Run workflow."
+            exit 1
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22

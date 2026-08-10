@@ -10,12 +10,10 @@ overwriting anything.
 
 ---
 
-## Step 1 — Merge PR #1
+## Step 1 — Merge PR #1 — DONE 10 Aug 04:07 UTC
 
-https://github.com/evankinsey/SparkConnect/pull/1 → **Merge pull request**.
-
-GitHub reports the branch `clean` against `main`, so there is nothing to
-resolve.
+Merged as `ca3a12b`. `main` now carries 1.3.0 (33) and both website files.
+Left here because the reasoning is what matters if this ever comes up again.
 
 **Why this is first and not optional.** Two files live only on the branch, and
 both are things you asked for:
@@ -38,11 +36,21 @@ are live a minute or two after the merge. Confirm by opening
 
 ## Step 2 — Run the ship workflow
 
-**Actions** tab → **Ship to TestFlight** → **Run workflow**.
+**Actions** tab → **Ship to TestFlight** → **Run workflow** (the grey button at
+the top right of the run list).
 
 - Branch: `main` (after step 1)
 - Platform: `ios`
 - Submit: **on**
+
+> **Not "Re-run jobs".** Opening a previous run and re-running it replays *that
+> run's commit*, not the branch as it stands now — so it rebuilds an old
+> `app.json`, ships a build number Apple already has, and fails at the submit
+> step 25 minutes and one paid build credit later with "You've already
+> submitted this build of the app." This happened on 10 Aug: a re-run of the
+> build-32 run produced a build-32 binary from `main` that was already at 33.
+> Preflight now refuses a run whose commit is not the tip of its branch, so the
+> same mistake costs 11 seconds instead of half an hour.
 
 The `EXPO_TOKEN` secret is already set — four previous runs of this workflow
 succeeded, most recently the one that produced build 32.
