@@ -393,7 +393,7 @@ export const PRICING_DISCREPANCIES = Object.freeze([
       + 'available from inside the app, NOT a verified fact.',
     decision: 'RESOLVED 9 Aug 2026 — Pro is 10/day with a 250/month abuse backstop, and '
       + 'existing subscribers keep 20/day + 500/month for as long as they stay '
-      + 'subscribed (see ALLOWANCE_CHANGED_AT). STILL OUTSTANDING: /api/ask-nec must '
+      + 'subscribed (see ALLOWANCE_CHANGED_AT). OUTSTANDING AND BLOCKING: /api/ask-nec must '
       + 'enforce the four tiers in website/allowance-policy.json. The client sends '
       + 'planType and server/allowance.js is the drop-in, but the endpoint lives in a '
       + 'separate CLI-deployed Vercel project that nothing in this repo can reach — so '
