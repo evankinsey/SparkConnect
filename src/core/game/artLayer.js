@@ -48,6 +48,50 @@ export const ART = Object.freeze([
   'ObjectiveMarker', 'DoneMarker',
 ]);
 
+/**
+ * What each name is, dimensionally. The single source of truth for the art
+ * order, the packer, and the renderer at once.
+ *
+ * `tiles` is the footprint the collision grid in props.js already uses — art
+ * that disagrees with it is art drawn over a box the player cannot walk
+ * through. `anchor` is where the sprite sits on its tile as a 0-1 fraction:
+ * 0.5/0.85 is centred with the base near the bottom, which is right for
+ * anything standing up; flat things sit at 0.5/0.5; a marker anchors at its
+ * point.
+ */
+export const ART_SPEC = Object.freeze({
+  SlabTile:        { tiles: [1, 1], anchor: [0.5, 0.5] },
+  StudWall:        { tiles: [1, 1], anchor: [0.5, 0.5] },
+  BarJoist:        { tiles: [1, 1], anchor: [0.5, 0.5] },
+  DoorOpening:     { tiles: [1, 1], anchor: [0.5, 0.5] },
+  Worker:          { tiles: [1, 1], anchor: [0.5, 0.7] },
+  Panelboard:      { tiles: [1, 1], anchor: [0.5, 0.8] },
+  JBox:            { tiles: [1, 1], anchor: [0.5, 0.6] },
+  EmtRun:          { tiles: [1, 1], anchor: [0.5, 0.5] },
+  AFrameLadder:    { tiles: [1, 1], anchor: [0.5, 0.75] },
+  WireReel:        { tiles: [1, 1], anchor: [0.5, 0.7] },
+  GangBox:         { tiles: [2, 1], anchor: [0.5, 0.8] },
+  MaterialCart:    { tiles: [1, 1], anchor: [0.5, 0.75] },
+  PrintTable:      { tiles: [1, 1], anchor: [0.5, 0.7] },
+  DrywallStack:    { tiles: [1, 1], anchor: [0.5, 0.8] },
+  SafetyCone:      { tiles: [1, 1], anchor: [0.5, 0.8] },
+  Pallet:          { tiles: [2, 1], anchor: [0.5, 0.6] },
+  WorkTruck:       { tiles: [2, 3], anchor: [0.5, 0.6] },
+  Dumpster:        { tiles: [2, 2], anchor: [0.5, 0.7] },
+  SiteTrailer:     { tiles: [3, 2], anchor: [0.5, 0.7] },
+  Tree:            { tiles: [2, 2], anchor: [0.5, 0.7] },
+  Palm:            { tiles: [2, 2], anchor: [0.5, 0.7] },
+  FenceRun:        { tiles: [1, 1], anchor: [0.5, 0.5] },
+  ObjectiveMarker: { tiles: [1, 1], anchor: [0.5, 1.0] },
+  DoneMarker:      { tiles: [1, 1], anchor: [0.5, 1.0] },
+});
+
+/** The tile is 72 logical px; @3x is the most a phone can actually show. */
+export const TILE_PX = 72;
+export const ATLAS_SCALE = 3;
+
+export const specFor = (name) => ART_SPEC[name] ?? null;
+
 export const Source = Object.freeze({
   RASTER: 'RASTER',
   VECTOR: 'VECTOR',
@@ -208,14 +252,17 @@ export const variantTransform = (variant, box) => {
   const b = box ?? {};
   const cx = (b.left ?? 0) + (b.width ?? 0) / 2;
   const cy = (b.top ?? 0) + (b.height ?? 0) / 2;
+  // The eight symmetries of a square: four quarter turns, and the same four
+  // again mirrored. Written as rotation-then-mirror rather than as a hand-built
+  // list, because a hand-built list is how two of the eight end up being the
+  // same orientation twice and the variety is quietly halved.
   const v = Math.max(0, Math.floor(Number(variant) || 0)) % 8;
-  const rotate = v >= 4 ? (v - 3) * 90 : 0;   // 4→90, 5→180, 6→270, 7→360≡0
-  const sx = (v === 1 || v === 3 || v === 5 || v === 7) ? -1 : 1;
-  const sy = (v === 2 || v === 3 || v === 6 || v === 7) ? -1 : 1;
+  const rotate = (v % 4) * 90;
+  const mirror = v >= 4;
 
   const parts = [`translate(${cx}, ${cy})`];
   if (rotate) parts.push(`rotate(${rotate})`);
-  if (sx !== 1 || sy !== 1) parts.push(`scale(${sx}, ${sy})`);
+  if (mirror) parts.push('scale(-1, 1)');
   parts.push(`translate(${-cx}, ${-cy})`);
   return parts.join(' ');
 };

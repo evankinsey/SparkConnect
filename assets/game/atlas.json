@@ -1,0 +1,18 @@
+{
+  "_generated": "npm run atlas — do not edit by hand",
+  "tilePx": 72,
+  "scale": 3,
+  "width": 220,
+  "height": 220,
+  "sprites": {
+    "SlabTile": {
+      "x": 2,
+      "y": 2,
+      "w": 216,
+      "h": 216,
+      "anchorX": 0.5,
+      "anchorY": 0.5,
+      "scale": 1
+    }
+  }
+}

@@ -1,0 +1,4 @@
+# Source art is large and never shipped in the binary — only the packed
+# atlas.png is. Kept in the repo so the atlas can be repacked at a different
+# resolution later without going back to the artist.
+*.png binary

@@ -115,12 +115,12 @@ const PROPS = [
  * the vector component here when it does not. With no atlas — today — every
  * lookup falls back, and the world renders exactly as it did before.
  *
- * The structural names in ART (SlabTile, StudWall, BarJoist, DoorOpening,
- * FenceRun) are absent on purpose: they are drawn by the world layer below, not
- * as per-prop components, so `coverage()` correctly reports them as the part of
- * the art order with no component-level art behind it yet.
+ * DoorOpening is the one name still absent: it is drawn as a gap in the wall
+ * run rather than as its own component, so `coverage()` correctly reports it
+ * as having no component-level art behind it yet.
  */
 const VECTOR_ART = {
+  SlabTile, StudWall, BarJoist, FenceRun,
   Panelboard, JBox, EmtRun,
   AFrameLadder, WireReel, GangBox, MaterialCart, PrintTable, DrywallStack,
   SafetyCone, Pallet,
@@ -550,7 +550,14 @@ function World({ grid, pos, progress, near, route, facing, step }) {
       if (grid[y][x] === Tile.WALL) {
         walls.push(<StudWall key={`w${x},${y}`} tx={x} ty={y} horiz={wallHoriz(x, y)} />);
       } else {
-        floors.push(<SlabTile key={`f${x},${y}`} tx={x} ty={y} indoor={indoor(x, y)} />);
+        // Indoors goes through the art layer, so a real slab texture replaces
+        // the vector one the moment it lands. OUTDOORS DELIBERATELY DOES NOT:
+        // the yard is dirt, and painting a concrete photo across it would pave
+        // the site. The vector tile tints itself for outside, and it stays
+        // until there is a ground texture that is actually ground.
+        floors.push(indoor(x, y)
+          ? <Art key={`f${x},${y}`} art={art} name="SlabTile" tx={x} ty={y} tile={TILE} indoor />
+          : <SlabTile key={`f${x},${y}`} tx={x} ty={y} indoor={false} />);
         // Layout marks, chalk lines and pallet stains — the details somebody
         // who has stood on a commercial slab recognises instantly. Deterministic
         // from the tile coords, so the floor does not reshuffle its own scuffs

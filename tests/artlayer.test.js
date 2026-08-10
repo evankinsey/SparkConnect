@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 
 import {
   ART, Source, artLayer, readSprite, isValidSprite, missingArt, placeSprite, ART_RULES,
-  TILED, isTiled, tileVariant, variantTransform,
+  TILED, isTiled, tileVariant, variantTransform, ART_SPEC, TILE_PX, ATLAS_SCALE,
 } from '../src/core/game/artLayer.js';
 import { PROPS, PropKind, ROOM_STORY, propsInRoom, buildSiteMap, protectedTiles, reachableFrom } from '../src/core/game/props.js';
 
@@ -179,15 +179,47 @@ test('every art name the screen can ask for has a vector fallback declared', () 
   }
 });
 
-test('the atlas is declared in one place and is honest about being absent', () => {
+test('the manifest is measured, never typed', () => {
   const src = readFileSync(new URL('../src/screens/jobsiteArt.js', import.meta.url), 'utf8');
-  assert.match(src, /export const ATLAS = null;/,
-    'the atlas must stay null until real art exists — a require of a missing '
-    + 'file is a bundling error that takes the whole app down at launch');
-  // Comment lines are the documented shape of a future atlas, not a require.
-  const code = src.split('\n').filter((l) => !/^\s*(\*|\/\/)/.test(l)).join('\n');
-  assert.equal((code.match(/require\(/g) ?? []).length, 0,
-    'no asset is required until there is one to require');
+  // One require of the generated manifest, and the sprite table comes from it.
+  assert.match(src, /require\('\.\.\/\.\.\/assets\/game\/atlas\.json'\)/,
+    'the manifest is not being read from the generated file');
+  assert.doesNotMatch(src, /anchorX:\s*\d/, 'a sprite rectangle is hand-written in the screen');
+
+  const manifest = JSON.parse(readFileSync(new URL('../assets/game/atlas.json', import.meta.url), 'utf8'));
+  assert.match(manifest._generated, /npm run atlas/, 'the manifest lost its generated marker');
+
+  // THE ONE THAT MATTERS. An art delivery once arrived as a PICTURE of a sprite
+  // sheet with a painted-on manifest whose numbers were simply wrong — it
+  // claimed 164 px for a 144 px tile. So the manifest is checked against the
+  // real pixel dimensions of the real file.
+  const png = readFileSync(new URL('../assets/game/atlas.png', import.meta.url));
+  assert.equal(png.slice(1, 4).toString(), 'PNG', 'the atlas is not a PNG');
+  assert.equal(png.readUInt32BE(16), manifest.width, 'the manifest width is not the file width');
+  assert.equal(png.readUInt32BE(20), manifest.height, 'the manifest height is not the file height');
+
+  for (const [name, s2] of Object.entries(manifest.sprites)) {
+    assert.ok(s2.x >= 0 && s2.y >= 0, `${name} is placed off the sheet`);
+    assert.ok(s2.x + s2.w <= manifest.width, `${name} runs off the right edge`);
+    assert.ok(s2.y + s2.h <= manifest.height, `${name} runs off the bottom`);
+    assert.ok(s2.anchorX >= 0 && s2.anchorX <= 1 && s2.anchorY >= 0 && s2.anchorY <= 1,
+      `${name} has an anchor outside the sprite`);
+  }
+});
+
+test('every packed sprite is a name the world knows, at its declared footprint', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../assets/game/atlas.json', import.meta.url), 'utf8'));
+  for (const [name, s2] of Object.entries(manifest.sprites)) {
+    const specName = name.startsWith('Worker_') ? 'Worker' : name;
+    assert.ok(ART.includes(specName), `${name} is packed but is not in the art order`);
+    // Width is the footprint the collision grid uses, times the tile, times @3x.
+    // A sprite packed at the wrong width sits over a box the player cannot walk
+    // through — art and collision disagreeing is worse than no art.
+    assert.equal(s2.w, ART_SPEC[specName].tiles[0] * TILE_PX * ATLAS_SCALE,
+      `${name} is packed at the wrong width for its footprint`);
+    assert.deepEqual([s2.anchorX, s2.anchorY], ART_SPEC[specName].anchor,
+      `${name} was packed with an anchor the renderer does not expect`);
+  }
 });
 
 // ─── Tiling ──────────────────────────────────────────────────────────────────
@@ -236,17 +268,34 @@ test('only the ground repeats — directional art is never turned', () => {
 
 test('a variant transform turns about the sprite, not about the world', () => {
   const box = { left: 720, top: 360, width: 72, height: 72 };
-  // Identity must not move anything.
-  assert.doesNotMatch(variantTransform(0, box), /rotate|scale/);
+  assert.doesNotMatch(variantTransform(0, box), /rotate|scale/, 'identity moves the sprite');
 
-  const turned = variantTransform(4, box);
+  const turned = variantTransform(1, box);
   assert.match(turned, /translate\(756, 396\)/, 'the pivot is not the sprite centre');
   assert.match(turned, /rotate\(90\)/);
   assert.match(turned, /translate\(-756, -396\)/, 'the sprite is not translated back');
+  assert.match(variantTransform(4, box), /scale\(-1, 1\)/, 'the mirrored half does not mirror');
+});
 
-  // A mirror is a scale of -1 on one axis only.
-  assert.match(variantTransform(1, box), /scale\(-1, 1\)/);
-  assert.match(variantTransform(2, box), /scale\(1, -1\)/);
+test('all eight orientations are actually different', () => {
+  // The failure this catches: a hand-built variant list where two entries land
+  // on the same orientation and the variety is quietly halved.
+  const box = { left: 0, top: 0, width: 72, height: 72 };
+  // Apply each transform to a probe point and see where it lands.
+  const land = (v) => {
+    const rot = (v % 4) * 90;
+    const mir = v >= 4;
+    const rad = (rot * Math.PI) / 180;
+    let [x, y] = [20 - 36, 8 - 36];
+    const [rx, ry] = [x * Math.cos(rad) - y * Math.sin(rad), x * Math.sin(rad) + y * Math.cos(rad)];
+    return `${Math.round(mir ? -rx : rx)},${Math.round(ry)}`;
+  };
+  const seen = new Set();
+  for (let v = 0; v < 8; v++) {
+    assert.ok(variantTransform(v, box).length > 0);
+    seen.add(land(v));
+  }
+  assert.equal(seen.size, 8, 'two orientations are the same, so the variety is half what it looks like');
 });
 
 test('a non-square sprite is never given a quarter turn', () => {

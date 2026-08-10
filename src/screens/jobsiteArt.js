@@ -36,8 +36,26 @@ import { artLayer, Source, placeSprite, isTiled, tileVariant, variantTransform }
  * `width` and `height` are required: a sprite is a rectangle CUT OUT of the
  * atlas, and cutting it out means drawing the whole sheet scaled and clipping
  * to the region. Without the sheet's real size there is nothing to scale.
+ *
+ * BOTH ARE GENERATED. `npm run atlas` reads assets/game/raw/, downscales each
+ * sprite to its tile footprint, packs the sheet and COMPUTES the manifest. The
+ * numbers are measurements, never typed — an earlier art delivery arrived as a
+ * picture of a sprite sheet with a painted-on manifest whose figures were
+ * simply wrong.
+ *
+ * A name with no file in raw/ is absent from the manifest and keeps its vector
+ * component, so the art can land in waves and the world always renders.
  */
-export const ATLAS = null;
+const MANIFEST = require('../../assets/game/atlas.json');
+
+export const ATLAS = Object.keys(MANIFEST.sprites ?? {}).length > 0
+  ? Object.freeze({
+    image: require('../../assets/game/atlas.png'),
+    width: MANIFEST.width,
+    height: MANIFEST.height,
+    sprites: MANIFEST.sprites,
+  })
+  : null;
 
 /**
  * One resolver for the screen. Built once from the vector components the screen
