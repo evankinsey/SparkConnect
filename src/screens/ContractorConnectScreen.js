@@ -35,6 +35,8 @@ import {
 } from '../core/connect/submissions';
 import { createSubmissionStore } from '../core/connect/store';
 import { CONNECT_DISCLAIMER, BETA_LABEL } from '../core/connect';
+import { marketplaceReady, PRELAUNCH, COMPLIANCE_NOTE } from '../core/connect/operations';
+import { BACKEND } from '../core/connect/backend';
 import {
   normalizeLicenseNumber, looksLikeLicenseNumber, dbprLicenseAdapter, VERIFY_HELP,
 } from '../core/connect/adapters/florida';
@@ -269,6 +271,7 @@ export default function ContractorConnectScreen({ C, setTab }) {
 
   if (view === View_.HOME) {
     const unsent = rows.filter((r) => !wasHandedOff(r)).length;
+    const ready = marketplaceReady(BACKEND.readiness);
     return (
       <Page>
         <Header title="Contractor Connect" badge={BETA_LABEL} onBack={setTab ? () => setTab('home') : null} />
@@ -280,7 +283,16 @@ export default function ContractorConnectScreen({ C, setTab }) {
           and verify licences. {BETA_DISCLOSURE.short}
         </Text>
 
-        {PATHWAYS.map((p) => (
+        {/* The four funnels open when the marketplace can complete a transaction
+            on its own — see operations.READINESS. They are closed here rather
+            than by a boolean in this component, because "is the backend real"
+            is not a question a screen should be trusted to answer. */}
+        {!ready.ready ? (
+          <Card style={{ borderColor: C.blue }}>
+            <Text style={{ fontSize: 13.5, fontWeight: '800', color: C.text }}>{PRELAUNCH.headline}</Text>
+            <Text style={{ fontSize: 12, color: C.textSec, lineHeight: 18, marginTop: 5 }}>{PRELAUNCH.body}</Text>
+          </Card>
+        ) : PATHWAYS.map((p) => (
           <TouchableOpacity key={p.id} onPress={() => startPathway(p.id)} activeOpacity={0.85}
             accessibilityRole="button" accessibilityLabel={p.title}>
             <Card>
