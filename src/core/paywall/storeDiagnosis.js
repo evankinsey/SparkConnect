@@ -297,9 +297,16 @@ export const diagnose = (facts = {}) => {
     // from here, so it is recorded as inconclusive and nothing is disabled.
     // AGREEMENT_OR_BUNDLE stays reachable, from the STORE_PROBLEM code above,
     // where the SDK has actually said so.
+    // `wanted` is set on ONE path only: somebody pressed buy on a named product
+    // and the store did not return it. That is a stronger claim than the
+    // startup sweep can ever make — a sweep that comes back empty might be a
+    // store that has not warmed up, but a named identifier missing from a live
+    // answer is that identifier. So it is tested BEFORE the inconclusive case,
+    // which otherwise swallows it whenever the Offering is also empty and
+    // leaves the buyer with no sentence at all.
+    if (wanted && !ret.includes(wanted)) return Cause.IDENTIFIER_MISSING;
     if (productsEmpty && (pkgs === null || offeringEmpty)) return Cause.INCONCLUSIVE;
     if (offeringEmpty && ret.length > 0) return Cause.OFFERING_EMPTY;
-    if (wanted && !ret.includes(wanted)) return Cause.IDENTIFIER_MISSING;
     if (req.length > 0 && ret.length < req.length && !wanted) return Cause.IDENTIFIER_MISSING;
     return Cause.HEALTHY;
   })();

@@ -150,3 +150,61 @@ a paywall that could not sell anything.
       and the shipped gates disagree about calculators and about what Lifetime
       includes. Publishing a credits wallet on top of that disagreement makes it
       harder to fix, not easier.
+
+---
+
+# Build 33: "Subscriptions are temporarily unavailable"
+
+Both prices rendered, both plans refused to sell. Two independent faults, one
+in the app and one in the dashboard.
+
+## What the app was doing wrong — fixed in build 36
+
+`purchaseProduct` tries the current Offering first and falls back to buying by
+identifier. The fallback could never work: it asked `getProducts` for
+`ONE_TIME_PRODUCT_IDS`, which deliberately contains no subscriptions, under the
+`NON_SUBSCRIPTION` category, which excludes them again. So it returned nothing
+every time and the app reported the Offering as broken.
+
+That turned an empty Offering into a total loss of subscription revenue with no
+way back, when surviving exactly that is what the fallback is for. It now asks
+for the subscription identifiers under the subscription category.
+
+**The prices on the paywall proved nothing.** `priceCents` is hardcoded in
+`src/core/paywall/config.js`, so $49.99 and $7.99 render whether or not the
+store has ever heard of those products. Worth fixing separately — a non-US
+buyer is currently shown a US price — but it is not why the purchase failed.
+
+## What still needs fixing in the dashboard
+
+The diagnosis was `OFFERING_EMPTY`: the packs loaded, so the store connection,
+the bundle identifier and the Paid Applications agreement are all fine. What is
+empty is the **current Offering in RevenueCat**.
+
+RevenueCat dashboard → the SparkConnect project → **Offerings**:
+
+1. There must be an Offering marked **Current**. If none is, nothing else here
+   matters — `offerings.current` is null and every package lookup fails.
+2. That Offering needs two **Packages**: Annual and Monthly.
+3. Each package must be attached to a **Product** that maps to the App Store
+   Connect subscription — `sparkconnect_pro_yearly` (or `sparkconnect_pro_annual`;
+   both resolve through `PRODUCT_ALIASES`) and `sparkconnect_pro_monthly`.
+4. The products must be in the **`pro` entitlement**, or a completed purchase
+   will not flip `isPro` and the buyer pays for nothing.
+
+No build is required for any of it — the app reads the Offering at runtime.
+
+## Verify
+
+On a device, with a sandbox tester signed in:
+
+1. Open the paywall. The warning banner should be gone.
+2. Tap the annual plan. A real StoreKit sheet should appear.
+3. Complete it. Pro unlocks and the SparkAI allowance moves to 10 a day.
+4. Force-quit, reopen, confirm Pro survives. Then Restore Purchases on the same
+   account and confirm it comes back.
+
+If step 2 still fails, read the message rather than guessing — the causes are
+distinct sentences on purpose. "This plan is not available from the App Store"
+means the identifier does not exist or is not approved in App Store Connect,
+which is a different fix from an empty Offering.

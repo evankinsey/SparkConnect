@@ -583,18 +583,76 @@ test('subscriptions are never asked for by identifier', async () => {
   assert.match(list[0], /PACK_15/);
   assert.match(list[0], /LIFETIME_TOOLS/, 'lifetime genuinely is a one-time product');
 
-  // Every getProducts call asks for that list and no other.
+  // Every getProducts call asks for ONE of the two shelves, with the matching
+  // category. The rule used to be "the one-time list and nothing else", which
+  // protected the startup sweep correctly and, as a side effect, made the
+  // by-identifier subscription fallback impossible: it asked for the one-time
+  // list under NON_SUBSCRIPTION and therefore could never find a subscription.
+  // An empty RevenueCat Offering then meant no subscription could be bought at
+  // all, which is what build 33 did on a real phone.
+  //
+  // What actually has to hold is the pairing, plus the rule below it: the
+  // startup sweep never mentions subscriptions.
+  const PAIRS = {
+    ONE_TIME_PRODUCT_IDS: 'NON_SUBSCRIPTION',
+    SUBSCRIPTION_PRODUCT_IDS: 'SUBSCRIPTION',
+    // The pair chosen at the call site by product type. The two locals must
+    // move together, which the `chooser` assertion below proves.
+    requestedIds: 'category',
+  };
   const calls = [...src.matchAll(/getProducts\(([^)]*)\)/g)];
   assert.ok(calls.length > 0, 'getProducts is never called');
   for (const m of calls) {
     const [ids, category] = m[1].split(',').map((a) => a.trim());
-    assert.equal(ids, 'ONE_TIME_PRODUCT_IDS', `getProducts asked for ${ids}`);
+    assert.ok(PAIRS[ids], `getProducts asked for ${ids}, which is neither shelf`);
     // The SDK defaults this argument to SUBSCRIPTION, which is wrong for every
-    // product in that list. iOS ignores it; Google Play does not, and would
-    // return an empty list for consumables queried as subscriptions.
-    assert.equal(category, 'NON_SUBSCRIPTION',
-      'one-time products must be queried as non-subscriptions');
+    // product in the one-time list. iOS ignores it; Google Play does not, and
+    // would return an empty list for consumables queried as subscriptions —
+    // and, symmetrically, nothing for a subscription queried as a consumable.
+    assert.equal(category, PAIRS[ids], `${ids} must be queried as ${PAIRS[ids]}`);
   }
+
+  // The variable one, resolved at the call site, must pick the pairing together
+  // — never a subscription list under the one-time category or the reverse.
+  const chooser = src.match(/const requestedIds = [\s\S]*?const category = [^;]*;/);
+  assert.ok(chooser, 'buyByIdentifier no longer chooses a shelf');
+  assert.match(chooser[0], /sub \? SUBSCRIPTION_PRODUCT_IDS : ONE_TIME_PRODUCT_IDS/);
+  assert.match(chooser[0], /sub \? SUBSCRIPTION : NON_SUBSCRIPTION/);
+});
+
+test('the startup product check never mentions a subscription', async () => {
+  // This is the half of the old rule that genuinely protected the shipping
+  // build. Asking StoreKit at launch about an identifier that may not exist in
+  // App Store Connect pollutes the diagnosis — `returned` comes back shorter
+  // than `requested`, which reads as IDENTIFIER_MISSING and can black out a
+  // paywall that was working. Subscriptions are asked about ONLY after
+  // somebody has pressed buy on one, and only once the Offering has failed.
+  const src = await import('node:fs').then((fs) => fs.readFileSync('src/purchases.js', 'utf8'));
+  const start = src.indexOf('export async function checkStore');
+  assert.ok(start > 0, 'checkStore moved');
+  const body = src.slice(start, src.indexOf('\n}', start));
+  assert.doesNotMatch(body, /SUBSCRIPTION_PRODUCT_IDS/,
+    'the startup sweep is asking the store about subscriptions again');
+  assert.match(body, /getProducts\(ONE_TIME_PRODUCT_IDS, NON_SUBSCRIPTION\)/);
+});
+
+test('a subscription can still be bought when the Offering is empty', async () => {
+  // The fallback exists for exactly one situation: the current Offering in the
+  // RevenueCat dashboard is empty or unpublished. That is a state no build can
+  // correct and the single most likely way to lose every subscription sale at
+  // once, so the path around it has to be real.
+  const src = await import('node:fs').then((fs) => fs.readFileSync('src/purchases.js', 'utf8'));
+  const i = src.indexOf('export async function purchaseProduct');
+  const body = src.slice(i, src.indexOf('\n}\n', i));
+  const offeringAt = body.indexOf('getOfferings');
+  const fallbackAt = body.indexOf('buyByIdentifier');
+  assert.ok(offeringAt > 0 && fallbackAt > offeringAt,
+    'the Offering must be tried first and the identifier used as the fallback');
+
+  // And the fallback must be reachable — not stranded behind a return.
+  const between = body.slice(offeringAt, fallbackAt);
+  assert.doesNotMatch(between, /\n\s*return unavailable\(\);/,
+    'the subscription fallback is unreachable: something returns before it');
 });
 
 test('an empty offering does not black out the packs, or the reverse', async () => {

@@ -33,11 +33,13 @@ let PACKAGE_TYPE = { ANNUAL: 'ANNUAL', MONTHLY: 'MONTHLY' };
  * expects is the fallback, and the SDK's own value is preferred if it appears.
  */
 let NON_SUBSCRIPTION = 'NON_SUBSCRIPTION';
+let SUBSCRIPTION = 'SUBSCRIPTION';
 try {
   const rc = require('react-native-purchases');
   Purchases = rc.default;
   if (rc.PACKAGE_TYPE) PACKAGE_TYPE = { ...PACKAGE_TYPE, ...rc.PACKAGE_TYPE };
   if (rc.PRODUCT_CATEGORY?.NON_SUBSCRIPTION) NON_SUBSCRIPTION = rc.PRODUCT_CATEGORY.NON_SUBSCRIPTION;
+  if (rc.PRODUCT_CATEGORY?.SUBSCRIPTION) SUBSCRIPTION = rc.PRODUCT_CATEGORY.SUBSCRIPTION;
 } catch (e) { /* preview environment — purchase calls become friendly no-ops */ }
 
 const ENTITLEMENT = 'pro';
@@ -65,6 +67,32 @@ const ONE_TIME_PRODUCT_IDS = [
   ...(PRODUCT_ALIASES[ProductId.PACK_50] ?? [ProductId.PACK_50]),
   ...(PRODUCT_ALIASES[ProductId.PACK_150] ?? [ProductId.PACK_150]),
   ...(PRODUCT_ALIASES[ProductId.LIFETIME_TOOLS] ?? [ProductId.LIFETIME_TOOLS]),
+];
+
+/**
+ * The subscription identifiers, for the path that does NOT go through an Offering.
+ *
+ * THE BUG THIS EXISTS TO FIX. purchaseProduct's comment promised a fallback:
+ * "buy the subscription by identifier, exactly like a pack". It could never
+ * work. buyByIdentifier asked getProducts for ONE_TIME_PRODUCT_IDS — which
+ * deliberately contains no subscriptions — under the NON_SUBSCRIPTION category,
+ * which on Google Play excludes subscriptions outright. So the lookup returned
+ * nothing every single time, the fallback returned null, and the app reported
+ * "Subscriptions are temporarily unavailable".
+ *
+ * That made an empty RevenueCat Offering a TOTAL loss of subscription revenue
+ * with no way back, when the entire point of the fallback was to survive
+ * exactly that. Build 33 on a real phone showed both prices and refused to sell
+ * either.
+ *
+ * Keeping this list separate from ONE_TIME_PRODUCT_IDS is still right, and the
+ * long comment above it still applies — the startup product check must not ask
+ * StoreKit about subscriptions. This list is used only when somebody has
+ * actually pressed buy on one.
+ */
+const SUBSCRIPTION_PRODUCT_IDS = [
+  ...(PRODUCT_ALIASES[ProductId.PRO_ANNUAL] ?? [ProductId.PRO_ANNUAL]),
+  ...(PRODUCT_ALIASES[ProductId.PRO_MONTHLY] ?? [ProductId.PRO_MONTHLY]),
 ];
 
 const isSubscription = (productId) =>
@@ -232,7 +260,12 @@ export const isProductAvailable = (productId) => {
 /** Buy by product identifier. This path needs only the product to exist in
  *  App Store Connect — no Offering, no dashboard packages. */
 async function buyByIdentifier(productId) {
-  const prods = await Purchases.getProducts(ONE_TIME_PRODUCT_IDS, NON_SUBSCRIPTION);
+  // Ask for the right shelf. A subscription is never returned by a query typed
+  // NON_SUBSCRIPTION, and it is not in the one-time list to begin with.
+  const sub = isSubscription(productId);
+  const requestedIds = sub ? SUBSCRIPTION_PRODUCT_IDS : ONE_TIME_PRODUCT_IDS;
+  const category = sub ? SUBSCRIPTION : NON_SUBSCRIPTION;
+  const prods = await Purchases.getProducts(requestedIds, category);
   const returned = (prods || []).map((p) => p.productIdentifier);
   // Match on any known alias, not on our internal id — the store returns
   // whatever identifier the product was actually created with.
@@ -247,11 +280,16 @@ async function buyByIdentifier(productId) {
     record({
       sdkPresent: true,
       configured,
-      requested: ONE_TIME_PRODUCT_IDS,
+      // The list actually asked for. Reporting the one-time list after a
+      // subscription lookup would compute `missing` against products nobody
+      // requested, which is a diagnosis about the wrong shelf.
+      requested: requestedIds,
       returned,
       // The Offering is unaffected by a one-time product missing, so carry the
       // last known packages forward rather than reporting subscriptions dead.
-      offeringPackages: lastDiagnosis?.offeringPackages ?? null,
+      // On the subscription path the Offering is already known to be empty —
+      // that is why we are here — and saying so is the whole diagnosis.
+      offeringPackages: sub ? (lastDiagnosis?.offeringPackages ?? []) : (lastDiagnosis?.offeringPackages ?? null),
       wanted: (PRODUCT_ALIASES[productId] ?? [productId])[0],
     });
     return null;
@@ -296,7 +334,11 @@ export async function purchaseProduct(productId) {
         // An offerings misconfiguration is not a dead end — fall through.
       }
 
-      // Fallback: buy the subscription by identifier, exactly like a pack.
+      // Fallback: buy the subscription straight from StoreKit by identifier,
+      // with no Offering involved. This is what survives an empty or
+      // unpublished Offering in the RevenueCat dashboard — the single most
+      // likely way to lose every subscription sale at once, and a dashboard
+      // state no build can correct.
       const customerInfo = await buyByIdentifier(productId);
       if (!customerInfo) return unavailable();
       return { ok: proFrom(customerInfo), isPro: proFrom(customerInfo) };
