@@ -54,6 +54,9 @@ export const CITATIONS = Object.freeze({
   'Table 310.16': entry('Allowable ampacities of insulated conductors in raceway or cable', { editionSensitive: true }),
   'Table 310.15(C)(1)': entry('Adjustment factors for more than three current-carrying conductors', { editionSensitive: true }),
 
+  // 200 — use and identification of grounded conductors
+  '200.6': entry('Means of identifying grounded conductors'),
+
   // 110 — general requirements
   '110.14(C)': entry('Temperature limitations at terminations'),
   '110.14(C)(1)(a)': entry('Termination temperature rating for circuits 100 A and under'),
@@ -102,6 +105,8 @@ export const CITATIONS = Object.freeze({
   '314.16(B)': entry('Box fill volume allowance per conductor'),
 
   // 334 / 358 / 400 — specific wiring methods
+  '334.15(B)': entry('NM cable through a raceway used as physical protection'),
+  '440.14': entry('Disconnecting means for air-conditioning and refrigerating equipment'),
   '334.80': entry('Ampacity basis for NM cable'),
   '358.26': entry('Bends between pull points in EMT'),
   '358.30(A)': entry('Securing and supporting EMT'),

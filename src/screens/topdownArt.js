@@ -18,13 +18,16 @@ import React from 'react';
 import { G, Rect, Circle, Ellipse, Path, Line, Defs, LinearGradient, RadialGradient, Stop } from 'react-native-svg';
 
 import { TILE } from '../core/game/topdown';
+import { groundNoise } from '../core/game/yard';
 
 export const SKY = {
   // Daylight. The old palette was near-black and made an unfinished shell look
   // like a dungeon.
   dirt: '#B8A88C', dirtAlt: '#AE9E82', dirtDark: '#9C8C72',
   slab: '#BFC3C6', slabAlt: '#B7BBBE', joint: '#9DA2A6',
-  grass: '#7C9A62', asphalt: '#6E7278',
+  grass: '#7C9A62', grassAlt: '#748F5B', grassWorn: '#8C9668',
+  grassLight: '#9BBC7A', grassDark: '#5F7A49', gravel: '#9A9184',
+  asphalt: '#6E7278',
   steel: '#D7DBE0', steelMid: '#AEB4BB', steelDark: '#8A9099',
   shadow: 'rgba(40,34,24,0.28)',
   amber: '#F4A11D', green: '#22C55E', orange: '#F97316',
@@ -41,20 +44,79 @@ const Shade = ({ x, y, rx, ry, o = 0.28 }) => (
 
 // ─── Ground ──────────────────────────────────────────────────────────────────
 
+/**
+ * Deterministic noise from a tile's own coordinates.
+ *
+ * Everything outdoors is scattered from this rather than from Math.random, for
+ * the same reason the floor variants are: ground that reshuffles its own grass
+ * as you walk past is worse than ground with a pattern in it.
+ */
+export { groundNoise };
+
+/**
+ * The yard.
+ *
+ * A commercial site is not a lawn and it is not a mud pit — it is grass that
+ * has been driven on. So the ground reads in three bands, decided by how far
+ * the tile is from the building: turf out at the fence, a worn dirt apron
+ * where the trucks and the crew actually travel, and gravel right at the
+ * doors. Getting that gradient is what makes the exterior look like somewhere
+ * work happens rather than a green rectangle around a grey one.
+ */
+export const GroundTile = ({ tx, ty, wear = 0 }) => {
+  const x = tx * TILE, y = ty * TILE;
+  const n = groundNoise(tx, ty);
+  // wear 0 = untouched turf, 1 = bare travelled dirt.
+  const w = Math.max(0, Math.min(1, wear));
+  const base = w > 0.66 ? (n > 0.5 ? SKY.dirt : SKY.dirtAlt)
+    : w > 0.33 ? (n > 0.5 ? SKY.grassWorn : SKY.dirtAlt)
+      : (n > 0.5 ? SKY.grass : SKY.grassAlt);
+
+  // Tufts thin out as the ground wears. Four per tile at most, placed off the
+  // same noise so a tile always grows the same grass.
+  const tufts = Math.round((1 - w) * 4);
+  const blades = [];
+  for (let i = 0; i < tufts; i++) {
+    const gx = x + groundNoise(tx, ty, i * 3 + 1) * TILE;
+    const gy = y + groundNoise(tx, ty, i * 3 + 2) * TILE;
+    const len = TILE * (0.10 + groundNoise(tx, ty, i * 3 + 3) * 0.09);
+    const dark = groundNoise(tx, ty, i + 40) > 0.5;
+    // Half the blades lean the other way. Without this every tuft is the same
+    // stroke and the field reads as a repeated character, not as grass.
+    const lean = groundNoise(tx, ty, i + 55) > 0.5 ? 1 : -1;
+    const tilt = (groundNoise(tx, ty, i + 62) - 0.5) * 0.5;
+    blades.push(
+      <Path key={`b${i}`}
+        d={`M ${gx} ${gy} q ${len * 0.28 * lean} ${-len * 0.6} ${len * (0.1 * lean + tilt)} ${-len}`}
+        stroke={dark ? SKY.grassDark : SKY.grassLight}
+        strokeWidth={TILE * 0.045} fill="none" strokeLinecap="round" opacity={0.85} />,
+    );
+  }
+
+  return (
+    <G>
+      <Rect x={x} y={y} width={TILE + 1} height={TILE + 1} fill={base} />
+      {/* A tyre rut through the travelled band, not through the turf. */}
+      {w > 0.5 && (tx * 7 + ty * 3) % 5 === 0 && (
+        <Ellipse cx={x + TILE * 0.4} cy={y + TILE * 0.6} rx={TILE * 0.34} ry={TILE * 0.13}
+          fill={SKY.dirtDark} opacity={0.45} />
+      )}
+      {/* Gravel where the ground is most worn — the pad at the doors. */}
+      {w > 0.75 && [0, 1, 2, 3, 4].map((i) => (
+        <Circle key={`g${i}`}
+          cx={x + groundNoise(tx, ty, i + 70) * TILE}
+          cy={y + groundNoise(tx, ty, i + 90) * TILE}
+          r={TILE * 0.022} fill={SKY.gravel} opacity={0.75} />
+      ))}
+      {blades}
+    </G>
+  );
+};
+
 export const SlabTile = ({ tx, ty, indoor }) => {
   const x = tx * TILE, y = ty * TILE;
   const alt = (tx + ty) % 2 === 0;
-  if (!indoor) {
-    return (
-      <G>
-        <Rect x={x} y={y} width={TILE + 1} height={TILE + 1} fill={alt ? SKY.dirt : SKY.dirtAlt} />
-        {/* tyre ruts and scuff, so the yard is not a flat colour */}
-        {(tx * 7 + ty * 3) % 5 === 0 && (
-          <Ellipse cx={x + TILE * 0.4} cy={y + TILE * 0.6} rx={TILE * 0.3} ry={TILE * 0.12} fill={SKY.dirtDark} opacity={0.5} />
-        )}
-      </G>
-    );
-  }
+  if (!indoor) return <GroundTile tx={tx} ty={ty} wear={0.55} />;
   return (
     <G>
       <Rect x={x} y={y} width={TILE + 1} height={TILE + 1} fill={alt ? SKY.slab : SKY.slabAlt} />

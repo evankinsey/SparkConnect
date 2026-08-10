@@ -54,11 +54,19 @@ export const HOME_CARDS = Object.freeze([
   { id: 'projects', kind: CardKind.SHORTCUT, tab: 'projects', title: 'Projects', sub: 'Everything on one job', icon: 'folder-open', group: 'Work' },
   { id: 'materials', kind: CardKind.SHORTCUT, tab: 'materials', title: 'Material List', sub: 'Build it, send it', icon: 'cart', group: 'Work' },
   { id: 'community', kind: CardKind.SHORTCUT, tab: 'community', title: 'Community', sub: 'Questions and jobs', icon: 'people', group: 'Work' },
+  { id: 'connect', kind: CardKind.SHORTCUT, tab: 'connect', title: 'Contractor Connect', sub: 'Opportunities, qualifiers, licences', icon: 'link', group: 'Work' },
   // Job Cam is the camera inside a project now, so the card points at Projects.
   // Kept under its own id so a saved layout holding 'jobcam' still resolves
   // instead of vanishing from that user's Home.
   { id: 'jobcam', kind: CardKind.SHORTCUT, tab: 'projects', title: 'Job Cam', sub: 'Photos, inside your projects', icon: 'camera', group: 'Work' },
   { id: 'estimator', kind: CardKind.SHORTCUT, tab: 'estimator', title: 'Estimator', sub: 'Material and labour', icon: 'hammer', group: 'Work' },
+
+  // Career. Two cards that matter enormously to one role and not at all to
+  // another, which is exactly the case role-aware Home exists for: an
+  // apprentice logging hours toward turning out, and anyone deciding how to
+  // get in. Neither is hidden from anybody — see ONB-05 — they simply are not
+  // suggested to a contractor who has been licensed for fifteen years.
+  { id: 'hours', kind: CardKind.SHORTCUT, tab: 'hours', title: 'Hours', sub: 'OJT and continuing education', icon: 'time', group: 'Career' },
 ]);
 
 export const CARD_IDS = HOME_CARDS.map((c) => c.id);
@@ -74,12 +82,12 @@ export const DEFAULT_LAYOUT = Object.freeze([
 // ONB-04 — role tunes the default order. It never hides anything permanently
 // (ONB-05); every card stays available in Customize.
 export const ROLE_LAYOUTS = Object.freeze({
-  apprentice: ['flashcards', 'examprep', 'bend', 'wire'],
+  apprentice: ['hours', 'flashcards', 'examprep', 'bend'],
   journeyman: ['calculators', 'bend', 'jobcam', 'volt'],
   foreman: ['jobcam', 'estimator', 'calculators', 'projects'],
   contractor: ['estimator', 'jobcam', 'calculators', 'projects'],
   instructor: ['examprep', 'flashcards', 'streak', 'calculators'],
-  student: ['flashcards', 'examprep', 'streak', 'wire'],
+  student: ['hours', 'flashcards', 'examprep', 'streak'],
 });
 
 export const layoutForRole = (role) =>
@@ -252,3 +260,67 @@ export const migrateLayout = (saved, fromVersion = 1) => {
   // leaving them to add what they want from Customize.
   return sanitizeLayout([...base, ...additions]).slice(0, MAX_CARDS);
 };
+
+/**
+ * WHY a card is suggested to this role, in one sentence.
+ *
+ * The sentence is the point. "Suggested for you" is a shrug; "apprentices lose
+ * hours by not logging them the week they happen" is a reason somebody can
+ * agree or disagree with, and disagreeing is a legitimate answer — nothing here
+ * adds a card, it only offers one.
+ */
+export const ROLE_SUGGESTIONS = Object.freeze({
+  apprentice: Object.freeze([
+    { id: 'hours', why: 'Your programme will ask you to prove these. Log them the week they happen — a year reconstructed from memory is a year argued over.' },
+    { id: 'examprep', why: 'The exam is the gate between you and the next pay step.' },
+    { id: 'wiring_lab', why: 'Wire it wrong here rather than on somebody\'s house.' },
+  ]),
+  student: Object.freeze([
+    { id: 'flashcards', why: 'The vocabulary is most of the first year.' },
+    { id: 'wiring_lab', why: 'A circuit you have built is a circuit you can picture on the exam.' },
+    { id: 'hours', why: 'Start the habit before you need it — the first hours count too.' },
+  ]),
+  journeyman: Object.freeze([
+    { id: 'hours', why: 'Continuing education for your renewal. Keep the certificates as you go.' },
+    { id: 'calculators', why: 'The numbers you run standing at a panel.' },
+    { id: 'jobcam', why: 'Photograph what gets covered up, before it gets covered up.' },
+  ]),
+  foreman: Object.freeze([
+    { id: 'projects', why: 'One place for the photos, the numbers and the daily log on each job.' },
+    { id: 'panelschedule', why: 'Build it and balance it before the inspector reads it.' },
+    { id: 'materials', why: 'What to order, in a list you can send.' },
+  ]),
+  contractor: Object.freeze([
+    { id: 'estimator', why: 'A rough number before you spend an evening on a real one.' },
+    { id: 'projects', why: 'The record you defend an invoice or an inspection with.' },
+    { id: 'blueprint', why: 'Count devices off the sheet instead of by hand.' },
+  ]),
+  instructor: Object.freeze([
+    { id: 'examprep', why: 'A question bank you can set from.' },
+    { id: 'wiring_lab', why: 'A circuit a class can get wrong safely.' },
+    { id: 'troubleshoot', why: 'Faults to hand somebody who has finished early.' },
+  ]),
+});
+
+/**
+ * Cards worth offering this role that are not on their Home already.
+ *
+ * Returns nothing rather than something when the role is unknown or everything
+ * is already added. An empty state that says "you are set up" beats a panel
+ * padded with cards nobody suggested.
+ */
+export const suggestionsForRole = (role, layout = []) => {
+  const key = String(role ?? '').toLowerCase();
+  const suggested = ROLE_SUGGESTIONS[key];
+  if (!suggested) return Object.freeze([]);
+  const have = new Set(sanitizeLayout(layout));
+  return Object.freeze(
+    suggested
+      .filter((s) => !have.has(s.id))
+      .map((s) => ({ ...cardById(s.id), why: s.why }))
+      .filter((c) => c && c.id),
+  );
+};
+
+/** Every role we can tailor for. Used by tests and by the role picker. */
+export const SUGGESTED_ROLES = Object.freeze(Object.keys(ROLE_SUGGESTIONS));

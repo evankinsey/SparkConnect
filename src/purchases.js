@@ -15,14 +15,29 @@
 import { Platform } from 'react-native';
 import { REVENUECAT_IOS_KEY, REVENUECAT_ANDROID_KEY } from './config/keys';
 import { ProductId, ALL_STORE_IDS, matchesProduct, PRODUCT_ALIASES } from './core/paywall/config';
-import { diagnose } from './core/paywall/storeDiagnosis';
+import { diagnose, Cause } from './core/paywall/storeDiagnosis';
 
 let Purchases = null;
 let PACKAGE_TYPE = { ANNUAL: 'ANNUAL', MONTHLY: 'MONTHLY' };
+/**
+ * getProducts' second argument, which defaults to SUBSCRIPTION in the SDK.
+ *
+ * Everything this file asks getProducts for is a consumable or a one-time
+ * unlock, so the default is wrong for every call we make. On iOS the native
+ * bridge ignores the argument entirely — StoreKit has no such split — which is
+ * why the App Store build has always sold the answer packs without passing it.
+ * On Google Play the split is real: querying "subs" for an "inapp" SKU returns
+ * an empty list, so on Android the packs could never have loaded.
+ *
+ * The enum is not re-exported from the package root, so the string the bridge
+ * expects is the fallback, and the SDK's own value is preferred if it appears.
+ */
+let NON_SUBSCRIPTION = 'NON_SUBSCRIPTION';
 try {
   const rc = require('react-native-purchases');
   Purchases = rc.default;
   if (rc.PACKAGE_TYPE) PACKAGE_TYPE = { ...PACKAGE_TYPE, ...rc.PACKAGE_TYPE };
+  if (rc.PRODUCT_CATEGORY?.NON_SUBSCRIPTION) NON_SUBSCRIPTION = rc.PRODUCT_CATEGORY.NON_SUBSCRIPTION;
 } catch (e) { /* preview environment — purchase calls become friendly no-ops */ }
 
 const ENTITLEMENT = 'pro';
@@ -61,6 +76,25 @@ const proFrom = (customerInfo) =>
   !!customerInfo?.entitlements?.active?.[ENTITLEMENT];
 
 /**
+ * When this subscription ORIGINALLY started, for the grandfathered allowance.
+ *
+ * `originalPurchaseDate`, never `latestPurchaseDate`. The latter moves forward
+ * on every renewal, so using it would quietly downgrade every grandfathered
+ * member on their next billing date — a month after launch, silently, which is
+ * worse than never having grandfathered them at all.
+ *
+ * Returns null when the field is missing rather than guessing a date. The
+ * caller resolves an unknown date to the GENEROUS side.
+ */
+const proSinceFrom = (customerInfo) => {
+  const ent = customerInfo?.entitlements?.active?.[ENTITLEMENT];
+  const raw = ent?.originalPurchaseDate ?? customerInfo?.originalPurchaseDate ?? null;
+  if (!raw) return null;
+  const t = typeof raw === 'number' ? raw : Date.parse(raw);
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+};
+
+/**
  * Configure RevenueCat once and report current Pro state.
  * Never throws — a billing SDK problem must never take the app down.
  */
@@ -74,7 +108,7 @@ export async function initPurchases() {
       configured = true;
     }
     const info = await Purchases.getCustomerInfo();
-    return { available: true, isPro: proFrom(info) };
+    return { available: true, isPro: proFrom(info), proSince: proSinceFrom(info) };
   } catch (e) {
     return { available: false, isPro: false, error: e?.message };
   }
@@ -132,11 +166,28 @@ export async function checkStore() {
   }
 
   try {
-    const prods = await Purchases.getProducts(ONE_TIME_PRODUCT_IDS);
+    const prods = await Purchases.getProducts(ONE_TIME_PRODUCT_IDS, NON_SUBSCRIPTION);
     returned = (prods || []).map((p) => p.productIdentifier);
   } catch (e) {
     errorCode = errorCode ?? codeOf(e);
   }
+
+  // Trial eligibility, from the store rather than from hope.
+  //
+  // ELIGIBLE is status 2. UNKNOWN (0) is treated as NOT eligible on purpose:
+  // RevenueCat returns it when it cannot determine subscription-group state,
+  // and guessing "yes" there produces a button offering a free trial followed
+  // by a sheet that charges immediately. Under-promising costs a little
+  // conversion; over-promising costs a refund and an App Review rejection.
+  let trialEligible = false;
+  try {
+    if (typeof Purchases.checkTrialOrIntroductoryPriceEligibility === 'function') {
+      const ids = PRODUCT_ALIASES[ProductId.PRO_ANNUAL] ?? [ProductId.PRO_ANNUAL];
+      const map = await Purchases.checkTrialOrIntroductoryPriceEligibility(ids);
+      trialEligible = Object.values(map || {})
+        .some((e) => Number(e?.status) === 2);
+    }
+  } catch (e) { /* unknown stays not-eligible */ }
 
   return record({
     sdkPresent: true,
@@ -145,6 +196,7 @@ export async function checkStore() {
     returned,
     offeringPackages: packages,
     errorCode,
+    trialEligible,
   });
 }
 
@@ -164,7 +216,15 @@ const codeOf = (e) => (typeof e?.code === 'number' ? e.code : Number(e?.code ?? 
  */
 export const isProductAvailable = (productId) => {
   if (!lastDiagnosis) return true;
-  if (lastDiagnosis.cause === 'SDK_ABSENT') return false;
+  if (lastDiagnosis.healthy) return true;
+  // Same rule the paywall renders by: only a diagnosis backed by positive
+  // evidence may call a product unavailable. An empty getProducts result with
+  // no error code is INCONCLUSIVE and must not black out a product the App
+  // Store sells — see BLOCKING_CAUSES in core/paywall/storeDiagnosis.
+  if (!lastDiagnosis.blocksPurchase) return true;
+  if (lastDiagnosis.cause === Cause.SDK_ABSENT
+    || lastDiagnosis.cause === Cause.BAD_API_KEY
+    || lastDiagnosis.cause === Cause.PURCHASE_NOT_ALLOWED) return false;
   if (isSubscription(productId)) return lastDiagnosis.subscriptionsSellable;
   return lastDiagnosis.returned.some((id) => matchesProduct(productId, id));
 };
@@ -172,7 +232,7 @@ export const isProductAvailable = (productId) => {
 /** Buy by product identifier. This path needs only the product to exist in
  *  App Store Connect — no Offering, no dashboard packages. */
 async function buyByIdentifier(productId) {
-  const prods = await Purchases.getProducts(ONE_TIME_PRODUCT_IDS);
+  const prods = await Purchases.getProducts(ONE_TIME_PRODUCT_IDS, NON_SUBSCRIPTION);
   const returned = (prods || []).map((p) => p.productIdentifier);
   // Match on any known alias, not on our internal id — the store returns
   // whatever identifier the product was actually created with.

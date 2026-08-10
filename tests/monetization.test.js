@@ -1,0 +1,454 @@
+// ─── THE MONETIZATION MATRIX ─────────────────────────────────────────────────
+// Decided 9 Aug 2026. These tests exist so the numbers cannot drift again — the
+// audit that produced them found four different figures for one allowance.
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+
+import {
+  ASK_ALLOWANCE, FREE_LIMITS, PRO_LIMITS, Feature, FREE_PROJECT_LIMIT,
+  Plan, planFor, allowanceForPlan, ALLOWANCE_CHANGED_AT,
+  LIFETIME_ENTITLEMENT, usageLabel, proAskAllowanceLabel, freeAskAllowanceLabel,
+  PRICING_DISCREPANCIES,
+} from '../src/core/paywall/entitlements.js';
+import {
+  Source, SOURCES, heroFor, HEROES, DEFAULT_HERO, PILLARS, FREE_FOREVER,
+  ctaFor, TRIAL_DAYS, paywallEvent,
+} from '../src/core/paywall/contexts.js';
+import { ProductId, PACKS, PRODUCT_ALIASES, PRODUCTS } from '../src/core/paywall/config.js';
+import { CREDITS_ENABLED } from '../src/core/paywall/registry.js';
+
+// ─── The agreed numbers ──────────────────────────────────────────────────────
+
+test('the allowance matrix is exactly what was decided', () => {
+  assert.equal(ASK_ALLOWANCE.free.perDay, 5, 'free is not 5/day');
+  assert.equal(ASK_ALLOWANCE.pro.perDay, 10, 'Pro is not 10/day');
+  assert.equal(ASK_ALLOWANCE.pro.monthlyBackstop, 250, 'the Pro monthly backstop is not 250');
+  assert.equal(ASK_ALLOWANCE.lifetime.perDay, 5, 'Lifetime is not on the free allowance');
+
+  // And the gate reads the table rather than a typed number.
+  assert.equal(FREE_LIMITS[Feature.SPARK_AI].limit, ASK_ALLOWANCE.free.perDay);
+  assert.equal(PRO_LIMITS[Feature.SPARK_AI].limit, ASK_ALLOWANCE.pro.perDay);
+});
+
+test('the monthly backstop is an abuse ceiling, not a second allowance', () => {
+  // Deliberately BELOW daily x 31. That is only safe because the backstop is
+  // never advertised — the old 20/day + 400/month shape put a daily number on
+  // the paywall that the monthly one cancelled two thirds through the month.
+  assert.ok(ASK_ALLOWANCE.pro.monthlyBackstop < ASK_ALLOWANCE.pro.perDay * 31);
+  // So it must not appear in anything sold.
+  const sold = JSON.stringify([PILLARS, HEROES, DEFAULT_HERO, FREE_FOREVER]);
+  assert.doesNotMatch(sold, /250/, 'the fair-use ceiling is being advertised as a benefit');
+  assert.match(proAskAllowanceLabel(), /^10 SparkAI answers a day$/);
+});
+
+test('Lifetime never quietly becomes Pro', () => {
+  // $29.99 once cannot fund an indefinitely recurring model expense.
+  assert.equal(LIFETIME_ENTITLEMENT.unlimitedAi, false);
+  assert.equal(LIFETIME_ENTITLEMENT.becomesPro, false);
+  assert.equal(LIFETIME_ENTITLEMENT.aiPerDay, ASK_ALLOWANCE.free.perDay);
+  // The escape hatch stays visible until somebody actually reads the listing.
+  assert.equal(LIFETIME_ENTITLEMENT.historicalPromiseVerified, false,
+    'if this is now true, the historical promise must be recorded alongside it');
+});
+
+test('the free project limit is one number', () => {
+  assert.equal(FREE_PROJECT_LIMIT, 1);
+  assert.equal(FREE_LIMITS[Feature.JOB_CAM].limit, FREE_PROJECT_LIMIT);
+});
+
+test('the everyday calculators are free and are not sold as Pro', () => {
+  // They are the distribution engine. "Download, tap bender, pay us" converts
+  // nobody and gets deleted.
+  assert.equal(FREE_LIMITS[Feature.CALCULATOR].limit, null);
+  const sold = JSON.stringify([PILLARS, HEROES]);
+  assert.doesNotMatch(sold, /unlimited calculat|all calculators|advanced calculators/i,
+    'the paywall is selling calculators the app gives away');
+  assert.match(FREE_FOREVER.join(' '), /Pipe bending/i, 'the paywall never says what stays free');
+});
+
+test('no screen hardcodes an allowance', () => {
+  for (const f of [
+    'src/core/onboarding/flow.js', 'src/core/paywall/config.js',
+    'src/core/paywall/contexts.js', 'src/useGating.js',
+  ]) {
+    const src = fs.readFileSync(f, 'utf8');
+    assert.doesNotMatch(src, /\b(10|5|250)\s+(SparkAI\s+)?answers\b/i, `${f} types an allowance`);
+  }
+});
+
+// ─── Usage UI ────────────────────────────────────────────────────────────────
+
+test('usage leads with the day and mentions the month only when it matters', () => {
+  const early = usageLabel({ usedToday: 2, usedThisMonth: 12, isPro: true });
+  assert.equal(early.daily, '8 of 10 answers remaining today');
+  assert.equal(early.monthly, null, 'a ceiling nobody will reach is being quoted');
+
+  const near = usageLabel({ usedToday: 2, usedThisMonth: 238, isPro: true });
+  assert.match(near.monthly, /238 of 250 included answers used this month/);
+
+  const free = usageLabel({ usedToday: 5, isPro: false });
+  assert.equal(free.daily, '0 of 5 answers remaining today');
+  assert.equal(free.exhausted, true);
+
+  // Purchased answers are shown separately, never merged into the allowance.
+  assert.match(usageLabel({ usedToday: 5, purchased: 15 }).purchased, /\+ 15 purchased answers/);
+  assert.equal(usageLabel({}).purchased, null);
+  assert.ok(usageLabel(undefined).daily);
+});
+
+// ─── Legacy purchase protection ──────────────────────────────────────────────
+
+test('the lying pack SKUs are preserved exactly', () => {
+  // sparky_answers_10 grants 15. The number in the id is not the number of
+  // answers — they predate a resize and a live product cannot be renamed.
+  // This is compatibility now, not a bug.
+  assert.equal(ProductId.PACK_15, 'sparky_answers_10');
+  assert.equal(ProductId.PACK_50, 'sparky_answers_30');
+  assert.equal(ProductId.PACK_150, 'sparky_answers_100');
+
+  const byId = Object.fromEntries(PACKS.map((p) => [p.id, p]));
+  assert.equal(byId[ProductId.PACK_15].answers, 15, 'the historical grant amount changed');
+  assert.equal(byId[ProductId.PACK_50].answers, 50);
+  assert.equal(byId[ProductId.PACK_150].answers, 150);
+
+  assert.equal(byId[ProductId.PACK_15].priceCents, 199);
+  assert.equal(byId[ProductId.PACK_50].priceCents, 499);
+  assert.equal(byId[ProductId.PACK_150].priceCents, 999);
+});
+
+test('subscription identifiers are untouched', () => {
+  assert.equal(ProductId.PRO_ANNUAL, 'sparkconnect_pro_yearly');
+  assert.equal(ProductId.PRO_MONTHLY, 'sparkconnect_pro_monthly');
+  assert.equal(PRODUCTS[ProductId.PRO_MONTHLY].priceCents, 799);
+  assert.equal(PRODUCTS[ProductId.PRO_ANNUAL].priceCents, 4999);
+  // The older annual alias stays, so a product created under it still resolves.
+  assert.ok(PRODUCT_ALIASES[ProductId.PRO_ANNUAL].includes('sparkconnect_pro_annual'));
+});
+
+test('credits stay off', () => {
+  assert.equal(CREDITS_ENABLED, false, 'a customer-facing token economy was switched on');
+});
+
+// ─── Contextual paywall ──────────────────────────────────────────────────────
+
+test('every entry point has its own argument', () => {
+  const seen = new Set();
+  for (const s of SOURCES) {
+    const h = heroFor(s);
+    assert.ok(h.headline && h.sub, `${s} has no pitch`);
+    if (s !== Source.SETTINGS) {
+      assert.ok(!seen.has(h.headline), `${s} reuses another source's headline`);
+      seen.add(h.headline);
+    }
+  }
+  // Unknown sources still produce a working paywall.
+  assert.deepEqual(heroFor('nonsense'), DEFAULT_HERO);
+  assert.deepEqual(heroFor(undefined), DEFAULT_HERO);
+});
+
+test('the offer never changes with the entry point, only the pitch', () => {
+  // A paywall whose OFFER changes by where you came from is a dark pattern.
+  // Price and product live in config.js and nothing here can touch them.
+  const src = fs.readFileSync('src/core/paywall/contexts.js', 'utf8');
+  assert.doesNotMatch(src, /priceCents|\$\d|discount|% off/i,
+    'the contextual layer is reaching into pricing');
+});
+
+test('Pro is not sold as an AI subscription', () => {
+  // The app is much bigger than its assistant.
+  assert.equal(PILLARS.length, 4);
+  assert.match(DEFAULT_HERO.headline, /entire electrical field kit/i);
+  const ids = PILLARS.map((p) => p.id);
+  assert.deepEqual(ids, ['sparkai', 'training', 'projects', 'tools']);
+  // Three of four pillars are not about AI.
+  assert.equal(PILLARS.filter((p) => /SPARKAI/.test(p.title)).length, 1);
+});
+
+test('a trial is never promised to somebody who cannot have one', () => {
+  // Promising one produces a purchase sheet that contradicts the button just
+  // pressed. Eligibility comes from StoreKit and there is no default of true.
+  assert.equal(ctaFor().showsTrial, false, 'a trial is offered by default');
+  assert.equal(ctaFor({ eligible: false, plan: 'annual' }).showsTrial, false);
+  assert.equal(ctaFor({ eligible: true, plan: 'monthly' }).showsTrial, false, 'monthly got a trial');
+  const yes = ctaFor({ eligible: true, plan: 'annual' });
+  assert.equal(yes.showsTrial, true);
+  assert.match(yes.label, new RegExp(`${TRIAL_DAYS}-Day Free Trial`));
+  assert.match(ctaFor({}).label, /Unlock SparkConnect Pro/);
+});
+
+test('paywall analytics carry the source and nothing private', () => {
+  const e = paywallEvent({ source: Source.JOB_SITE, isPro: false });
+  assert.equal(e.event, 'paywall_viewed');
+  assert.equal(e.source, 'job_site');
+  // No question text, no photo, no project.
+  assert.deepEqual(Object.keys(e).sort(), ['alreadyPro', 'event', 'plan', 'source']);
+  assert.equal(paywallEvent({ source: 'made_up' }).source, Source.SETTINGS);
+});
+
+// ─── The record ──────────────────────────────────────────────────────────────
+
+test('every audit item was resolved rather than dropped', () => {
+  const ids = ['pro-ai-allowance-unresolved', 'calculators-advertised-as-pro',
+    'lifetime-gets-unlimited-ai', 'jobcam-project-count'];
+  for (const id of ids) {
+    const d = PRICING_DISCREPANCIES.find((x) => x.id === id);
+    assert.ok(d, `${id} vanished from the record instead of being resolved`);
+    assert.match(d.decision, /^RESOLVED/, `${id} is still open`);
+  }
+  // The one that still blocks the build says so.
+  const server = PRICING_DISCREPANCIES.find((x) => x.id === 'pro-ai-allowance-unresolved');
+  assert.match(server.decision, /OUTSTANDING AND BLOCKING/);
+  assert.match(server.decision, /api\/ask-nec/);
+});
+
+test('the paywall renders four pillars and says what stays free', async () => {
+  const src = fs.readFileSync('src/SparkPaywall.js', 'utf8');
+  assert.match(src, /pillars/, 'the paywall does not render the pillars');
+  assert.match(src, /freeForever/, 'the paywall never says what stays free');
+  // The hero is contextual, with the static copy as the fallback.
+  assert.match(src, /hero\?\.headline \|\| copy\.headline/);
+});
+
+test('the packs are named for what they are', async () => {
+  const src = fs.readFileSync('App.js', 'utf8');
+  // Only what a user can read. Scanning the whole file matched a source comment
+  // and reported it as shipped copy, which is a false positive that trains
+  // people to ignore the test.
+  const rendered = [...src.matchAll(/(?:title|text|label)=["'{]([^"'}]{3,80})["'}]/g)].map((m) => m[1])
+    .concat([...src.matchAll(/<Text[^>]*>([^<{]{3,80})</g)].map((m) => m[1]));
+  const blob = rendered.join(' | ');
+  assert.doesNotMatch(blob, /Query Pack/i, '"Query Packs" survived the rename');
+  assert.match(blob, /SparkAI Answer Packs/);
+});
+
+// ─── Purchases have to actually work ─────────────────────────────────────────
+
+test('a trial is never promised before StoreKit confirms eligibility', async () => {
+  const { buildPaywall, ctaFor, termsFor, PRODUCTS, ProductId } =
+    await import('../src/core/paywall/config.js');
+  const { diagnose } = await import('../src/core/paywall/storeDiagnosis.js');
+
+  // The default at EVERY layer is false. A trial offered to somebody who has
+  // already used one opens a sheet that charges immediately and contradicts the
+  // button they just pressed — a refund request and an App Review rejection.
+  assert.equal(diagnose({}).trialEligible, false, 'the diagnosis defaults to eligible');
+  assert.equal(buildPaywall({}).trialEligible, false, 'the paywall model defaults to eligible');
+  assert.doesNotMatch(buildPaywall({}).cta.title, /trial/i);
+  assert.doesNotMatch(buildPaywall({}).terms, /trial/i);
+
+  // Only annual carries it, and only when confirmed.
+  assert.match(buildPaywall({ trialEligible: true }).cta.title, /7-Day Free Trial/);
+  assert.doesNotMatch(
+    ctaFor(PRODUCTS[ProductId.PRO_MONTHLY], { trialEligible: true }).title, /trial/i,
+    'monthly was given a trial',
+  );
+  // The disclosure always matches what will be charged.
+  assert.doesNotMatch(termsFor(PRODUCTS[ProductId.PRO_ANNUAL]), /trial/i);
+});
+
+test('an unverified product is never offered for sale', async () => {
+  const { buildPaywall } = await import('../src/core/paywall/config.js');
+  // sparkconnect_lifetime_tools has never been confirmed in App Store Connect.
+  // A plan that cannot be bought is the failure that broke builds 27, 28 and 29.
+  assert.equal(buildPaywall({}).lifetime, null);
+  assert.ok(buildPaywall({ lifetimeConfirmed: true }).lifetime);
+
+  const src = fs.readFileSync('src/SparkPaywall.js', 'utf8');
+  // Confirmation comes from what the store RETURNED, not from a constant.
+  assert.match(src, /lifetimeConfirmed: !!store\?\.returned/);
+  assert.match(src, /trialEligible: store\?\.trialEligible === true/);
+});
+
+test('eligibility is read from the store, and UNKNOWN counts as no', async () => {
+  const src = fs.readFileSync('src/purchases.js', 'utf8');
+  assert.match(src, /checkTrialOrIntroductoryPriceEligibility/);
+  // Status 2 is ELIGIBLE. 0 is UNKNOWN and must not be treated as yes.
+  assert.match(src, /Number\(e\?\.status\) === 2/);
+  assert.match(src, /let trialEligible = false/);
+});
+
+// ─── Client and server must agree ────────────────────────────────────────────
+
+test('the published policy is generated from the code, never typed', () => {
+  const policy = JSON.parse(fs.readFileSync('website/allowance-policy.json', 'utf8'));
+  assert.equal(policy.tiers.free.perDay, ASK_ALLOWANCE.free.perDay);
+  assert.equal(policy.tiers.pro.perDay, ASK_ALLOWANCE.pro.perDay);
+  assert.equal(policy.tiers.pro.perMonth, ASK_ALLOWANCE.pro.monthlyBackstop);
+  assert.equal(policy.tiers.lifetime.perDay, ASK_ALLOWANCE.lifetime.perDay);
+  assert.match(policy._readme, /DO NOT EDIT BY HAND/);
+
+  // Purchased answers survive every reset. Somebody paid for those.
+  assert.equal(policy.purchasedAnswers.expires, false);
+  assert.equal(policy.purchasedAnswers.resetByDaily, false);
+  assert.equal(policy.purchasedAnswers.resetByMonthly, false);
+  assert.equal(policy.purchasedAnswers.consumedAfterIncluded, true);
+});
+
+test('a backend enforcing a different number is detected, not ignored', async () => {
+  const { checkAgreement, Agreement, agreementNotice, agreementLine } =
+    await import('../src/core/paywall/policyCheck.js');
+
+  // Server says 4 left after 1 used = a ceiling of 5. Free is 5. Agreed.
+  assert.equal(checkAgreement({ remaining: 4, usedToday: 1 }).status, Agreement.AGREE);
+
+  // Server enforcing 3/day while the app sold 5.
+  const strict = checkAgreement({ remaining: 2, usedToday: 1 });
+  assert.equal(strict.status, Agreement.SERVER_STRICTER);
+  assert.equal(strict.serverLimit, 3);
+  assert.match(agreementNotice(strict), /3 answers a day right now, not 5/);
+  assert.match(agreementNotice(strict), /nothing you have bought is affected/);
+
+  // A windfall is logged, never announced.
+  const loose = checkAgreement({ remaining: 30, usedToday: 0 });
+  assert.equal(loose.status, Agreement.SERVER_LOOSER);
+  assert.equal(agreementNotice(loose), null, 'the user was told they got MORE than promised');
+
+  // Off by one is timing, not policy.
+  assert.equal(checkAgreement({ remaining: 5, usedToday: 0 }).status, Agreement.AGREE);
+
+  // Nothing observed yet says so rather than guessing.
+  for (const bad of [{}, { remaining: null }, { remaining: -3 }, null]) {
+    assert.equal(checkAgreement(bad).status, Agreement.UNKNOWN);
+  }
+  assert.match(agreementLine(null), /not yet observed/);
+  assert.match(agreementLine(strict), /MISMATCH/);
+});
+
+test('the client never overrules the server', async () => {
+  const src = fs.readFileSync('src/core/paywall/policyCheck.js', 'utf8');
+  // The server is the authority on what it will serve. This module notices a
+  // disagreement; it must not try to grant anybody anything.
+  assert.doesNotMatch(src, /grant|unlock|override|setLimit/i);
+  assert.match(src, /only NOTICES|cannot overrule/i);
+});
+
+// ─── The website is a pricing surface too ────────────────────────────────────
+// The app's allowances changed and sparkconnect.pro kept advertising the old
+// ones, including "SparkAI without the daily ceiling" for a tier that has a
+// ceiling of ten. Nobody catches that by reading, because the page is 1,100
+// lines and the number lives in a bullet. So it is a test.
+
+test('the marketing site cannot contradict the shipped allowances', () => {
+  const html = fs.readFileSync(new URL('../website/index.html', import.meta.url), 'utf8');
+
+  // Anything that reads as "no limit on SparkAI" is false on every tier.
+  // Unlimited CALCULATORS is true and must stay sayable, so the check is
+  // scoped to sentences that mention SparkAI.
+  const bullets = [...html.matchAll(/<li>.*?<\/li>/gs)].map((m) => m[0]);
+  for (const b of bullets) {
+    if (!/sparkai/i.test(b)) continue;
+    assert.doesNotMatch(b, /unlimited|without the (daily )?ceiling|no (daily )?(limit|cap|ceiling)|as (many|much) as you want/i,
+      `the site promises uncapped SparkAI: ${b.replace(/<[^>]+>/g, '').trim()}`);
+  }
+
+  // Every per-day number the site states about SparkAI has to be one the app
+  // actually enforces.
+  const claimed = [...html.matchAll(/(\d+)\s+SparkAI answers a day/g)].map((m) => Number(m[1]));
+  assert.ok(claimed.length >= 2, 'the plan cards stopped stating an allowance at all');
+  const real = new Set([ASK_ALLOWANCE.free.perDay, ASK_ALLOWANCE.pro.perDay, ASK_ALLOWANCE.lifetime.perDay]);
+  for (const n of claimed) {
+    assert.ok(real.has(n), `the site advertises ${n} answers a day and nothing enforces that`);
+  }
+
+  const monthly = [...html.matchAll(/(\d+)\s+a month/g)].map((m) => Number(m[1]));
+  for (const n of monthly) {
+    assert.equal(n, ASK_ALLOWANCE.pro.monthlyBackstop,
+      'the monthly backstop on the site is not the one the server enforces');
+  }
+});
+
+test('the site cannot offer a trial the store will not honour', () => {
+  const html = fs.readFileSync(new URL('../website/index.html', import.meta.url), 'utf8');
+  const trials = [...html.matchAll(/(\d+)[- ]day (?:free )?trial/gi)].map((m) => Number(m[1]));
+  for (const d of trials) {
+    assert.equal(d, TRIAL_DAYS, `the site offers a ${d}-day trial and the app configures ${TRIAL_DAYS}`);
+  }
+  // The trial is annual-only. A trial promised beside the monthly price is a
+  // promise StoreKit will not keep.
+  assert.doesNotMatch(html, /\$7\.99[\s\S]{0,400}?\d+[- ]day (?:free )?trial/i,
+    'a trial is advertised against the monthly plan, which does not carry one');
+});
+
+// ─── Grandfathering ──────────────────────────────────────────────────────────
+// The App Store sold Pro as "20 AI answers/day". Cutting an existing
+// subscriber to 10 because we changed our minds is taking back something that
+// was paid for, and it is the kind of thing that gets a subscription app
+// reported — reasonably. So the old allowance is kept for anybody who bought
+// on the old promise, for as long as they stay subscribed.
+
+test('an existing Pro subscriber keeps the allowance they paid for', () => {
+  const before = new Date(Date.parse(ALLOWANCE_CHANGED_AT) - 86400000).toISOString();
+  const plan = planFor({ isPro: true, proSince: before });
+  assert.equal(plan, Plan.LEGACY_PRO);
+  assert.equal(allowanceForPlan(plan).perDay, 20, 'an existing member was downgraded');
+});
+
+test('a renewal is the same subscription, not a new one', () => {
+  // originalPurchaseDate, never latestPurchaseDate. Using the latter would
+  // downgrade every grandfathered member on their next billing date — a month
+  // after launch, silently, which is worse than never grandfathering at all.
+  const src = fs.readFileSync(new URL('../src/purchases.js', import.meta.url), 'utf8');
+  assert.match(src, /originalPurchaseDate/, 'the original purchase date is not read');
+  assert.doesNotMatch(src.replace(/\/\*[\s\S]*?\*\//g, ''), /latestPurchaseDate/,
+    'latestPurchaseDate is used, which moves forward on every renewal');
+});
+
+test('a new subscriber gets the new allowance', () => {
+  const after = new Date(Date.parse(ALLOWANCE_CHANGED_AT) + 86400000).toISOString();
+  const plan = planFor({ isPro: true, proSince: after });
+  assert.equal(plan, Plan.PRO);
+  assert.equal(allowanceForPlan(plan).perDay, ASK_ALLOWANCE.pro.perDay);
+});
+
+test('an unknown purchase date resolves GENEROUSLY', () => {
+  // If we cannot tell when somebody subscribed, giving them the smaller
+  // allowance is taking something away on a guess. The cost of guessing the
+  // other way is ten answers.
+  for (const missing of [null, undefined, '', 'not a date']) {
+    assert.equal(planFor({ isPro: true, proSince: missing }), Plan.LEGACY_PRO,
+      `a member with proSince=${JSON.stringify(missing)} was downgraded on a guess`);
+  }
+});
+
+test('the grandfathered tier is not a trapdoor for non-subscribers', () => {
+  assert.equal(planFor({ isPro: false }), Plan.FREE);
+  assert.equal(planFor({ isPro: false, proSince: '2020-01-01T00:00:00Z' }), Plan.FREE,
+    'a lapsed date granted Pro to somebody who is not subscribed');
+  assert.equal(planFor({ isPro: false, isLifetime: true }), Plan.LIFETIME);
+});
+
+test('the published policy carries every tier the app can send', () => {
+  const policy = JSON.parse(
+    fs.readFileSync(new URL('../website/allowance-policy.json', import.meta.url), 'utf8'));
+  for (const plan of Object.values(Plan)) {
+    assert.ok(policy.tiers[plan], `the server has no limits for "${plan}" — it would meter as free`);
+    assert.equal(policy.tiers[plan].perDay, allowanceForPlan(plan).perDay,
+      `the server and the app disagree about ${plan}`);
+  }
+  assert.equal(policy.unknownTierFallsBackTo, 'free',
+    'an unrecognised tier must never be granted more than free');
+  assert.equal(policy.grandfatheredAt, ALLOWANCE_CHANGED_AT);
+});
+
+test('the offline fallback covers every tier the client can send', () => {
+  // A tier missing from the server's FALLBACK falls through to free. Leaving
+  // pro_legacy out would meter grandfathered members at 5 a day the first time
+  // the CDN hiccups — the exact downgrade the grandfathering prevents.
+  const src = fs.readFileSync(new URL('../server/allowance.js', import.meta.url), 'utf8');
+  const block = src.match(/const FALLBACK = Object\.freeze\(\{[\s\S]*?\n\}\);/);
+  assert.ok(block, 'the server has no offline fallback');
+  for (const plan of Object.values(Plan)) {
+    assert.ok(block[0].includes(plan),
+      `the fallback has no "${plan}" — that tier is metered as free when the policy is unreachable`);
+  }
+});
+
+test('the server module knows the grandfathered tier', () => {
+  // The drop-in that goes into /api/ask-nec. If it does not recognise
+  // pro_legacy it meters existing members as free, which is worse than the
+  // downgrade this exists to prevent.
+  const src = fs.readFileSync(new URL('../server/allowance.js', import.meta.url), 'utf8');
+  assert.match(src, /pro_legacy/, 'the server would meter grandfathered members as free');
+});

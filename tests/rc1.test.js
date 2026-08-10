@@ -351,12 +351,37 @@ test('the entitlement id matches the live build', async () => {
 
 // ─── The gates must agree with the build that is selling ─────────────────────
 
-test('the free SparkAI allowance matches the shipping build', async () => {
-  const { FREE_LIMITS: L, Feature: F } = await import('../src/core/paywall/entitlements.js');
-  // useGating.js on the live build: LIMITS = { sparky: 3 }, and its paywall
-  // advertises "3/day". This file had invented 5, which never shipped.
-  assert.equal(L[F.SPARK_AI].limit, 3);
+test('the free SparkAI allowance comes from one table', async () => {
+  const { FREE_LIMITS: L, Feature: F, ASK_ALLOWANCE } =
+    await import('../src/core/paywall/entitlements.js');
+  // The gate enforced 3 while the app's own copy advertised 5. It was raised to
+  // 5 rather than the copy corrected down, so nobody loses an answer they were
+  // already being promised — see the note on ASK_ALLOWANCE.
+  assert.equal(L[F.SPARK_AI].limit, ASK_ALLOWANCE.free.perDay);
   assert.equal(L[F.SPARK_AI].period, 'day');
+  assert.equal(ASK_ALLOWANCE.free.perDay, 5);
+});
+
+test('the monthly backstop is never advertised, so it cannot contradict anything', async () => {
+  const { ASK_ALLOWANCE } = await import('../src/core/paywall/entitlements.js');
+  const { PILLARS, HEROES, FREE_FOREVER } = await import('../src/core/paywall/contexts.js');
+
+  // This rule was the reverse until 9 Aug 2026, and the reversal is deliberate.
+  //
+  // The old shape was 20/day with a 400/month cap, and it was broken because the
+  // PAYWALL SOLD the daily number while the monthly one quietly cancelled it two
+  // thirds through the month. The fix was assumed to be "make the ceiling clear a
+  // full month". It is not — that just makes the ceiling useless as an abuse
+  // guard, which is the only reason it exists.
+  //
+  // The real rule is that a fair-use ceiling must never be a number anybody was
+  // sold. 250 sits below 10 x 31 on purpose, and that is safe precisely because
+  // no surface quotes it. So this asserts the thing that actually matters.
+  const sold = JSON.stringify([PILLARS, HEROES, FREE_FOREVER]);
+  assert.doesNotMatch(sold, new RegExp(String(ASK_ALLOWANCE.pro.monthlyBackstop)),
+    'the fair-use ceiling is being advertised, which is what made the old shape a lie');
+  assert.ok(ASK_ALLOWANCE.pro.monthlyBackstop > ASK_ALLOWANCE.pro.perDay * 20,
+    'the ceiling is low enough that a normal subscriber would hit it');
 });
 
 test('disagreements with the paywall are recorded, not silently resolved', async () => {
@@ -367,8 +392,13 @@ test('disagreements with the paywall are recorded, not silently resolved', async
     assert.ok(d.id && d.paywallSays && d.thisCodeDoes && d.why, `${d.id} incomplete`);
     assert.ok(['HIGH', 'MEDIUM', 'LOW'].includes(d.severity));
   }
-  // These are pricing calls, so they stay open until a person makes them.
-  assert.equal(openPricingDecisions().length, PRICING_DISCREPANCIES.length);
+  // They stayed open until a person made them, which happened on 9 Aug 2026.
+  // The record is kept rather than deleted — a resolved discrepancy is the
+  // history of why a number is what it is.
+  for (const d of PRICING_DISCREPANCIES) {
+    assert.match(d.decision, /^(OPEN|RESOLVED)/, `${d.id} has no decision either way`);
+  }
+  assert.equal(openPricingDecisions().length, 0, 'a pricing call was reopened without a decision');
   assert.ok(PRICING_DISCREPANCIES.some((d) => d.id === 'lifetime-gets-unlimited-ai'),
     'a one-time purchase including the subscription headline feature must be on the record');
 });
@@ -432,14 +462,62 @@ test('every product failing is diagnosed differently from one product failing', 
   assert.deepEqual([...one.missing], ['b']);
   assert.equal(one.everythingFailed, false);
 
-  assert.equal(all.cause, Cause.AGREEMENT_OR_BUNDLE);
-  assert.equal(all.everythingFailed, true);
-  assert.equal(all.fixIsOutsideTheApp, true, 'no build fixes a lapsed agreement');
-  assert.match(all.engineerAction, /Paid Applications/);
-  assert.match(all.engineerAction, /bundle identifier/);
-  assert.notEqual(one.userMessage, all.userMessage, 'a user must not see the same sentence');
+  // Nothing came back and the SDK said nothing. That is not a verdict.
+  assert.equal(all.cause, Cause.INCONCLUSIVE);
+  assert.equal(all.everythingFailed, true, 'still a fact worth recording');
+  assert.notEqual(one.cause, all.cause, 'one failing and all failing stay distinguishable');
+
+  // An agreement problem is what the SDK SAYS it is, not what we infer.
+  const stated = diagnose({ requested: ['a', 'b', 'c'], returned: [], errorCode: 2 });
+  assert.equal(stated.cause, Cause.AGREEMENT_OR_BUNDLE);
+  assert.equal(stated.fixIsOutsideTheApp, true, 'no build fixes a lapsed agreement');
+  assert.match(stated.engineerAction, /Paid Applications/);
+  assert.match(stated.engineerAction, /bundle identifier/);
+  assert.notEqual(one.userMessage, stated.userMessage, 'a user must not see the same sentence');
   // When everything is down, point at restore — existing purchases still work.
-  assert.match(all.userMessage, /Restore/i);
+  assert.match(stated.userMessage, /Restore/i);
+});
+
+test('an empty store result with no error code never disables a button', async () => {
+  const { diagnose, Cause } = await import('../src/core/paywall/storeDiagnosis.js');
+  // Build 29 greyed out all three answer packs on TestFlight — the same three
+  // identifiers the App Store build sells to the same account every day —
+  // because one getProducts call resolved empty and nothing threw. An empty
+  // list with no error code is an absence of evidence, and a wrongly dead
+  // paywall costs the sale, while an honest error after a tap costs a tap.
+  const empty = diagnose({ requested: ['p1', 'p2', 'p3'], returned: [] });
+  assert.equal(empty.cause, Cause.INCONCLUSIVE);
+  assert.equal(empty.blocksPurchase, false, 'no evidence may not disable a purchase');
+  assert.equal(empty.userMessage, null, 'do not tell a buyer something we have not concluded');
+  assert.equal(empty.fixIsOutsideTheApp, false, 'do not send anybody to App Store Connect on a guess');
+
+  // Positive evidence still disables: others came back, this one did not.
+  const missing = diagnose({ requested: ['p1', 'p2'], returned: ['p1'], wanted: 'p2' });
+  assert.equal(missing.blocksPurchase, true);
+
+  // And an SDK that is not present cannot sell anything.
+  assert.equal(diagnose({ sdkPresent: false }).blocksPurchase, true);
+});
+
+test('the paywall and purchases.js disable by the same rule', async () => {
+  const fs = await import('node:fs');
+  // Two copies of "can this be bought" drifting apart is how a button gets
+  // rendered live and then refuses, or rendered dead while the store would
+  // have sold it. Both must consult blocksPurchase.
+  for (const f of ['src/SparkPaywall.js', 'src/purchases.js']) {
+    assert.match(fs.readFileSync(f, 'utf8'), /blocksPurchase/, `${f} ignores the evidence rule`);
+  }
+});
+
+test('a product the store refuses to sell is not blamed on the agreement', async () => {
+  const { diagnose, Cause, RcErrorCode } = await import('../src/core/paywall/storeDiagnosis.js');
+  // Code 5 was unmapped, so it fell through to the empty-list inference and
+  // pointed at bank details when the real cause was one product not approved.
+  const d = diagnose({
+    requested: ['p1'], returned: [], errorCode: RcErrorCode.PRODUCT_NOT_AVAILABLE_FOR_PURCHASE,
+  });
+  assert.equal(d.cause, Cause.IDENTIFIER_MISSING);
+  assert.doesNotMatch(d.engineerAction, /Paid Applications/);
 });
 
 test('an error code beats an inference from an empty list', async () => {
@@ -505,9 +583,17 @@ test('subscriptions are never asked for by identifier', async () => {
   assert.match(list[0], /PACK_15/);
   assert.match(list[0], /LIFETIME_TOOLS/, 'lifetime genuinely is a one-time product');
 
-  // Every getProducts call uses that list and no other.
-  for (const m of src.matchAll(/getProducts\(([^)]*)\)/g)) {
-    assert.equal(m[1].trim(), 'ONE_TIME_PRODUCT_IDS', `getProducts called with ${m[1]}`);
+  // Every getProducts call asks for that list and no other.
+  const calls = [...src.matchAll(/getProducts\(([^)]*)\)/g)];
+  assert.ok(calls.length > 0, 'getProducts is never called');
+  for (const m of calls) {
+    const [ids, category] = m[1].split(',').map((a) => a.trim());
+    assert.equal(ids, 'ONE_TIME_PRODUCT_IDS', `getProducts asked for ${ids}`);
+    // The SDK defaults this argument to SUBSCRIPTION, which is wrong for every
+    // product in that list. iOS ignores it; Google Play does not, and would
+    // return an empty list for consumables queried as subscriptions.
+    assert.equal(category, 'NON_SUBSCRIPTION',
+      'one-time products must be queried as non-subscriptions');
   }
 });
 
@@ -530,13 +616,89 @@ test('an empty offering does not black out the packs, or the reverse', async () 
   assert.equal(packsDown.subscriptionsSellable, true, 'subscriptions are unaffected');
   assert.equal(packsDown.everythingFailed, false);
 
-  // Both empty IS the store-level problem.
+  // Both empty LOOKS like the store-level problem and is not evidence of one:
+  // a store that has not answered yet is indistinguishable from here. Recorded
+  // as a fact, not a verdict, and nothing gets disabled on it.
   const allDown = diagnose({ requested: ['pack_a'], returned: [], offeringPackages: [] });
-  assert.equal(allDown.cause, Cause.AGREEMENT_OR_BUNDLE);
+  assert.equal(allDown.cause, Cause.INCONCLUSIVE);
   assert.equal(allDown.everythingFailed, true);
+  assert.equal(allDown.blocksPurchase, false);
 
   // No offering check ran: never treated as empty.
   const unknown = diagnose({ requested: ['a'], returned: ['a'], offeringPackages: null });
   assert.equal(unknown.subscriptionsSellable, true);
   assert.equal(unknown.healthy, true);
+});
+
+test('the free-answer count in the copy is the one the app enforces', async () => {
+  const fs = await import('node:fs');
+  const { FREE_LIMITS, Feature } = await import('../src/core/paywall/entitlements.js');
+  const src = fs.readFileSync('App.js', 'utf8');
+
+  // The rate-limit message said "You've used your 5 daily free answers" while
+  // useGating.js enforces 3 and FREE_LIMITS says 3. So the app cut somebody off
+  // after three and told them in writing that they had received five. Whichever
+  // number is right, there is only one of it, and it lives where it is checked.
+  // The gate no longer types a number at all — it reads the same table the
+  // copy does, which is the only way the two cannot drift apart again.
+  const gating = fs.readFileSync('src/useGating.js', 'utf8');
+  assert.doesNotMatch(gating, /sparky:\s*\d+/, 'useGating hardcodes the allowance again');
+  assert.match(gating, /FREE_LIMITS\[Feature\.SPARK_AI\]\.limit/);
+
+  // THE RULE GOT STRICTER. Reading the constant was not enough: the app does
+  // not meter SparkAI at all — the server does, and the app learns it ran out
+  // by receiving a 429. So even a correctly-sourced app-side number is a claim
+  // about a count the app did not make, and it is wrong the moment the two
+  // systems disagree. The message now states a figure only when the SERVER
+  // supplied one, and the constant is gone entirely.
+  assert.doesNotMatch(src, /const FREE_ASK_LIMIT/,
+    'the app defines a free-answer constant again — see limitMessage.js');
+  assert.match(src, /limitLine\(/, 'the rate-limit message is not the honest one');
+  assert.doesNotMatch(src, /used your \$\{isPro \? '100 monthly' : '5 daily'\}/,
+    'the hardcoded mismatched count is back');
+});
+
+test('the estimator asks a question, and it carries the takeoff', async () => {
+  const { buildPriceQuestion, takeoffSummary, normalizeZip, priceAskBlocker } =
+    await import('../src/core/ai/estimatorAsk.js');
+
+  // The old button sent `material pricing estimate electrician supply 33701
+  // THHN wire conduit EMT boxes` — keywords, not a question, and carrying none
+  // of the quantities the screen above it promised to price.
+  const q = buildPriceQuestion({
+    receptacles: 10, switches: 5, lights: 8, fans: 2,
+    dedicated: 3, homeRuns: 6, conduitFt: 200, zip: '33701',
+  });
+  for (const n of ['10 duplex receptacles', '5 single-pole switches', '8 light fixtures',
+    '200 ft', '33701']) {
+    assert.ok(q.includes(n), `the request never mentions ${n}`);
+  }
+  assert.match(q, /broken down by line item/, 'one total cannot be checked against a quote');
+  assert.match(q, /where you are uncertain/, 'a guessed price must be flagged as one');
+
+  // A zip that is not a zip is dropped, never passed through as prose. Telling
+  // a model "my area" invites it to pick one, and a made-up region makes every
+  // price in the answer quietly wrong.
+  assert.equal(normalizeZip('my area'), null);
+  assert.equal(normalizeZip('337'), null);
+  assert.equal(normalizeZip(' 33701 '), '33701');
+  assert.doesNotMatch(buildPriceQuestion({ receptacles: 4, zip: 'nope' }), /ZIP code|my area/i);
+
+  // Nothing entered is refused at the source rather than sent empty.
+  assert.equal(takeoffSummary({}), null);
+  assert.equal(buildPriceQuestion({}), null);
+  assert.match(priceAskBlocker({}), /Enter at least one quantity/);
+  assert.equal(priceAskBlocker({ receptacles: 1 }), null);
+});
+
+test('asking for a price never leaves the estimator', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync('App.js', 'utf8');
+  // Navigating to the chat tab destroyed the filled-in takeoff — and the
+  // takeoff IS the question. Same bug as the Permit Assistant AHJ lookup.
+  const btn = src.slice(src.indexOf('Get a SparkAI Price Estimate'),
+    src.indexOf('Material prices vary by region'));
+  assert.doesNotMatch(btn, /setTab\(/, 'the price ask navigates away from its own question');
+  assert.match(src, /askForPrice/);
+  assert.match(src, /PRICE_DISCLAIMER/, 'a model-written price must not read like a quote');
 });

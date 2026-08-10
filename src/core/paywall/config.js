@@ -9,6 +9,8 @@
 // App Store rule this file enforces: price, billing interval, renewal and
 // cancellation terms must be stated wherever a trial is offered (PWL-03).
 
+import { proAskAllowanceLabel, freeAskAllowanceLabel } from './entitlements.js';
+
 export const ProductId = {
   // MUST match App Store Connect exactly. The shipping build on the App Store
   // sells the annual plan as `sparkconnect_pro_yearly`, and that build takes
@@ -63,7 +65,7 @@ export const PRODUCTS = Object.freeze({
     label: 'Annual',
     priceCents: 4999,
     period: 'YEAR',
-    trialDays: 3,
+    trialDays: 7,
     recommended: true,          // UI-03 — annual is the default recommendation
   },
   [ProductId.PRO_MONTHLY]: {
@@ -71,7 +73,7 @@ export const PRODUCTS = Object.freeze({
     label: 'Monthly',
     priceCents: 799,
     period: 'MONTH',
-    trialDays: 3,
+    trialDays: 0,   // monthly does not carry the trial
     recommended: false,
   },
   [ProductId.LIFETIME_TOOLS]: {
@@ -182,7 +184,7 @@ export const PLACEMENT_COPY = Object.freeze({
   [Placement.AI_LIMIT_REACHED]: {
     eyebrow: 'SparkAI',
     headline: 'Out of answers for today',
-    sub: 'Pro gives you 20 answers a day, with your calculator and job already in context.',
+    sub: `Pro gives you ${proAskAllowanceLabel()}, with your calculator and job already in context.`,
   },
   [Placement.CALCULATOR_LIMIT_REACHED]: {
     eyebrow: 'Calculators',
@@ -224,7 +226,7 @@ export const copyForPlacement = (placement) =>
 // "what you get out of it", not "what we built" (UI-05 still applies: no
 // vague promises, every benefit has a specific sub).
 export const PRO_BENEFITS = Object.freeze([
-  { icon: 'flash', title: 'Get unstuck in the field, fast', sub: '20 SparkAI answers a day, your job in context' },
+  { icon: 'flash', title: 'Get unstuck in the field, fast', sub: `${proAskAllowanceLabel()}, your job in context` },
   { icon: 'calculator', title: 'Never lose another calculation', sub: 'Every calculator unlimited, history saved to the job' },
   { icon: 'school', title: 'Wire it wrong here, not on the job', sub: 'Full wiring & troubleshooting simulator' },
   { icon: 'camera', title: 'Save thousands documenting every job', sub: 'Unlimited Job Cam, your branding on exports' },
@@ -233,7 +235,7 @@ export const PRO_BENEFITS = Object.freeze([
 
 export const LIFETIME_BENEFITS = Object.freeze([
   'Core calculators forever',
-  '5 SparkAI answers a day',
+  freeAskAllowanceLabel(),
   '25 Job Cam projects',
   '5 invoice exports a month',
 ]);
@@ -274,14 +276,14 @@ export const assignVariant = (anonymousId, enabledVariants = [Variant.A_CURRENT]
  * cancel. Generated from the product so it can never drift out of sync with
  * what the user is actually charged.
  */
-export const termsFor = (product) => {
+export const termsFor = (product, { trialEligible = false } = {}) => {
   if (!product) return '';
   if (product.period === 'ONE_TIME') {
     return `${formatPrice(product.priceCents)} once. Not a subscription. Purchases are managed by the App Store and can be restored on any device.`;
   }
   const interval = product.period === 'YEAR' ? 'year' : 'month';
   const price = formatPrice(product.priceCents);
-  if (product.trialDays > 0) {
+  if (product.trialDays > 0 && trialEligible === true) {
     return `${product.trialDays}-day free trial, then ${price} per ${interval}. ` +
       `Renews automatically until cancelled. Cancel any time in your App Store account settings, ` +
       `at least 24 hours before the trial ends to avoid being charged.`;
@@ -295,13 +297,16 @@ export const termsFor = (product) => {
  * live: the button said "Start 3-Day Free Trial … then $7.99/mo" while Annual
  * was highlighted, and it purchased monthly whatever the user picked.
  */
-export const ctaFor = (product) => {
+export const ctaFor = (product, { trialEligible = false } = {}) => {
   if (!product) return { title: 'Continue', sub: '' };
   if (product.period === 'ONE_TIME') {
     return { title: `Buy ${product.label} — ${formatPrice(product.priceCents)}`, sub: 'One-time purchase' };
   }
   const interval = product.period === 'YEAR' ? 'year' : 'month';
-  if (product.trialDays > 0) {
+  // A trial is only offered when the STORE says this person can have one.
+  // Promising it otherwise produces a purchase sheet that charges immediately
+  // and contradicts the button that was just pressed.
+  if (product.trialDays > 0 && trialEligible === true) {
     return {
       title: `Start ${product.trialDays}-Day Free Trial`,
       sub: `Then ${formatPrice(product.priceCents)}/${interval} · Cancel any time`,
@@ -318,6 +323,16 @@ export const buildPaywall = ({
   placement = Placement.SETTINGS_UPGRADE,
   variant = Variant.A_CURRENT,
   selectedProductId = null,
+  // STOREKIT DECIDES, AND THE DEFAULT IS FALSE.
+  //
+  // The CTA used to read "Start 3-Day Free Trial" for everybody, including
+  // people who had already used a trial. Tapping it opens a purchase sheet that
+  // charges immediately, contradicting the button they just pressed — which is
+  // both a refund request and an App Review rejection. There is no default of
+  // true anywhere in this path.
+  trialEligible = false,
+  // Whether the store actually confirmed the Lifetime product exists.
+  lifetimeConfirmed = false,
 } = {}) => {
   const config = VARIANT_CONFIG[variant] ?? VARIANT_CONFIG.A_CURRENT;
   const selected = PRODUCTS[selectedProductId] ?? PRODUCTS[config.defaultProduct];
@@ -345,12 +360,17 @@ export const buildPaywall = ({
         selected: selected.id === monthly.id,
       },
     ],
-    lifetime: config.showLifetime
+    // Lifetime is shown only once the store has CONFIRMED the product exists.
+    // `sparkconnect_lifetime_tools` has never been verified in App Store
+    // Connect, and a plan that cannot be bought is the failure that has broken
+    // three builds running. Absent beats dead.
+    lifetime: config.showLifetime && lifetimeConfirmed
       ? { ...PRODUCTS[ProductId.LIFETIME_TOOLS], priceLabel: formatPrice(PRODUCTS[ProductId.LIFETIME_TOOLS].priceCents), benefits: LIFETIME_BENEFITS }
       : null,
     selectedProductId: selected.id,
-    cta: ctaFor(selected),
-    terms: termsFor(selected),
+    trialEligible: !!trialEligible,
+    cta: ctaFor(selected, { trialEligible }),
+    terms: termsFor(selected, { trialEligible }),
     // App Review requires a visible restore path on any screen selling a
     // non-consumable or subscription.
     showRestore: true,

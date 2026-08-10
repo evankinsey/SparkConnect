@@ -14,9 +14,24 @@ import { analytics } from './src/analytics';
 // layout hook runs during the root render.
 import { HomeCards, HomeCustomizeScreen, useHomeLayout, AllToolsSection } from './src/screens/HomeCards';
 import ToolsScreen from './src/screens/ToolsScreen';
+import HoursScreen from './src/screens/HoursScreen';
+import EstimateScreen from './src/screens/EstimateScreen';
+import { stepQuantity, materialsFromQuantities } from './src/core/domain/estimateBridge';
 import { ask as sparkAsk, Provenance as SparkProvenance } from './src/core/ai/sparkai';
 import { knowledgeBase } from './src/core/ai/knowledge';
 import { answerFooter } from './src/core/ai/answer';
+import { fetchConfig, resolveConfig, cacheIsFresh, EMPTY as EMPTY_CONFIG } from './src/core/remoteConfig';
+import { applyRemoteConfig } from './src/core/paywall/registry';
+import {
+  Mode, MODES, modeById, promptFor, attachmentTray, Attachment,
+  answerActions, AnswerAction, SIMPLIFY_PROMPT, sourceBadge, historyGroups,
+} from './src/core/ai/modes';
+import { buildPriceQuestion, priceAskBlocker, PRICE_DISCLAIMER } from './src/core/ai/estimatorAsk';
+import {
+  FREE_LIMITS, Feature, proAskAllowanceLabel, usageLabel, planFor, Plan,
+} from './src/core/paywall/entitlements';
+import { Source as PaywallSource, heroFor, paywallEvent } from './src/core/paywall/contexts';
+import { limitLine } from './src/core/paywall/limitMessage';
 import { CAST_IMAGES } from './src/screens/castImages';
 import { buildPulse, dayIndexFor } from './src/core/home/pulse';
 import { getDailyQuestion } from './src/core/content/dailyQuestions';
@@ -36,7 +51,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput,
   SafeAreaView, StatusBar, Platform, Switch, Dimensions, useColorScheme,
-  Share, Alert, Animated, Linking, AppState, Keyboard, Image,
+  Share, Alert, Animated, Linking, AppState, Keyboard, Image, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 // expo-image-picker & expo-sharing — lazy-loaded so the app never crashes if package isn't installed
@@ -499,6 +514,32 @@ const scoredSearch = (rawQuery) => {
   return scored.filter(s => s.score > 0).sort((a, b) => b.score - a.score).map(s => s.article);
 };
 
+/**
+ * What we say when the daily allowance runs out.
+ *
+ * The number is READ, not typed. This sentence used to hardcode "5 daily free
+ * answers" while useGating.js and FREE_LIMITS both enforce 3 — so the app cut
+ * a user off two answers early and then told them, in writing, that they had
+ * received five. A number that appears in copy and again in a limit check is
+ * one number, and it lives in the module that enforces it.
+ */
+/**
+ * What the last 429 actually said. Set by askNecBackend, read by whoever shows
+ * the message — so the wording comes from the server's own reason rather than
+ * from a constant in this file that the server has never seen.
+ */
+let lastLimit = { reason: null, serverLimit: null };
+
+/**
+ * The old message interpolated the app's own FREE_ASK_LIMIT: "you've used
+ * your 5 free answers for
+ * today.` — the app's number, in a sentence about the server's decision. When
+ * they disagree the user is cut off after three and told they used five, which
+ * is the first bug ever reported on this project. It states a count only when
+ * the server supplied one.
+ */
+const rateLimitText = (isPro = false) => limitLine({ ...lastLimit, isPro });
+
 // Backend placeholder — returns null until URL is configured
 const askNecBackend = async (payload) => {
   if (!NEC_BACKEND_URL) return null;
@@ -520,10 +561,40 @@ const askNecBackend = async (payload) => {
       body: JSON.stringify(payload),
     });
     clearTimeout(to);
-    if (res.status === 429) return 'rate_limited';
-    if (!res.ok) throw new Error(`Backend ${res.status}`);
+    if (res.status === 429) {
+      // Keep what the server said. The reason names WHICH ceiling was hit and
+      // any figure in the body is the only trustworthy count — the app does not
+      // meter SparkAI, so its own constant is not evidence of anything.
+      let reason = null;
+      let serverLimit = null;
+      try {
+        const body = await res.json();
+        reason = body?.error ?? null;
+        const n = Number(body?.dailyLimit ?? body?.limit);
+        if (Number.isFinite(n) && n > 0) serverLimit = n;
+      } catch { /* an empty or non-JSON 429 is still a 429 */ }
+      lastLimit = { reason, serverLimit };
+      return 'rate_limited';
+    }
+    if (!res.ok) {
+      // Return the STATUS rather than collapsing it to null.
+      //
+      // Every failure used to become null, so a 413, a 401, a 500 and airplane
+      // mode all produced the same sentence on screen: "check your connection".
+      // Blueprint Takeoff showed that while the connection was fine, which sent
+      // two days at the wrong end of the stack. A caller that wants the old
+      // behaviour still gets a falsy `answer`; one that wants to say something
+      // true now can.
+      const body = await res.text().catch(() => '');
+      return { ok: false, status: res.status, body: body.slice(0, 300) };
+    }
     return await res.json();
-  } catch (e) { safeLog('askNecBackend', e); return null; }
+  } catch (e) {
+    safeLog('askNecBackend', e);
+    // AbortError is a timeout, not an unreachable host, and telling somebody to
+    // check their connection when the request was simply slow is wrong advice.
+    return { ok: false, status: 0, aborted: e?.name === 'AbortError', body: e?.message ?? '' };
+  }
 };
 
 // ─── CALCULATOR DATA ──────────────────────────────────────────────────────────
@@ -708,11 +779,11 @@ const Inp = ({ label, value, onChangeText, unit, placeholder, C, keyboardType = 
     );
 
 // ─── BIG BUTTON ───────────────────────────────────────────────────────────
-const BigBtn = ({ onPress, label, color, icon = 'calculator', C }) => {
+const BigBtn = ({ onPress, label, color, icon = 'calculator', C, disabled = false }) => {
   const bg = color || C.blue;
   return (
-    <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 13, marginTop: 4, marginBottom: 16, backgroundColor: bg, shadowColor: bg, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 12, elevation: 6 }}
-      onPress={onPress} activeOpacity={0.85}>
+    <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 13, marginTop: 4, marginBottom: 16, backgroundColor: bg, opacity: disabled ? 0.5 : 1, shadowColor: bg, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 12, elevation: 6 }}
+      onPress={onPress} disabled={disabled} activeOpacity={0.85}>
       <Ionicons name={icon} size={20} color="#fff" />
       <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>{label}</Text>
     </TouchableOpacity>
@@ -850,7 +921,7 @@ const BendDiagram = ({ type, result, stub, offsetH, offsetA, C }) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ─── HOME ────────────────────────────────────────────────────────────────────
-const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, homeLayout = null }) => {
+const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, homeLayout = null, suggestion = null, onDismissSuggestion }) => {
   const [notifPromptShown, setNotifPromptShown] = React.useState(false);
   const [notifEnabled, setNotifEnabled] = React.useState(false);
   const [notifDismissed, setNotifDismissed] = React.useState(true); // assume hidden until storage answers
@@ -878,6 +949,38 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
       {/* Home order is deliberate: Daily Question → Quick Tools → Wiring
           Simulator → Sparky search → custom cards. The user asked for exactly
           this — do not shuffle it back. */}
+
+      {/* What they said brought them here — OFFERED, not navigated to.
+          Onboarding used to open the app on this tab, so somebody who answered
+          "getting better at the trade" landed in the Wiring Simulator having
+          never seen Home. Shown once, then dismissed for good. */}
+      {suggestion?.tab ? (
+        <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
+          <Card C={C} style={{ borderLeftWidth: 4, borderLeftColor: C.amber }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+              <Ionicons name="sparkles" size={18} color={C.amber} style={{ marginTop: 1 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 10, fontWeight: '800', color: C.amber, letterSpacing: 0.6 }}>START HERE</Text>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, marginTop: 3 }}>
+                  {suggestion.headline || suggestion.label}
+                </Text>
+                <Text style={{ fontSize: 11, color: C.textTert, marginTop: 3, lineHeight: 16 }}>
+                  Based on what you told us. Everything else is on this screen and in the tabs below.
+                </Text>
+              </View>
+              <TouchableOpacity onPress={onDismissSuggestion} hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }} accessibilityLabel="Dismiss suggestion">
+                <Ionicons name="close" size={16} color={C.textTert} />
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              onPress={() => { onDismissSuggestion?.(); setTab(suggestion.tab); }}
+              style={{ backgroundColor: C.amber, borderRadius: 10, paddingVertical: 11, alignItems: 'center', marginTop: 12 }}
+              activeOpacity={0.85}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>Take me there</Text>
+            </TouchableOpacity>
+          </Card>
+        </View>
+      ) : null}
 
       {/* Daily Question */}
       {showDailyQ && <View style={{ padding: 16 }}>
@@ -1174,7 +1277,7 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
       <TouchableOpacity onPress={() => setTab('settings')} style={{ marginHorizontal: 16, backgroundColor: C.blue, borderRadius: 16, padding: 20, flexDirection: 'row', alignItems: 'center', shadowColor: C.blue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 6 }} activeOpacity={0.9}>
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff', marginBottom: 3 }}>Go Pro — Unlock Everything</Text>
-          <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 17 }}>100 SparkAI answers/mo · Box Fill · Conduit Fill · PDF Export</Text>
+          <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 17 }}>{proAskAllowanceLabel()} · Box Fill · Conduit Fill · PDF Export</Text>
         </View>
         <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center', marginLeft: 12 }}>
           <Ionicons name="arrow-forward" size={18} color="#fff" />
@@ -1780,7 +1883,53 @@ const AmpacityScreen = ({ C }) => {
 };
 
 // ─── MATERIAL ESTIMATOR ───────────────────────────────────────────────────────
-const EstimatorScreen = ({ C, setTab }) => {
+// A takeoff is counted, not typed. On a jobsite you are walking a room going
+// "two, three, four" — so the control is a stepper you can hit with a glove on,
+// and the totals move while you count. The number stays editable for anyone who
+// already knows it's 47.
+const QtyRow = ({ C, icon, label, hint, value, onChange, step = 1 }) => {
+  const bump = (delta) => onChange(String(stepQuantity(value, delta)));
+  const Btn = ({ dir, name }) => (
+    <TouchableOpacity
+      onPress={() => bump(dir * step)}
+      hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+      style={{
+        width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+        backgroundColor: C.inputBg, borderWidth: 1, borderColor: C.border,
+      }}>
+      <Ionicons name={name} size={18} color={C.text} />
+    </TouchableOpacity>
+  );
+  return (
+    <View style={{
+      flexDirection: 'row', alignItems: 'center', gap: 10,
+      paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border,
+    }}>
+      <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: C.amberBg, alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name={icon} size={16} color={C.amber} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: 13, fontWeight: '600', color: C.text }}>{label}</Text>
+        {hint ? <Text style={{ fontSize: 10, color: C.textTert, marginTop: 1 }}>{hint}</Text> : null}
+      </View>
+      <Btn dir={-1} name="remove" />
+      <TextInput
+        value={String(value ?? '')}
+        onChangeText={(t) => onChange(t.replace(/[^0-9]/g, ''))}
+        keyboardType="number-pad"
+        selectTextOnFocus
+        maxLength={6}
+        style={{
+          minWidth: 52, textAlign: 'center', fontSize: 17, fontWeight: '800',
+          color: C.text, paddingVertical: 6,
+        }}
+      />
+      <Btn dir={1} name="add" />
+    </View>
+  );
+};
+
+const EstimatorScreen = ({ C, setTab, isPro = false, planType = 'free' }) => {
   const [estimatorZip, setEstimatorZip] = useState('');
   const [recs, setRecs] = useState('10');
   const [sw, setSw] = useState('5');
@@ -1789,56 +1938,142 @@ const EstimatorScreen = ({ C, setTab }) => {
   const [dedicated, setDedicated] = useState('3');
   const [homeRuns, setHomeRuns] = useState('6');
   const [conduitFt, setConduitFt] = useState('200');
-  const [result, setResult] = useState(null);
+  const [showEstimate, setShowEstimate] = useState(false);
 
-  const calc = () => {
-    const r  = toPositiveInteger(recs,      0, 9999);
-    const s  = toPositiveInteger(sw,        0, 9999);
-    const l  = toPositiveInteger(lights,    0, 9999);
-    const f  = toPositiveInteger(fans,      0, 9999);
-    const d  = toPositiveInteger(dedicated, 0, 9999);
-    const hr = toPositiveInteger(homeRuns,  0, 9999);
-    const cf = toPositiveInteger(conduitFt, 0, 999999);
-    const totalBoxes = r + s + l + f + d;
-    setResult([
-      { name: 'Duplex Receptacles', qty: r, unit: 'ea' },
-      { name: 'Single-Pole Switches', qty: s, unit: 'ea' },
-      { name: 'Light Fixture Boxes', qty: l, unit: 'ea' },
-      { name: 'Ceiling Fan Boxes', qty: f, unit: 'ea' },
-      { name: 'Dedicated Circuit Devices', qty: d, unit: 'ea' },
-      { name: 'Total Device Boxes', qty: totalBoxes, unit: 'ea' },
-      { name: 'Circuit Breakers (est.)', qty: hr + d, unit: 'ea' },
-      { name: 'Wire / Conduit Run (est.)', qty: cf + hr * 8, unit: 'ft' },
-      { name: 'Wire Connectors (est.)', qty: Math.ceil(totalBoxes * 4), unit: 'bag' },
-    ]);
+  // The price ask stays on THIS screen. Previously the button navigated to the
+  // chat tab, which destroyed the takeoff the question was about.
+  const [priceAsk, setPriceAsk] = useState(null);
+  const priceQuantities = {
+    receptacles: recs, switches: sw, lights, fans,
+    dedicated, homeRuns, conduitFt, zip: estimatorZip,
   };
+  const priceBlocker = priceAskBlocker(priceQuantities);
+
+  const askForPrice = React.useCallback(async () => {
+    const question = buildPriceQuestion(priceQuantities);
+    // Never send an empty takeoff. A request with no quantities is exactly the
+    // bug this replaced — an answer that could not have been about this job.
+    if (!question) return;
+    setPriceAsk({ state: 'PENDING', text: null, error: null });
+    try {
+      // Same identity and plan the chat sends. Without deviceId the backend
+      // cannot meter this against the user's allowance, so a request from here
+      // would either be rejected or counted as a stranger's.
+      const res = await askNecBackend({
+        question,
+        deviceId: await getDeviceId(),
+        appVersion: '1.0.0',
+        planType,
+      });
+      if (res === 'rate_limited') {
+        setPriceAsk({ state: 'FAILED', text: null, error: rateLimitText(isPro) });
+        return;
+      }
+      if (!res?.answer) {
+        setPriceAsk({
+          state: 'FAILED', text: null,
+          error: 'That did not come back. Your takeoff is still here — try again in a moment.',
+        });
+        return;
+      }
+      setPriceAsk({ state: 'READY', text: res.answer, error: null });
+    } catch (e) {
+      safeLog('estimator.price', e);
+      setPriceAsk({
+        state: 'FAILED', text: null,
+        error: 'That did not come back. Your takeoff is still here — try again in a moment.',
+      });
+    }
+  }, [recs, sw, lights, fans, dedicated, homeRuns, conduitFt, estimatorZip]);
+
+  const quantities = {
+    receptacles: recs, switches: sw, lights, fans,
+    dedicated, homeRuns, conduitFt,
+  };
+
+  // The material list is DERIVED, not generated on a button press. It is the
+  // same arithmetic the estimate and the invoice use — one expression, so the
+  // list on screen cannot disagree with the document somebody gets billed from.
+  const materials = React.useMemo(
+    () => materialsFromQuantities(quantities),
+    [recs, sw, lights, fans, dedicated, homeRuns, conduitFt],
+  );
+  const totalBoxes = toPositiveInteger(recs, 0, 9999) + toPositiveInteger(sw, 0, 9999)
+    + toPositiveInteger(lights, 0, 9999) + toPositiveInteger(fans, 0, 9999)
+    + toPositiveInteger(dedicated, 0, 9999);
+  const wireFt = toPositiveInteger(conduitFt, 0, 999999) + toPositiveInteger(homeRuns, 0, 9999) * 8;
+  const hasTakeoff = materials.length > 0;
+
+  const calc = () => setShowEstimate(true);
+
+  if (showEstimate) {
+    return <EstimateScreen C={C} quantities={quantities} onClose={() => setShowEstimate(false)} />;
+  }
+
+  const Stat = ({ value, label }) => (
+    <View style={{ flex: 1, alignItems: 'center' }}>
+      <Text style={{ fontSize: 22, fontWeight: '800', color: C.amber }}>{value}</Text>
+      <Text style={{ fontSize: 9, fontWeight: '700', color: C.textTert, letterSpacing: 0.6, marginTop: 2 }}>{label}</Text>
+    </View>
+  );
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      {/* Live totals. These move as you count, which is the whole reason to
+          count in the app instead of on the back of a panel schedule. */}
+      <View style={{ backgroundColor: C.cardBg, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 14, flexDirection: 'row', marginBottom: 12 }}>
+        <Stat value={totalBoxes} label="BOXES" />
+        <View style={{ width: 1, backgroundColor: C.border }} />
+        <Stat value={toPositiveInteger(homeRuns, 0, 9999) + toPositiveInteger(dedicated, 0, 9999)} label="BREAKERS" />
+        <View style={{ width: 1, backgroundColor: C.border }} />
+        <Stat value={wireFt} label="FEET OF WIRE" />
+      </View>
+
+      <Card C={C}>
+        <QtyRow C={C} icon="flash-outline" label="Receptacles" value={recs} onChange={setRecs} />
+        <QtyRow C={C} icon="toggle-outline" label="Switches" value={sw} onChange={setSw} />
+        <QtyRow C={C} icon="bulb-outline" label="Light Fixtures" value={lights} onChange={setLights} />
+        <QtyRow C={C} icon="sync-outline" label="Ceiling Fans" hint="Fan-rated boxes" value={fans} onChange={setFans} />
+        <QtyRow C={C} icon="cube-outline" label="Dedicated Circuits" value={dedicated} onChange={setDedicated} />
+        <QtyRow C={C} icon="git-branch-outline" label="Home Runs" hint="Adds 8 ft each to the wire allowance" value={homeRuns} onChange={setHomeRuns} />
+        <QtyRow C={C} icon="resize-outline" label="Conduit / Romex" hint="Feet — steps of 25" value={conduitFt} onChange={setConduitFt} step={25} />
+      </Card>
+
+      {hasTakeoff ? (
+        <>
+          <SectionHeader title="Rough Material List" C={C} />
+          <Card C={C}>{materials.map((item) => (
+            <View key={item.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.inputBg, borderRadius: 6, marginBottom: 3, paddingHorizontal: 10, paddingVertical: 8 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 12, fontWeight: '500', color: C.text }}>{item.description}</Text>
+                <Text style={{ fontSize: 10, color: C.textTert, marginTop: 1 }}>{item.detail}</Text>
+              </View>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.amber }}>{item.quantity} {item.unit}</Text>
+            </View>
+          ))}</Card>
+        </>
+      ) : (
+        <Text style={{ fontSize: 12, color: C.textTert, textAlign: 'center', marginTop: 14, lineHeight: 18 }}>
+          Count what you see. The list builds itself.
+        </Text>
+      )}
+
+      {/* Invoice is not a separate tool — it is the last stage of this one, and
+          the button has to say so or nobody finds it. */}
+      <BigBtn
+        onPress={calc}
+        label={hasTakeoff ? 'Price It → Estimate → Invoice' : 'Add quantities to continue'}
+        icon="document-text-outline"
+        color={C.amber}
+        disabled={!hasTakeoff}
+        C={C}
+      />
+      <Text style={{ fontSize: 10, color: C.textTert, textAlign: 'center', marginTop: -4, marginBottom: 10 }}>
+        Set your prices, then turn the estimate into an invoice you can send.
+      </Text>
+
       <TipBox C={C} type="warn" text="ROUGH ESTIMATE ONLY — for planning purposes. Always verify on site before ordering." />
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={{ flex: 1 }}><Inp label="Receptacles" value={recs} onChangeText={setRecs} placeholder="10" C={C} /></View>
-        <View style={{ flex: 1 }}><Inp label="Switches" value={sw} onChangeText={setSw} placeholder="5" C={C} /></View>
-      </View>
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={{ flex: 1 }}><Inp label="Light Fixtures" value={lights} onChangeText={setLights} placeholder="8" C={C} /></View>
-        <View style={{ flex: 1 }}><Inp label="Ceiling Fans" value={fans} onChangeText={setFans} placeholder="2" C={C} /></View>
-      </View>
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={{ flex: 1 }}><Inp label="Dedicated Circuits" value={dedicated} onChangeText={setDedicated} placeholder="3" C={C} /></View>
-        <View style={{ flex: 1 }}><Inp label="Home Runs" value={homeRuns} onChangeText={setHomeRuns} placeholder="6" C={C} /></View>
-      </View>
-      <Inp label="Conduit / Romex Run (ft)" value={conduitFt} onChangeText={setConduitFt} placeholder="200" C={C} />
-      <BigBtn onPress={calc} label="Generate Estimate" icon="list-outline" color={C.amber} C={C} />
-      {result && <>
-        <SectionHeader title="Rough Material List" C={C} />
-        <Card C={C}>{result.filter(i => i.qty > 0).map((item, i) => (
-          <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.inputBg, borderRadius: 6, marginBottom: 3, paddingHorizontal: 10, paddingVertical: 8 }}>
-            <Text style={{ fontSize: 12, fontWeight: '500', color: C.text, flex: 1 }}>{item.name}</Text>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: C.amber }}>{item.qty} {item.unit}</Text>
-          </View>
-        ))}</Card>
-      </>}
+
       {/* SparkAI price check CTA — smart location-based prompt */}
       <View style={{ backgroundColor: C.amberBg, borderRadius: 14, padding: 16, marginTop: 8, borderWidth: 1, borderColor: C.amber }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
@@ -1858,15 +2093,41 @@ const EstimatorScreen = ({ C, setTab }) => {
           style={{ backgroundColor: C.inputBg, borderRadius: 8, padding: 10, color: C.inputText, fontSize: 14, borderWidth: 1, borderColor: C.border, marginBottom: 10 }}
         />
         <TouchableOpacity
-          onPress={() => {
-            const zip = estimatorZip.trim() || 'my area';
-            const query = `material pricing estimate electrician supply ${zip} THHN wire conduit EMT boxes`;
-            if (setTab) setTab('necai', query);
-          }}
-          style={{ backgroundColor: C.amber, borderRadius: 10, padding: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
-          <Ionicons name="flash" size={16} color="#fff" />
-          <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>⚡ Get Local Price Estimate</Text>
+          onPress={askForPrice}
+          disabled={!!priceBlocker || priceAsk?.state === 'PENDING'}
+          style={{ backgroundColor: C.amber, opacity: (priceBlocker || priceAsk?.state === 'PENDING') ? 0.5 : 1, borderRadius: 10, padding: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
+          {priceAsk?.state === 'PENDING'
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <Ionicons name="flash" size={16} color="#fff" />}
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>
+            {priceAsk?.state === 'PENDING' ? 'Pricing it…' : 'Get Local Price Estimate'}
+          </Text>
         </TouchableOpacity>
+
+        {/* The answer lands HERE, on the screen that asked. Navigating to the
+            chat threw away the whole filled-in takeoff, and the takeoff is the
+            question — see src/core/ai/inlineAsk.js. */}
+        {priceBlocker && !priceAsk ? (
+          <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8, textAlign: 'center' }}>{priceBlocker}</Text>
+        ) : null}
+        {priceAsk?.state === 'PENDING' ? (
+          <Text style={{ fontSize: 11, color: C.textTert, marginTop: 8, textAlign: 'center' }}>
+            Looking that up — you can keep working.
+          </Text>
+        ) : null}
+        {priceAsk?.state === 'FAILED' ? (
+          <View style={{ backgroundColor: C.cardBg, borderRadius: 10, padding: 12, marginTop: 10, borderWidth: 1, borderColor: C.border }}>
+            <Text style={{ fontSize: 12, color: C.textSec, lineHeight: 18 }}>{priceAsk.error}</Text>
+          </View>
+        ) : null}
+        {priceAsk?.state === 'READY' && priceAsk.text ? (
+          <View style={{ backgroundColor: C.cardBg, borderRadius: 10, padding: 12, marginTop: 10, borderWidth: 1, borderColor: C.border }}>
+            <Text style={{ fontSize: 10, fontWeight: '800', color: C.amber, letterSpacing: 0.6, marginBottom: 6 }}>SPARKAI ESTIMATE</Text>
+            <Text style={{ fontSize: 13, color: C.text, lineHeight: 20 }}>{priceAsk.text}</Text>
+            <Text style={{ fontSize: 10, color: C.textTert, marginTop: 10, lineHeight: 15 }}>{PRICE_DISCLAIMER}</Text>
+          </View>
+        ) : null}
+
         <Text style={{ fontSize: 10, color: C.textTert, marginTop: 8, textAlign: 'center' }}>Material prices vary by region. Always verify current pricing with your supplier.</Text>
       </View>
       <DisclaimerFooter C={C} />
@@ -2073,7 +2334,7 @@ const getExamQuestions = (level, category, count) => {
   return shuffled.slice(0, Math.min(count, shuffled.length));
 };
 
-const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade, onBuyPacks, isPro = IS_PRO }) => {
+const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade, onBuyPacks, isPro = IS_PRO, planType = 'free' }) => {
   const [inputText, setInputText] = React.useState(initialSearch || '');
   const [messages, setMessages] = React.useState([]);
   const [convos, setConvos] = React.useState([]);
@@ -2082,7 +2343,6 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
   const [isRecording, setIsRecording] = React.useState(false);
   const [recordingTime, setRecordingTime] = React.useState(0);
   const [remainingQuestions, setRemainingQuestions] = React.useState(null);
-  const [showBrowse, setShowBrowse] = React.useState(false);
   const scrollRef = React.useRef(null);
   const recordingRef = React.useRef(null);
   const timerRef = React.useRef(null);
@@ -2113,18 +2373,19 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
     return () => { try { s.remove(); h.remove(); } catch {} };
   }, []);
 
-  const SPARKY_MODES = [
-    { id: 'general',     emoji: '⚡', label: 'General',           prefix: '' },
-    { id: 'nec',         emoji: '📖', label: 'NEC Code',          prefix: 'NEC code question: ' },
-    { id: 'troubleshoot',emoji: '🔧', label: 'Troubleshoot',      prefix: 'Help me troubleshoot this electrical issue: ' },
-    { id: 'apprentice',  emoji: '🎓', label: 'Explain Simply',    prefix: 'Explain this like I am an apprentice electrician: ' },
-    { id: 'materials',   emoji: '📦', label: 'Material List',     prefix: 'Give me a complete material and parts list for: ' },
-    { id: 'inspection',  emoji: '✅', label: 'Inspection Prep',   prefix: 'Help me prepare for electrical inspection on: ' },
-    { id: 'quiz',        emoji: '🧠', label: 'Quiz Me',           prefix: 'Quiz me with an NEC code question about: ' },
-    { id: 'bending',     emoji: '🔩', label: 'Bending Help',      prefix: 'Help me with pipe/conduit bending for: ' },
-    { id: 'spanish',     emoji: '🇪🇸', label: 'En Español',       prefix: 'Responde en español. ' },
-    { id: 'mandarin',    emoji: '🇨🇳', label: '普通话',            prefix: 'Please respond in Mandarin Chinese. ' },
-  ];
+  // Modes come from core/ai/modes.js, which also owns what each one PUTS ON
+  // SCREEN. They used to be four chips that swapped a hidden prompt prefix and
+  // nothing else, so picking one changed nothing you could see.
+  //
+  // "Explain Simply" is gone from here on purpose: the other three describe a
+  // kind of QUESTION and that one described a kind of ANSWER. It is now an
+  // action on any response, which is where you actually decide you want it.
+  const SPARKY_MODES = MODES;
+  const [showHistory, setShowHistory] = useState(false);
+  // What the selected mode puts on screen. Derived, so a chip can never be lit
+  // while the body below it belongs to a different mode.
+  const modeHome = React.useMemo(() => modeById(activeMode), [activeMode]);
+
 
   // Load conversation history from storage (cross-session memory)
   React.useEffect(() => {
@@ -2370,7 +2631,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
       question: finalQuestion,
       deviceId,
       appVersion: '1.0.0',
-      planType: isPro ? 'pro' : 'free',
+      planType,
       conversationHistory,
       ...(imgBase64 ? { image: imgBase64, imageType: 'image/jpeg' } : {}),
     };
@@ -2432,7 +2693,9 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
     if (rateLimited) {
       setMessages(prev => [...prev, {
         id: Date.now().toString(), role: 'sparky', isRateLimit: true,
-        text: `You've used your ${isPro ? '100 monthly' : '5 daily'} free answers. Upgrade to Pro for 100 answers/month, or grab a quick answer pack.`,
+        text: isPro
+          ? "You've reached this month's SparkAI allowance. An answer pack tops you back up straight away."
+          : rateLimitText(isPro),
       }]);
     } else if (pipeline.provenance !== SparkProvenance.REFUSED) {
       setMessages(prev => [...prev, {
@@ -2654,19 +2917,30 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
             <Ionicons name="flash" size={14} color="#fff" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: C.text }}>SparkAI</Text>
-            <Text style={{ fontSize: 10, color: C.textTert }}>NEC · Estimates · Pricing · Photo analysis</Text>
-          </View>
-          {remainingQuestions !== null && !isPro && (
-            <View style={{ backgroundColor: remainingQuestions <= 1 ? C.warningBg : C.successBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-              <Text style={{ fontSize: 10, fontWeight: '700', color: remainingQuestions <= 1 ? C.warning : C.success }}>
-                {remainingQuestions} left today
-              </Text>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: C.text, letterSpacing: -0.2 }}>SparkAI</Text>
+            {/* One line, not a paragraph. A returning electrician does not need
+                the app to introduce itself on every launch. */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 }}>
+              <Text style={{ fontSize: 10.5, color: C.textTert }}>Your electrical copilot</Text>
+              {isPro ? (
+                <View style={{ backgroundColor: C.amberBg, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                  <Text style={{ fontSize: 9, fontWeight: '800', color: C.amber }}>PRO</Text>
+                </View>
+              ) : null}
+              {remainingQuestions !== null && !isPro ? (
+                <Text style={{ fontSize: 10.5, fontWeight: '700', color: remainingQuestions <= 1 ? C.warning : C.textTert }}>
+                  · {remainingQuestions} answers left
+                </Text>
+              ) : null}
             </View>
-          )}
-          <TouchableOpacity onPress={() => setShowBrowse(b => !b)}
-            style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: showBrowse ? C.blueSub : C.inputBg, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="book-outline" size={16} color={showBrowse ? C.blue : C.textSec} />
+          </View>
+          {/* A recognisable history icon. The book icon read as "reference
+              library" and opened a conversation list, which is a different
+              thing entirely. */}
+          <TouchableOpacity onPress={() => setShowHistory(h => !h)}
+            accessibilityRole="button" accessibilityLabel="Conversation history"
+            style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: showHistory ? C.blueSub : C.inputBg, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="time-outline" size={17} color={showHistory ? C.blue : C.textSec} />
           </TouchableOpacity>
           {messages.length > 0 && (
             <TouchableOpacity onPress={startNewConversation}
@@ -2681,29 +2955,45 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
           {SPARKY_MODES.map(mode => (
             <TouchableOpacity key={mode.id} onPress={() => setActiveMode(mode.id)}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99, backgroundColor: activeMode === mode.id ? C.amber : C.inputBg, borderWidth: 1, borderColor: activeMode === mode.id ? C.amber : C.border }}>
-              <Text style={{ fontSize: 11 }}>{mode.emoji}</Text>
-              <Text style={{ fontSize: 11, fontWeight: activeMode === mode.id ? '700' : '500', color: activeMode === mode.id ? '#fff' : C.textSec }}>{mode.label}</Text>
+              <Ionicons name={mode.icon} size={12} color={activeMode === mode.id ? '#1A1408' : C.textSec} />
+              <Text style={{ fontSize: 11.5, fontWeight: activeMode === mode.id ? '800' : '600', color: activeMode === mode.id ? '#1A1408' : C.textSec }}>{mode.label}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
-      {/* ── Browse NEC Reference (collapsible) ── */}
-      {showBrowse && (
-        <View style={{ backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, maxHeight: 220 }}>
-          <View style={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4 }}>
-            <Text style={{ fontSize: 10, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.5 }}>NEC Quick Reference — tap to ask</Text>
-          </View>
-          <ScrollView contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 10 }} showsVerticalScrollIndicator={false}>
-            {NEC_KB.map(a => (
-              <TouchableOpacity key={a.id} onPress={() => { setShowBrowse(false); handleSend(a.topic); }}
-                style={{ paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: C.borderLight, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <View>
-                  <Text style={{ fontSize: 13, color: C.text, fontWeight: '600' }}>{a.topic}</Text>
-                  <Text style={{ fontSize: 10, color: C.textTert }}>{a.refs.slice(0, 2).join(' · ')}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={14} color={C.textTert} />
-              </TouchableOpacity>
+      {/* ── History ─────────────────────────────────────────────────────
+          Saved AI work was disappearing into individual chat sessions. Grouped
+          by when somebody would look for it — nobody remembers asking about
+          GFCI at 11:32, they remember it was this morning. */}
+      {showHistory && (
+        <View style={{ backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border, maxHeight: 300 }}>
+          <ScrollView contentContainerStyle={{ paddingHorizontal: 14, paddingVertical: 12 }} showsVerticalScrollIndicator={false}>
+            {historyGroups(convos.map(c => ({ ...c, updatedAt: new Date(c.ts).toISOString() }))).length === 0 ? (
+              <Text style={{ fontSize: 12.5, color: C.textTert, lineHeight: 19 }}>
+                Nothing yet. Answers you get are kept here so they stop disappearing into
+                one-off chats.
+              </Text>
+            ) : historyGroups(convos.map(c => ({ ...c, updatedAt: new Date(c.ts).toISOString() }))).map((g) => (
+              <View key={g.label} style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 9.5, fontWeight: '800', color: C.textTert, textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 7 }}>
+                  {g.label}
+                </Text>
+                {g.items.map((c) => (
+                  <TouchableOpacity key={c.id} onPress={() => { setShowHistory(false); openConversation(c); }} activeOpacity={0.85}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.bg, borderRadius: 11, borderWidth: 1, borderColor: C.border, padding: 11, marginBottom: 7 }}>
+                    <Ionicons name="chatbubble-ellipses-outline" size={15} color={C.amber} />
+                    <View style={{ flex: 1 }}>
+                      <Text numberOfLines={1} style={{ fontSize: 12.5, fontWeight: '600', color: C.text }}>{c.title}</Text>
+                      <Text style={{ fontSize: 10.5, color: C.textTert, marginTop: 1 }}>{c.count} messages</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => deleteConversation(c.id)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      accessibilityRole="button" accessibilityLabel="Delete conversation">
+                      <Ionicons name="trash-outline" size={14} color={C.textTert} />
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                ))}
+              </View>
             ))}
           </ScrollView>
         </View>
@@ -2718,52 +3008,65 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
         keyboardShouldPersistTaps="handled"
       >
         {/* Empty state */}
+        {/* ── The mode's own home ────────────────────────────────────────
+            This used to be a large card in which SparkAI explained what it was,
+            every time, followed by an identical empty box whichever mode was
+            selected. The middle of the screen now belongs to the mode: the
+            question it is for, and the ways into it. That is what makes the
+            four chips specialised tools rather than filters. */}
         {messages.length === 0 && !loading && (
           <View>
-            {/* Welcome bubble */}
-            <View style={{ alignItems: 'flex-start', marginBottom: 20 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, maxWidth: '92%' }}>
-                <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
-                  <Ionicons name="flash" size={15} color="#fff" />
-                </View>
-                <View style={{ flex: 1, backgroundColor: C.surface, borderRadius: 18, borderTopLeftRadius: 5, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: C.amber, paddingHorizontal: 14, paddingVertical: 12 }}>
-                  <Text style={{ fontSize: 14, color: C.text, lineHeight: 22 }}>
-                    {"Hey! I'm SparkAI ⚡ — your electrical field expert.\n\nAsk me about NEC code, material costs, installation how-tos, load calculations, permit questions, estimates, or snap a photo of a panel or wiring problem and I'll take a look."}
-                  </Text>
-                </View>
-              </View>
+            <View style={{ backgroundColor: C.surface, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: C.border, borderLeftWidth: 3, borderLeftColor: C.amber, marginBottom: 16 }}>
+              <Text style={{ fontSize: 17, fontWeight: '800', color: C.text, letterSpacing: -0.3 }}>{modeHome.headline}</Text>
+              <Text style={{ fontSize: 12.5, color: C.textSec, lineHeight: 18, marginTop: 5 }}>{modeHome.sub}</Text>
             </View>
 
-            {/* Recent conversations — people love chat history */}
-            {convos.length > 0 && (
-              <View style={{ marginBottom: 18 }}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Recent conversations</Text>
-                {convos.map((c) => (
-                  <TouchableOpacity key={c.id} onPress={() => openConversation(c)} activeOpacity={0.85}
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 12, marginBottom: 8 }}>
-                    <Ionicons name="chatbubble-ellipses-outline" size={16} color={C.amber} />
-                    <View style={{ flex: 1 }}>
-                      <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '600', color: C.text }}>{c.title}</Text>
-                      <Text style={{ fontSize: 11, color: C.textTert, marginTop: 1 }}>{new Date(c.ts).toLocaleDateString()} · {c.count} messages</Text>
-                    </View>
-                    <TouchableOpacity onPress={() => deleteConversation(c.id)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      accessibilityRole="button" accessibilityLabel="Delete conversation">
-                      <Ionicons name="trash-outline" size={15} color={C.textTert} />
+            {/* Troubleshooting starts from a photo as often as from words. */}
+            {modeHome.photoAction ? (
+              <TouchableOpacity onPress={() => pickImg(true)} activeOpacity={0.85}
+                accessibilityRole="button" accessibilityLabel={modeHome.photoAction.label}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.blueSub, borderWidth: 1.5, borderColor: C.blue, borderRadius: 13, paddingVertical: 14, marginBottom: 16 }}>
+                <Ionicons name={modeHome.photoAction.icon} size={17} color={C.blue} />
+                <Text style={{ fontSize: 13.5, fontWeight: '800', color: C.blue }}>{modeHome.photoAction.label}</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            <Text style={{ fontSize: 10, fontWeight: '800', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 9 }}>
+              {modeHome.id === 'troubleshoot' ? 'Common issues' : modeHome.id === 'general' ? 'Try asking' : 'What do you need?'}
+            </Text>
+            {modeHome.entries.map((e) => (
+              <TouchableOpacity key={e.id} activeOpacity={0.8}
+                onPress={() => {
+                  if (e.needsPhoto) { pickImg(false); return; }
+                  if (e.ask) { setInputText(e.ask); return; }
+                  if (e.tab && setTab) { setTab(e.tab); }
+                }}
+                accessibilityRole="button" accessibilityLabel={e.label}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 13, marginBottom: 8 }}>
+                <Ionicons name={e.icon} size={18} color={C.amber} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.text }}>{e.label}</Text>
+                  {e.sub ? <Text style={{ fontSize: 11, color: C.textTert, marginTop: 2, lineHeight: 15 }}>{e.sub}</Text> : null}
+                </View>
+                <Ionicons name="chevron-forward" size={14} color={C.textTert} />
+              </TouchableOpacity>
+            ))}
+
+            {modeHome.topics ? (
+              <>
+                <Text style={{ fontSize: 10, fontWeight: '800', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 14, marginBottom: 9 }}>
+                  Popular topics
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
+                  {modeHome.topics.map((t) => (
+                    <TouchableOpacity key={t} onPress={() => handleSend(t)} activeOpacity={0.75}
+                      style={{ backgroundColor: C.inputBg, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 99, borderWidth: 1, borderColor: C.border }}>
+                      <Text style={{ fontSize: 11.5, color: C.textSec, fontWeight: '600' }}>{t}</Text>
                     </TouchableOpacity>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            <Text style={{ fontSize: 10, fontWeight: '700', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Try asking:</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {EXAMPLES.map(e => (
-                <TouchableOpacity key={e} onPress={() => handleSend(e)} activeOpacity={0.7}
-                  style={{ backgroundColor: C.surface, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 99, borderWidth: 1, borderColor: C.border }}>
-                  <Text style={{ fontSize: 12, color: C.text, fontWeight: '500' }}>{e}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+                  ))}
+                </View>
+              </>
+            ) : null}
           </View>
         )}
 
@@ -4036,10 +4339,10 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
             </View>
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: 17, fontWeight: '800', color: C.text, letterSpacing: -0.4 }}>SparkConnect Pro</Text>
-              <Text style={{ fontSize: 12, color: C.textSec, marginTop: 1 }}>$7.99/mo · $49.99/yr Launch Special · 100 AI answers/mo</Text>
+              <Text style={{ fontSize: 12, color: C.textSec, marginTop: 1 }}>$7.99/mo · $49.99/yr Launch Special · {proAskAllowanceLabel()}</Text>
             </View>
           </View>
-          {['100 SparkAI answers/month','Box Fill Calculator','Conduit Fill Calculator','Saved Projects & History','PDF Report Export (coming)','Priority new features'].map(f => (
+          {[proAskAllowanceLabel(),'Box Fill Calculator','Conduit Fill Calculator','Saved Projects & History','PDF Report Export (coming)','Priority new features'].map(f => (
             <View key={f} style={{ flexDirection: 'row', gap: 8, alignItems: 'center', paddingVertical: 3 }}>
               <Ionicons name="checkmark-circle" size={15} color={C.blue} />
               <Text style={{ fontSize: 12, color: C.text, fontWeight: '500' }}>{f}</Text>
@@ -4065,11 +4368,11 @@ const SettingsScreen = ({ C, themePreference, setThemePreference, showDailyQ = t
         </View>
       </Card>
 
-      {/* 2 — AI Query Packs */}
-      <SectionTitle title=" Query Packs" />
+      {/* 2 — SparkAI Answer Packs */}
+      <SectionTitle title="SparkAI Answer Packs" />
       <Card C={C} style={{ marginBottom: 20, padding: 0, overflow: 'hidden' }}>
         <View style={{ padding: 12, backgroundColor: C.amberBg, borderBottomWidth: 1, borderBottomColor: C.border }}>
-          <Text style={{ fontSize: 12, fontWeight: '600', color: C.amber }}>Need more answers? Add a SparkAI pack anytime.</Text>
+          <Text style={{ fontSize: 12, fontWeight: '600', color: C.amber }}>Need more answers? Add a SparkAI Answer Pack anytime.</Text>
         </View>
         {[{ label: '15 SparkAI Answers', price: '$1.99' },{ label: '50 SparkAI Answers', price: '$4.99' },{ label: '150 SparkAI Answers', price: '$9.99' }].map((pack, i, arr) => (
           <TouchableOpacity key={pack.label} onPress={onBuyPacks} activeOpacity={0.7}
@@ -4213,6 +4516,7 @@ const SCREEN_LABELS = {
   flashcards: 'Flashcards', projects: 'Projects', materials: 'Material List',
   community: 'Community', customizehome: 'Customize Home',
   permits: 'Permit Assistant', blueprint: 'Blueprint Takeoff', panelschedule: 'Panel Schedule',
+  connect: 'Contractor Connect',
 };
 
 // ─── SPLASH SCREEN ───────────────────────────────────────────────────────────
@@ -4451,12 +4755,63 @@ const CommunityScreen   = lazyScreen('Community',       () => require('./src/scr
 const PermitScreen      = lazyScreen('Permit Assistant', () => require('./src/screens/PermitScreen'));
 const BlueprintScreen   = lazyScreen('Blueprint Takeoff', () => require('./src/screens/BlueprintScreen'));
 const PanelScheduleScreen = lazyScreen('Panel Schedule', () => require('./src/screens/PanelScheduleScreen'));
+const ContractorConnectScreen = lazyScreen('Contractor Connect', () => require('./src/screens/ContractorConnectScreen'));
 
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   // ── ALL hooks must be called unconditionally, before any early return ──
   const [splashDone, setSplashDone] = useState(false);
   const [onboardingDone, setOnboardingDone] = useState(false);
+  // What the FOCUS answer asked for, offered on Home instead of navigated to.
+  const [firstSuggestion, setFirstSuggestion] = useState(null);
+  // ── The kill switch ───────────────────────────────────────────────────
+  // applyRemoteConfig has existed since RC1 and nothing ever called it, so
+  // "leave room to cut a feature off if it does not work" was true in the code
+  // and false in the app. This is the wire.
+  //
+  // Never blocks launch and never fails closed: every error path leaves the app
+  // exactly as it shipped, because a kill switch that bricks the app when the
+  // network is down is worse than the bug it was added to contain.
+  const [remoteConfig, setRemoteConfig] = useState(EMPTY_CONFIG);
+  const featureRegistry = React.useMemo(
+    () => applyRemoteConfig(remoteConfig.features),
+    [remoteConfig],
+  );
+
+  React.useEffect(() => {
+    let live = true;
+    (async () => {
+      let cached = null;
+      let cachedAt = null;
+      try {
+        const raw = await safeStorageGet('@sc_remote_config_v1');
+        if (raw) {
+          const saved = JSON.parse(raw);
+          cached = saved.config ?? null;
+          cachedAt = saved.at ?? null;
+        }
+      } catch (e) { safeLog('config.cache', e); }
+
+      // Apply the cache immediately so a feature turned off yesterday stays off
+      // through a launch with no signal.
+      if (live && cached && cacheIsFresh(cachedAt)) setRemoteConfig(cached);
+
+      const fetched = await fetchConfig(typeof fetch === 'function' ? fetch : null);
+      if (!live) return;
+      const next = resolveConfig({ cached, cachedAt, fetched });
+      setRemoteConfig(next);
+      try {
+        await safeStorageSet('@sc_remote_config_v1', JSON.stringify({ config: next, at: Date.now() }));
+      } catch (e) { safeLog('config.save', e); }
+    })().catch(e => safeLog('config.load', e));
+    return () => { live = false; };
+  }, []);
+
+  // The role picked during onboarding. Written since the flow was wired, and
+  // until now only ever read once to seed the Home layout — so the answer
+  // stopped paying rent the moment the app first launched. Customize Home uses
+  // it to suggest, and the hours screen uses it to pick a ledger.
+  const [role, setRole] = useState(null);
   const [onboardingChecked, setOnboardingChecked] = useState(false);
   const [showDailyQ, setShowDailyQ] = useState(true);
   const [streak, setStreak] = useState(0);
@@ -4465,13 +4820,32 @@ export default function App() {
   // paywall: null | 'pro' | 'packs' — which sheet is open.
   const [paywall, setPaywall] = useState(null);
   const [isPro, setIsPro] = useState(false);
+  // When this subscription originally started, for the grandfathered
+  // allowance. Null means the store did not tell us, which planFor resolves to
+  // the generous side rather than guessing somebody down.
+  const [proSince, setProSince] = useState(null);
   const [store, setStore] = useState(null);
   React.useEffect(() => {
     // initPurchases never throws; a billing SDK problem must never block launch.
     Promise.resolve(initPurchases())
-      .then(({ isPro: pro }) => { if (pro) setIsPro(true); })
+      .then(({ isPro: pro, proSince: since }) => {
+        if (pro) setIsPro(true);
+        if (since) setProSince(since);
+      })
       .catch(e => safeLog('purchases.init', e));
   }, []);
+
+  /**
+   * The plan the SERVER meters against.
+   *
+   * Sent as 'free' | 'pro' | 'pro_legacy' rather than a number, so the app and
+   * /api/ask-nec agree on the tier and the limits live in one generated policy
+   * instead of being typed into two systems.
+   */
+  const planType = React.useMemo(
+    () => planFor({ isPro, proSince }),
+    [isPro, proSince],
+  );
 
   // Ask the store what it will sell the moment the sheet opens, so a plan that
   // cannot be bought is a disabled card rather than an alert after the tap.
@@ -4596,7 +4970,34 @@ export default function App() {
   // src/core/home/layout.js so adding a Home feature is a data change.
   const { layout: homeLayout, save: saveHomeLayout } = useHomeLayout();
 
-  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','tools','wiringlab','troubleshoot','jobsite','flashcards','customizehome','projects','materials','community','permits','blueprint','panelschedule'];
+  const VALID_TABS = ['home','bend','volt','wire','formulas','boxfill','conduitfill','ampacity','estimator','necai','examprep','jobcam','settings','calculators','learn','tools','wiringlab','troubleshoot','jobsite','flashcards','customizehome','hours','projects','materials','community','permits','blueprint','panelschedule','connect'];
+
+  // The first-run suggestion is shown once and then gone for good. A prompt
+  // that keeps coming back is a nag, and the whole point of it is that it is a
+  // gentler thing than being dropped into the screen unasked.
+  const dismissSuggestion = React.useCallback(() => {
+    setFirstSuggestion(null);
+    safeStorageSet('@sc_first_suggestion_v1', '');
+  }, []);
+
+  React.useEffect(() => {
+    let live = true;
+    safeStorageGet('@sc_role')
+      .then((r) => { if (live && r) setRole(r); })
+      .catch(e => safeLog('role.load', e));
+    return () => { live = false; };
+  }, []);
+
+  React.useEffect(() => {
+    let live = true;
+    safeStorageGet('@sc_first_suggestion_v1')
+      .then((raw) => {
+        if (!live || !raw) return;
+        try { setFirstSuggestion(JSON.parse(raw)); } catch (e) { safeLog('suggestion.parse', e); }
+      })
+      .catch(e => safeLog('suggestion.load', e));
+    return () => { live = false; };
+  }, []);
 
   // Stable handlers — avoids stale closure in Settings toggle rows
   const handleDailyQToggle = React.useCallback((v) => {
@@ -4690,13 +5091,19 @@ export default function App() {
           await safeStorageSet('@sc_onboarding_done', 'true');
           // HOME_LAYOUT. Written before the app renders Home, so the first
           // Home a person sees is already theirs.
-          if (result?.role) await safeStorageSet('@sc_role', result.role);
+          if (result?.role) { await safeStorageSet('@sc_role', result.role); setRole(result.role); }
           if (result?.layout?.length) await safeStorageSet('@sc_home_layout_v1', JSON.stringify(result.layout));
+          // What they came for, kept as a SUGGESTION on Home rather than a
+          // redirect. Answering "getting better at the trade" used to launch
+          // straight into the Wiring Simulator, so a first-time user never saw
+          // Home and had no idea what else the app had or how they got there.
+          if (result?.suggest) await safeStorageSet('@sc_first_suggestion_v1', JSON.stringify(result.suggest));
         } catch (e) { safeLog('onboarding.persist', e); }
 
         setOnboardingDone(true);
+        if (result?.suggest) setFirstSuggestion(result.suggest);
 
-        // FIRST_SCREEN. What they said brought them here.
+        // FIRST_SCREEN is always Home. It is the map — see flow.js outcome().
         if (result?.openAt && result.openAt !== 'home') navigateTo(result.openAt);
 
         // DAILY_NOTIFICATION — only if they said yes. Asking the OS anyway
@@ -4707,14 +5114,48 @@ export default function App() {
 
         // ENTITLEMENT. The offer screen records intent; the purchase itself
         // still goes through the one paywall, so there is exactly one buy path.
-        if (result?.startedTrial) setPaywall('pro');
+        if (result?.startedTrial) setPaywall(PaywallSource.SETTINGS);
       }} />
     );
   }
 
+  // Which tab is which feature, for the kill switch. Only tabs that CAN be
+  // switched off are listed — Home, Settings and the calculators are not on
+  // this map, so a bad config can never leave somebody with no way out.
+  const TAB_FEATURE = {
+    necai: Feature.SPARK_AI, jobsite: Feature.JOBSITE, wiringlab: Feature.WIRING_LESSON,
+    troubleshoot: Feature.TROUBLESHOOT, blueprint: Feature.BLUEPRINT, projects: Feature.JOB_CAM,
+    // The one on this map that is most likely to be used: a beta whose matching
+    // depends on somebody reading an inbox. If that stops, this goes off from
+    // the website rather than waiting for a review.
+    connect: Feature.CONTRACTOR_CONNECT,
+  };
+
   const renderScreen = () => {
+    // A feature turned off from the website says so, rather than crashing,
+    // hanging or quietly rendering a broken screen.
+    const feat = TAB_FEATURE[tab];
+    if (feat && featureRegistry[feat]?.disabled) {
+      return (
+        <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+          <Ionicons name="construct-outline" size={40} color={C.textTert} />
+          <Text style={{ fontSize: 17, fontWeight: '800', color: C.text, marginTop: 16, textAlign: 'center' }}>
+            Temporarily unavailable
+          </Text>
+          <Text style={{ fontSize: 13, color: C.textSec, marginTop: 8, textAlign: 'center', lineHeight: 19 }}>
+            {remoteConfig.notice
+              || 'This is switched off while we fix something. Everything else works, and it will come back on its own.'}
+          </Text>
+          <TouchableOpacity onPress={() => navigateTo('home')}
+            accessibilityRole="button"
+            style={{ marginTop: 22, backgroundColor: C.blue, borderRadius: 11, paddingHorizontal: 26, paddingVertical: 13 }}>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>Back to Home</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
     switch (tab) {
-      case 'home':        return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} homeLayout={homeLayout} />;
+      case 'home':        return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} homeLayout={homeLayout} suggestion={firstSuggestion} onDismissSuggestion={dismissSuggestion} />;
       case 'calculators': return <CalculatorsScreen setTab={navigateTo} C={C} />;
       case 'bend':        return <BendScreen C={C} setTab={navigateTo} />;
       case 'volt':        return <VoltScreen C={C} setTab={navigateTo} />;
@@ -4723,8 +5164,8 @@ export default function App() {
       case 'boxfill':     return <BoxFillScreen C={C} setTab={navigateTo} />;
       case 'conduitfill': return <ConduitFillScreen C={C} setTab={navigateTo} />;
       case 'ampacity':    return <AmpacityScreen C={C} />;
-      case 'estimator':   return <EstimatorScreen C={C} setTab={navigateTo} />;
-      case 'necai':       return <NecAiScreen C={C} setTab={navigateTo} initialSearch={necaiInitSearch} clearInitSearch={() => setNecaiInitSearch('')} onUpgrade={() => setPaywall('pro')} onBuyPacks={() => setPaywall('packs')} isPro={isPro} />;
+      case 'estimator':   return <EstimatorScreen C={C} setTab={navigateTo} isPro={isPro} planType={planType} />;
+      case 'necai':       return <NecAiScreen C={C} setTab={navigateTo} initialSearch={necaiInitSearch} clearInitSearch={() => setNecaiInitSearch('')} onUpgrade={() => setPaywall(PaywallSource.SETTINGS)} onBuyPacks={() => setPaywall('packs')} isPro={isPro} planType={planType} />;
       case 'examprep':    return <ExamPrepScreen C={C} onStreakUpdate={updateStreak} isPro={isPro} />;
       case 'tools':       return <ToolsScreen C={C} setTab={navigateTo} />;
       // Learn is still reachable — it is the study-path index now, one of
@@ -4739,18 +5180,20 @@ export default function App() {
       case 'community':   return <CommunityScreen C={C} setTab={navigateTo} />;
       case 'permits':     return <PermitScreen C={C} setTab={navigateTo} onAskAi={(q) => { setNecaiInitSearch(q); navigateTo('necai'); }} />;
       case 'panelschedule': return <PanelScheduleScreen C={C} setTab={navigateTo} />;
+      case 'connect':     return <ContractorConnectScreen C={C} setTab={navigateTo} />;
       case 'blueprint':   return (
         <BlueprintScreen
           C={C}
           setTab={navigateTo}
           isPro={isPro}
-          onUpgrade={() => setPaywall('pro')}
+          onUpgrade={() => setPaywall(PaywallSource.SETTINGS)}
           pickImage={pickPlanImage}
           askBackend={askNecBackend}
         />
       );
-      case 'customizehome': return <HomeCustomizeScreen C={C} layout={homeLayout} onSave={saveHomeLayout} onDone={() => { setHomeKey(k => k + 1); navigateTo('home'); }} />;
-      case 'settings':    return <SettingsScreen C={C} themePreference={themePreference} setThemePreference={chooseTheme} showDailyQ={showDailyQ} onDailyQToggle={handleDailyQToggle} appLanguage={appLanguage} setAppLanguage={setAppLanguage} isPro={isPro} onUpgrade={() => setPaywall('pro')} onBuyPacks={() => setPaywall('packs')} onRestore={handleRestorePurchases} />;
+      case 'customizehome': return <HomeCustomizeScreen C={C} layout={homeLayout} onSave={saveHomeLayout} role={role} onDone={() => { setHomeKey(k => k + 1); navigateTo('home'); }} />;
+      case 'hours':       return <HoursScreen C={C} role={role} setTab={navigateTo} />;
+      case 'settings':    return <SettingsScreen C={C} themePreference={themePreference} setThemePreference={chooseTheme} showDailyQ={showDailyQ} onDailyQToggle={handleDailyQToggle} appLanguage={appLanguage} setAppLanguage={setAppLanguage} isPro={isPro} onUpgrade={() => setPaywall(PaywallSource.SETTINGS)} onBuyPacks={() => setPaywall('packs')} onRestore={handleRestorePurchases} />;
       // Job Cam is a feature inside a project now. Anything still pointing
       // here — a deep link, saved nav state, an old shortcut — lands on
       // Projects, which is where its photos were migrated to.
@@ -4816,9 +5259,15 @@ export default function App() {
       )}
 
       {/* ── Paywall — the ONE purchase surface, wired to real RevenueCat ── */}
+      {/* One paywall, one price, one entitlement — and the hero copy names the
+          feature that just demonstrated the value. Somebody who ran out of
+          SparkAI answers and somebody who hit a locked Job Site station are not
+          convinced by the same sentence. Only the argument changes. */}
       <SparkPaywall
         visible={paywall !== null}
         isPacks={paywall === 'packs'}
+        source={paywall}
+        hero={paywall && paywall !== 'packs' ? heroFor(paywall) : null}
         store={store}
         onClose={() => setPaywall(null)}
         onPurchase={handlePurchase}

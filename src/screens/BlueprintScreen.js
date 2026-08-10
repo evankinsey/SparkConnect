@@ -16,6 +16,8 @@ import {
 } from '../core/field/takeoff';
 import { expandTakeoff, expansionSummary } from '../core/field/assemblies';
 
+import { messageFor, imageTooLarge } from '../core/ai/backendError';
+
 export default function BlueprintScreen({ C, setTab, pickImage, askBackend, isPro, onUpgrade, onSendToMaterials }) {
   const [image, setImage] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -36,6 +38,12 @@ export default function BlueprintScreen({ C, setTab, pickImage, askBackend, isPr
 
   const run = async () => {
     if (!image?.base64) return;
+    // Checked before the upload. Finding out after twenty seconds on a job site
+    // is the same information at the worst possible moment.
+    if (imageTooLarge(image.base64)) {
+      setError('That photo is too large to send. Take the sheet from a little further back, or pick a smaller image.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -54,7 +62,10 @@ export default function BlueprintScreen({ C, setTab, pickImage, askBackend, isPr
       // that plainly rather than showing an empty takeoff and letting the user
       // assume the sheet was unreadable.
       if (!result?.answer) {
-        setError('Could not reach SparkAI. Check your connection and try again.');
+        // Say which failure it was. This screen showed "check your connection"
+        // on a working connection, because every backend failure was collapsed
+        // to null before it got here.
+        setError(messageFor(result) ?? 'That did not come back. Try again.');
         setBusy(false);
         return;
       }

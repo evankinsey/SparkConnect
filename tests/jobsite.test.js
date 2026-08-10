@@ -12,6 +12,7 @@ import {
   STATIONS, SPAWN, MAP_W, MAP_H, PLAYER_RADIUS, Tile, TaskKind,
   pathBetween, distanceFeet, nextObjective,
 } from '../src/core/game/jobsite.js';
+import { FENCE, YARD, wearAt, coverAt, Cover, groundNoise } from '../src/core/game/yard.js';
 import { ALL_LESSONS } from '../src/circuit/lessons/index.js';
 import {
   CHARACTERS, CAST_IDS, STATION_DIALOGUE, dialogueFor,
@@ -277,4 +278,63 @@ test('distance is reported in feet and grows with separation', () => {
   const far = distanceFeet({ x: 0, y: 0 }, { x: 10, y: 0 });
   assert.ok(far > near && near > 0);
   assert.equal(distanceFeet({ x: 3, y: 3 }, { x: 3, y: 3 }), 0);
+});
+
+// ─── The yard ────────────────────────────────────────────────────────────────
+// Ground is graded from the FENCE, not from the building. Grading it from the
+// building parked the work truck, the trailer and the dumpster on a lawn —
+// which the exterior prop list makes obvious the moment anybody checks it, and
+// which nobody checks by reading.
+
+const yardWear = (x, y) => wearAt(x, y, { mapW: MAP_W, mapH: MAP_H });
+
+test('nothing with wheels is parked on grass', () => {
+  // Every vehicle and every material drop, at the coordinates the screen
+  // actually places them.
+  const laydown = [
+    ['work truck', -3.2, 6.5], ['work truck', -3.2, 8.8],
+    ['site trailer', -3.5, 2.5], ['dumpster', 28.5, 4.5],
+    ['pallet', -2.6, 11.4], ['pallet', -1.6, 11.4],
+  ];
+  for (const [what, x, y] of laydown) {
+    assert.ok(yardWear(x, y) > 0.66,
+      `the ${what} at ${x},${y} is standing on grass`);
+  }
+});
+
+test('the fenced yard is worn, and grass starts outside the fence', () => {
+  // Inside the fence is a laydown yard. A site this size is compacted within a
+  // week, and a lawn inside the fence is the thing that looked wrong.
+  for (const [x, y] of [[-2, 7], [-4, 3], [27, 7], [13, -2], [13, 15]]) {
+    assert.ok(yardWear(x, y) > 0.55, `inside the fence at ${x},${y} is not worn`);
+  }
+  // Well beyond it, nothing drives.
+  for (const [x, y] of [[-9, 7], [33, 7], [13, -6], [13, 19]]) {
+    assert.ok(yardWear(x, y) < 0.33, `outside the fence at ${x},${y} is still dirt`);
+  }
+});
+
+test('the yard bounds are derived from the fence, not typed twice', () => {
+  // YARD is computed from the same FENCE the screen draws, so moving a run
+  // moves the ground with it.
+  assert.ok(FENCE.length >= 4, 'the site is not enclosed');
+  assert.equal(YARD.x0, Math.min(...FENCE.map((f) => f.x)) - 0.5);
+  assert.ok(YARD.x1 - YARD.x0 > MAP_W, 'the yard is narrower than the building');
+  assert.ok(YARD.y1 - YARD.y0 > MAP_H, 'the yard is shorter than the building');
+  assert.ok(YARD.x0 < 0 && YARD.y0 < 0, 'the yard does not extend past the map origin');
+});
+
+test('walking out of the building crosses yard, then verge, then grass', () => {
+  // In that order, with no jump straight from dirt to lawn — a hard edge there
+  // is the fence drawn a second time.
+  const band = (w) => (w > 0.66 ? 2 : w > 0.33 ? 1 : 0);
+  const walk = [];
+  for (let x = 0; x >= -10; x--) walk.push(band(yardWear(x, 7)));
+  assert.equal(walk[0], 2, 'the ground against the wall is not worn');
+  assert.equal(walk[walk.length - 1], 0, 'it never reaches grass');
+  assert.ok(walk.includes(1), 'there is no verge — dirt meets lawn at a hard line');
+  // Monotonic: it never gets MORE worn as you walk away from the building.
+  for (let i = 1; i < walk.length; i++) {
+    assert.ok(walk[i] <= walk[i - 1], `the ground gets more worn further out at step ${i}`);
+  }
 });

@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   resolveLayout, catalogWithState, sanitizeLayout, addCard, removeCard, moveCard,
-  layoutForRole, CardKind, MAX_CARDS,
+  layoutForRole, CardKind, MAX_CARDS, suggestionsForRole,
   migrateLayout,
   LAYOUT_VERSION,
   allToolsGrouped,
@@ -286,9 +286,10 @@ function StreakWidget({ C, streak }) {
 
 // ─── Customize screen ────────────────────────────────────────────────────────
 
-export function HomeCustomizeScreen({ C, layout, onSave, onDone }) {
+export function HomeCustomizeScreen({ C, layout, onSave, onDone, role = null }) {
   const [draft, setDraft] = useState(sanitizeLayout(layout));
   const groups = catalogWithState(draft);
+  const suggested = suggestionsForRole(role, draft);
 
   const apply = (next) => { setDraft(next); onSave(next); };
 
@@ -317,6 +318,44 @@ export function HomeCustomizeScreen({ C, layout, onSave, onDone }) {
           further down Home, whether or not it is pinned here.
         </Text>
       </View>
+
+      {/* Suggested for the role picked during onboarding.
+          Onboarding asks what somebody does and then the answer only reorders
+          the default cards once, at install. This is where it keeps earning:
+          an apprentice needs somewhere to log OJT hours and a contractor does
+          not, and neither of them should have to go looking through a catalog
+          of twenty-five cards to find that out.
+
+          Every suggestion carries a REASON. "Suggested for you" is a shrug;
+          "your programme will ask you to prove these" is something a person can
+          disagree with — and disagreeing is a legitimate answer, because this
+          offers cards and never adds them. */}
+      {suggested.length > 0 ? (
+        <>
+          <Text style={{ fontSize: 11, fontWeight: '800', color: C.amber, letterSpacing: 0.5, marginBottom: 8 }}>
+            SUGGESTED FOR YOU
+          </Text>
+          {suggested.map((card) => (
+            <View key={`s-${card.id}`} style={{
+              flexDirection: 'row', alignItems: 'flex-start', gap: 11,
+              backgroundColor: C.surface, borderRadius: 12, padding: 13, marginBottom: 8,
+              borderWidth: 1, borderColor: C.amber,
+            }}>
+              <Ionicons name={card.icon} size={19} color={C.amber} style={{ marginTop: 2 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13.5, fontWeight: '700', color: C.text }}>{card.title}</Text>
+                <Text style={{ fontSize: 11.5, color: C.textSec, marginTop: 3, lineHeight: 16 }}>{card.why}</Text>
+              </View>
+              <TouchableOpacity onPress={() => apply(addCard(draft, card.id))}
+                accessibilityRole="button" accessibilityLabel={`Add ${card.title} to Home`}
+                style={{ backgroundColor: C.amber, borderRadius: 9, paddingHorizontal: 13, paddingVertical: 8 }}>
+                <Text style={{ fontSize: 12, fontWeight: '800', color: '#fff' }}>Add</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+          <View style={{ height: 14 }} />
+        </>
+      ) : null}
 
       <Text style={{ fontSize: 11, fontWeight: '800', color: C.textSec, letterSpacing: 0.5, marginBottom: 8 }}>
         ON YOUR HOME — TAP ARROWS TO REORDER

@@ -43,6 +43,7 @@
 // Pure module: no React, no storage, no navigation.
 
 import { ROLE_LAYOUTS, layoutForRole } from '../home/layout.js';
+import { FREE_LIMITS, PRO_LIMITS, Feature, proAskAllowanceLabel } from '../paywall/entitlements.js';
 
 export const StepId = Object.freeze({
   ROLE: 'ROLE',
@@ -153,11 +154,21 @@ export const roleById = (id) => ROLES.find((r) => r.id === id) ?? null;
  * first value costs more than the personalisation it buys, and the honest
  * version of a long quiz is a short one.
  */
+/**
+ * `suggest` is what Home offers them, in their words rather than the tab's.
+ *
+ * The tab is NOT where the app opens — see outcome(). It is what gets pointed
+ * at once they are somewhere they can orient themselves.
+ */
 export const FOCUS = Object.freeze([
-  { id: 'code', label: 'Getting code answers fast', tab: 'necai' },
-  { id: 'calc', label: 'Running the numbers on site', tab: 'calculators' },
-  { id: 'learn', label: 'Getting better at the trade', tab: 'wiringlab' },
-  { id: 'jobs', label: 'Keeping my jobs documented', tab: 'projects' },
+  { id: 'code', label: 'Getting code answers fast', tab: 'necai',
+    suggest: 'Ask SparkAI your first code question' },
+  { id: 'calc', label: 'Running the numbers on site', tab: 'calculators',
+    suggest: 'Run your first calculation' },
+  { id: 'learn', label: 'Getting better at the trade', tab: 'wiringlab',
+    suggest: 'Wire your first circuit in the simulator' },
+  { id: 'jobs', label: 'Keeping my jobs documented', tab: 'projects',
+    suggest: 'Start your first job and take a photo' },
 ]);
 
 export const focusById = (id) => FOCUS.find((f) => f.id === id) ?? null;
@@ -351,9 +362,25 @@ export const outcome = (state) => {
     // HOME_LAYOUT
     role: role?.id ?? null,
     layout: Object.freeze(layoutForRole(role?.id ?? null)),
-    // FIRST_SCREEN — what they came for beats what they do, because the answer
-    // to "what brought you here" is the more specific of the two.
-    openAt: focus?.tab ?? role?.firstScreen ?? 'home',
+    // FIRST_SCREEN — always Home.
+    //
+    // This used to open the app on whatever tab the FOCUS answer named, so
+    // answering "getting better at the trade" launched a first-time user
+    // directly into the Wiring Simulator. They never saw Home, never saw that
+    // the app has calculators, a daily code question, Projects or Tools, and
+    // had no idea how they got where they were or how to leave.
+    //
+    // Dropping somebody into a deep screen on first launch is disorienting even
+    // when the screen is the right guess. Home is the map. What they told us
+    // still gets used — it reorders Home (see `layout`) and it becomes a
+    // suggestion they can take or ignore, which is the difference between
+    // helping and hijacking.
+    openAt: 'home',
+    // What to OFFER on Home, once, rather than navigate to. Null when they
+    // skipped the question — no answer means no suggestion, not a default one.
+    suggest: focus
+      ? Object.freeze({ tab: focus.tab, label: focus.label, headline: focus.suggest })
+      : null,
     // DAILY_NOTIFICATION
     notifications: state.answers[StepId.NOTIFY] === true,
     // ENTITLEMENT
@@ -383,18 +410,23 @@ export const offerFor = (roleId) => {
 
   return Object.freeze({
     headline: 'Try Pro free for 3 days',
+    // The allowance is READ from the module that meters it. This screen used to
+    // promise SparkAI "without a daily ceiling" and "as many times as you need
+    // in a day" — while Pro is metered at 20 a day. It is the last screen
+    // somebody reads before being charged, so it is the worst possible place
+    // to advertise a limit the product does not honour.
     sub: learning
-      ? 'The full simulator and troubleshooting libraries, and SparkAI without a daily ceiling.'
-      : 'SparkAI without a daily ceiling, unlimited projects, and every export.',
+      ? `The full simulator and troubleshooting libraries, and ${proAskAllowanceLabel()}.`
+      : `${proAskAllowanceLabel()}, unlimited projects, and every export.`,
     benefits: Object.freeze(learning
       ? [
         'Every simulator lesson, not just the first two',
         'All 270 troubleshooting scenarios',
-        'Ask SparkAI as many times as you need in a day',
+        `${proAskAllowanceLabel()} — up from ${FREE_LIMITS[Feature.SPARK_AI].limit} on free`,
         'Keep every job you photograph',
       ]
       : [
-        'Ask SparkAI as many times as you need in a day',
+        `${proAskAllowanceLabel()} — up from ${FREE_LIMITS[Feature.SPARK_AI].limit} on free`,
         'Unlimited projects, photos and daily logs',
         'Exports scoped for the customer, the GC or the inspector',
         'Every simulator lesson and troubleshooting scenario',

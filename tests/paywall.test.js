@@ -14,14 +14,21 @@ import {
 test('the CTA always matches the selected plan — the bug that was live', () => {
   // Previously: Annual was badged BEST VALUE while the button said "$7.99/mo"
   // and purchased monthly. The highlighted plan could not be bought.
-  const annual = buildPaywall({ selectedProductId: ProductId.PRO_ANNUAL });
+  // Trial-eligible, so the CTA leads with the trial and the sub names the price.
+  const annual = buildPaywall({ selectedProductId: ProductId.PRO_ANNUAL, trialEligible: true });
   assert.equal(annual.selectedProductId, ProductId.PRO_ANNUAL);
   assert.match(annual.cta.sub, /\$49\.99\/year/);
   assert.ok(!annual.cta.sub.includes('/month'), 'annual CTA must not quote a monthly price');
 
+  // NOT eligible: the price moves into the title and no trial is promised.
+  const noTrial = buildPaywall({ selectedProductId: ProductId.PRO_ANNUAL });
+  assert.match(noTrial.cta.title, /\$49\.99\/year/);
+  assert.doesNotMatch(noTrial.cta.title, /trial/i, 'a trial was offered to somebody who may not have one');
+
   const monthly = buildPaywall({ selectedProductId: ProductId.PRO_MONTHLY });
   assert.equal(monthly.selectedProductId, ProductId.PRO_MONTHLY);
-  assert.match(monthly.cta.sub, /\$7\.99\/month/);
+  // Monthly never carries a trial, so the price is in the title.
+  assert.match(monthly.cta.title, /\$7\.99\/month/);
 });
 
 test('UI-03: annual is selected by default', () => {
@@ -51,12 +58,22 @@ test('the monthly equivalent of annual is shown honestly', () => {
 });
 
 test('PWL-03: trial terms state price, interval, renewal and how to cancel', () => {
-  const terms = termsFor(PRODUCTS[ProductId.PRO_ANNUAL]);
-  assert.match(terms, /3-day free trial/i);
+  const terms = termsFor(PRODUCTS[ProductId.PRO_ANNUAL], { trialEligible: true });
+  assert.match(terms, /7-day free trial/i);
   assert.match(terms, /\$49\.99 per year/);
   assert.match(terms, /Renews automatically/i);
   assert.match(terms, /Cancel any time/i);
   assert.match(terms, /24 hours before the trial ends/i);
+
+  // Without eligibility the terms describe a plain subscription and never
+  // mention a trial — the disclosure has to match what will actually be charged.
+  const plain = termsFor(PRODUCTS[ProductId.PRO_ANNUAL]);
+  assert.doesNotMatch(plain, /trial/i);
+  assert.match(plain, /\$49\.99 per year/);
+  assert.match(plain, /Renews automatically/i);
+
+  // Monthly never carries the trial, eligible or not.
+  assert.doesNotMatch(termsFor(PRODUCTS[ProductId.PRO_MONTHLY], { trialEligible: true }), /trial/i);
 });
 
 test('PWL-03: a one-time purchase is never described as a subscription', () => {
@@ -66,14 +83,20 @@ test('PWL-03: a one-time purchase is never described as a subscription', () => {
   assert.match(terms, /restored/i);
 });
 
-test('UI-04: Lifetime is present but secondary, and hidden in the training variant', () => {
-  const model = buildPaywall({ variant: Variant.A_CURRENT });
-  assert.ok(model.lifetime, 'Lifetime is offered');
+test('UI-04: Lifetime is present but secondary, and hidden until the store confirms it', () => {
+  // sparkconnect_lifetime_tools has never been verified in App Store Connect.
+  // A plan that cannot be bought is the failure that broke three builds, so it
+  // is absent until the store actually returns the product.
+  assert.equal(buildPaywall({ variant: Variant.A_CURRENT }).lifetime, null,
+    'an unverified product was offered for sale');
+
+  const model = buildPaywall({ variant: Variant.A_CURRENT, lifetimeConfirmed: true });
+  assert.ok(model.lifetime, 'Lifetime is offered once confirmed');
   assert.equal(model.lifetime.priceLabel, '$29.99');
   // It is not in the plan selector — that is what keeps it secondary.
   assert.ok(!model.plans.some((p) => p.id === ProductId.LIFETIME_TOOLS));
 
-  assert.equal(buildPaywall({ variant: Variant.C_TRAINING }).lifetime, null);
+  assert.equal(buildPaywall({ variant: Variant.C_TRAINING, lifetimeConfirmed: true }).lifetime, null);
 });
 
 test('UI-05: no vague benefit copy, and at most five benefits', () => {
@@ -145,7 +168,9 @@ test('price formatting stays clean for whole and part dollars', () => {
 });
 
 test('the CTA leads with the trial when one exists', () => {
-  assert.match(ctaFor(PRODUCTS[ProductId.PRO_ANNUAL]).title, /Start 3-Day Free Trial/);
+  // Only when the store says this person is eligible.
+  assert.match(ctaFor(PRODUCTS[ProductId.PRO_ANNUAL], { trialEligible: true }).title, /Start 7-Day Free Trial/);
+  assert.doesNotMatch(ctaFor(PRODUCTS[ProductId.PRO_ANNUAL]).title, /trial/i);
   assert.match(ctaFor(PRODUCTS[ProductId.LIFETIME_TOOLS]).title, /Buy Lifetime Tools — \$29\.99/);
   assert.match(ctaFor({ period: 'MONTH', priceCents: 799, trialDays: 0 }).title, /\$7\.99\/month/);
 });

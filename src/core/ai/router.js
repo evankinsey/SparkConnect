@@ -70,10 +70,58 @@ export const extractTradeSize = (q) => {
   return null;
 };
 
-export const extractCount = (q) => {
+/** The insulation the Chapter 9 tables are indexed by. THHN when unstated. */
+export const extractInsulation = (q) => {
   const s = lower(q);
+  if (/\bxhhw(?:-2)?\b/.test(s)) return 'XHHW';
+  if (/\bthwn(?:-2)?\b/.test(s)) return 'THWN';
+  if (/\bthhn(?:-2)?\b/.test(s)) return 'THHN';
+  return null;
+};
+
+/**
+ * Every number in the sentence that is NOT a conductor count.
+ *
+ * A count is the one bare integer left after the qualified numbers are taken
+ * out — the gauge, the trade size, the feet, the amps, the volts, the phase.
+ * Stripping them first is what lets "can I put 10 #12 in a 1/2 inch pipe" find
+ * the 10 without also finding the 12, the 1 and the 2.
+ */
+const stripQualifiedNumbers = (s) => s
+  // Gauge: "12 AWG", "#12", "12 gauge"
+  .replace(/#?\s*\d{1,2}\s*(?:awg|gauge|ga)\b/g, ' ')
+  .replace(/#\s*\d{1,2}\b/g, ' ')
+  // Trade sizes: 1/2, 3/4, 1-1/4
+  .replace(/\d+\s*[-/]\s*\d+\s*(?:"|inch(?:es)?|in\b)?/g, ' ')
+  // Anything carrying a unit. NOT a bare "in": "put 10 in a pipe" is a count
+  // followed by a preposition, not ten inches, and stripping it there loses the
+  // only number in the question.
+  .replace(/\d+(?:\.\d+)?\s*(?:ft\b|feet|foot|'|a\b|amps?\b|ampere|v\b|volts?\b|inch(?:es)?|")/g, ' ')
+  .replace(/\d+\s*(?:phase|ph)\b/g, ' ');
+
+export const extractCount = (q) => {
+  // In "6 12 AWG conductors" the digits nearest "conductors" are the SIZE, not
+  // the count, and reading them as the count is how a box gets sized for twelve
+  // wires instead of six.
+  const s = stripQualifiedNumbers(lower(q));
+
   const m = s.match(/(\d+)\s*(?:conductors?|wires?|current[- ]carrying)/);
   if (m) return Number(m[1]);
+
+  // The count without the noun: "can I put 10 in a 1/2 pipe", "fill on 6",
+  // "is 12 too many", "a box for 6". These are how the question actually
+  // arrives, and losing the count here sends a computable question to the
+  // model, where the answer contract then refuses it.
+  for (const re of [
+    /\b(?:put|fit|pull|run|cram|stuff|land)\s+(\d+)\b/,
+    /\bfill\s+(?:on|for|of|with)\s+(\d+)\b/,
+    /\bis\s+(\d+)\s+too\s+many\b/,
+    /\b(?:for|with)\s+(\d+)\b/,
+  ]) {
+    const hit = s.match(re);
+    if (hit) return Number(hit[1]);
+  }
+
   const words = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
   const w = s.match(/\b(one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:conductors?|wires?)/);
   return w ? words[w[1]] : null;
@@ -92,7 +140,11 @@ export const extractParams = (q) => {
     conductors: extractCount(q),
     ccc: extractCount(q),
     phase: /three\s*phase|3\s*phase|3ph|3Φ/.test(s) ? '3' : null,
-    conduitType: /\bimc\b/.test(s) ? 'IMC' : /\brmc\b|rigid/.test(s) ? 'RMC' : /pvc/.test(s) ? 'PVC-40' : null,
+    insulation: extractInsulation(q),
+    conduitType: /\bimc\b/.test(s) ? 'IMC'
+      : /\brmc\b|rigid/.test(s) ? 'RMC'
+        : /pvc/.test(s) ? 'PVC-40'
+          : /\bemt\b/.test(s) ? 'EMT' : null,
     devices: /(\d+)\s*(?:device|yoke|receptacle|switch)/.test(s)
       ? Number(s.match(/(\d+)\s*(?:device|yoke|receptacle|switch)/)[1]) : null,
     grounds: /ground/.test(s) ? 1 : null,
@@ -102,7 +154,16 @@ export const extractParams = (q) => {
 
 // ─── Routing ─────────────────────────────────────────────────────────────────
 
-/** Which tool, if any, is this question about? */
+/**
+ * Which tool, if any, is this question about?
+ *
+ * Literal triggers first, longest wins — an exact phrase is the strongest
+ * signal there is. Then the shape patterns, which catch the way people
+ * actually ask ("how many 12s fit in 3/4 EMT"). A question that reaches
+ * neither goes to the model, and the answer contract will not let the model
+ * put a number on it — so a missing phrasing here reads to the user as SparkAI
+ * refusing something it can compute perfectly.
+ */
 export const matchTool = (q) => {
   const s = lower(q);
   let best = null;
@@ -112,7 +173,14 @@ export const matchTool = (q) => {
       if (s.includes(trigger) && trigger.length > bestLen) { best = t; bestLen = trigger.length; }
     }
   }
-  return best;
+  if (best) return best;
+
+  for (const t of TOOLS) {
+    for (const pattern of (t.patterns ?? [])) {
+      if (pattern.test(s)) return t;
+    }
+  }
+  return null;
 };
 
 const PROJECT_PATTERNS = [

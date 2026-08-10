@@ -36,7 +36,7 @@ import {
   knobOffset, floatingOrigin,
 } from '../core/game/topdown';
 import {
-  SKY, SlabTile, SlabMarks, Daylight, AmbientShade, DustMotes,
+  SKY, SlabTile, SlabMarks, GroundTile, Daylight, AmbientShade, DustMotes,
   StudWall, BarJoist, Worker, ROLE_LOOK,
   Panelboard, JBox, EmtRun, AFrameLadder, WireReel, GangBox, MaterialCart,
   PrintTable, DrywallStack, SafetyCone, WorkTruck, Dumpster, SiteTrailer,
@@ -44,6 +44,21 @@ import {
   ScissorLift, TempPower, ConduitBundle,
 } from './topdownArt';
 import { PROPS as SITE_PROPS, PropKind, buildSiteMap } from '../core/game/props';
+import { FENCE, YARD, wearAt } from '../core/game/yard';
+import {
+  discoverAt, isDiscovered, sanitizeDiscovered, emptyDiscovery,
+  showsContents, shadeFor, explored,
+} from '../core/game/discovery';
+import { Art, buildArt } from './jobsiteArt';
+import {
+  Panel, DOCK, HUD, panelStyle, stickAnchor, HOME_INDICATOR_MIN, density,
+  hudLayout, togglePanel, motion as hudMotion, xpBar, levelFor, currency,
+  taskProgress, completion, routeStyle,
+} from '../core/game/hud';
+import {
+  Glass, Press, LevelBar, ObjectiveChip, NextStep, Dialogue,
+  TasksPanel, MapPanel, ListPanel, Dock, CompletionCard,
+} from './JobsiteHud';
 import { portraitFor } from './castImages';
 import WiringLabScreen from './WiringLabScreen';
 import TroubleshootScreen from './TroubleshootScreen';
@@ -51,6 +66,7 @@ import FieldTaskScreen from './FieldTaskScreen';
 
 const KEY = '@sc_jobsite_progress_v1';
 const KEY_SIDE = '@sc_jobsite_side_v1';
+const KEY_SEEN = '@sc_jobsite_seen_v1';
 
 const SPEED = 0.075;    // tiles per tick
 const TICK = 33;        // ~30fps
@@ -71,12 +87,6 @@ const EXTERIOR = [
   { k: 'tree', x: -4.5, y: 12.5 }, { k: 'tree', x: 29.5, y: 11.5 },
   { k: 'palm', x: 28.6, y: 1.4 }, { k: 'palm', x: -4.2, y: -1.2 },
   { k: 'palm', x: 13, y: -2.6 }, { k: 'palm', x: 20, y: -2.4 },
-  { k: 'fenceH', x: -5, y: -2.2, len: 10 },
-  { k: 'fenceH', x: 6, y: -2.2, len: 10 },
-  { k: 'fenceH', x: 17, y: -2.2, len: 12 },
-  { k: 'fenceH', x: -5, y: 15.4, len: 34 },
-  { k: 'fenceV', x: -5.2, y: -2, len: 17 },
-  { k: 'fenceV', x: 29.4, y: -2, len: 17 },
 ];
 
 /** Interior set dressing. Scenery only — nothing here affects collision. */
@@ -97,11 +107,34 @@ const PROPS = [
   { k: 'cone', x: 12.5, y: 7.4 },
 ];
 
-const PROP_ART = {
-  panel: Panelboard, jbox: JBox, ladder: AFrameLadder, reel: WireReel,
-  gangbox: GangBox, cart: MaterialCart, print: PrintTable,
-  drywall: DrywallStack, cone: SafetyCone, truck: WorkTruck,
-  dumpster: Dumpster, trailer: SiteTrailer, tree: Tree, palm: Palm, pallet: Pallet,
+/**
+ * The same drawables, under the names the art layer knows them by.
+ *
+ * This is the seam. Every prop below is drawn through `<Art>`, which reaches
+ * for a raster sprite when the atlas has one for that name and falls back to
+ * the vector component here when it does not. With no atlas — today — every
+ * lookup falls back, and the world renders exactly as it did before.
+ *
+ * DoorOpening is the one name still absent: it is drawn as a gap in the wall
+ * run rather than as its own component, so `coverage()` correctly reports it
+ * as having no component-level art behind it yet.
+ */
+const VECTOR_ART = {
+  SlabTile, StudWall, BarJoist, FenceRun,
+  Panelboard, JBox, EmtRun,
+  AFrameLadder, WireReel, GangBox, MaterialCart, PrintTable, DrywallStack,
+  SafetyCone, Pallet,
+  WorkTruck, Dumpster, SiteTrailer, Tree, Palm,
+  Worker, ObjectiveMarker, DoneMarker,
+};
+
+/** Prop kind → art name, so the decor list keeps its short keys. */
+const PROP_ART_NAME = {
+  panel: 'Panelboard', jbox: 'JBox', ladder: 'AFrameLadder', reel: 'WireReel',
+  gangbox: 'GangBox', cart: 'MaterialCart', print: 'PrintTable',
+  drywall: 'DrywallStack', cone: 'SafetyCone', truck: 'WorkTruck',
+  dumpster: 'Dumpster', trailer: 'SiteTrailer', tree: 'Tree', palm: 'Palm',
+  pallet: 'Pallet',
 };
 
 /**
@@ -122,7 +155,35 @@ const SITE_PROP_ART = {
   [PropKind.SPOOL]: WireReel,
   [PropKind.SAWHORSE]: PrintTable,
   [PropKind.DEBRIS]: DrywallStack,
+  [PropKind.DRYWALL]: DrywallStack,
+  [PropKind.PRINT_TABLE]: PrintTable,
+  [PropKind.CART]: MaterialCart,
+  [PropKind.HVAC]: ConduitBundle,
 };
+
+/** The same, by art name. ScissorLift/TempPower/ConduitBundle are vector-only. */
+const SITE_PROP_ART_NAME = {
+  [PropKind.LADDER]: 'AFrameLadder',
+  [PropKind.PALLET]: 'Pallet',
+  [PropKind.GANG_BOX]: 'GangBox',
+  [PropKind.SPOOL]: 'WireReel',
+  [PropKind.SAWHORSE]: 'PrintTable',
+  [PropKind.DEBRIS]: 'DrywallStack',
+  [PropKind.DRYWALL]: 'DrywallStack',
+  [PropKind.PRINT_TABLE]: 'PrintTable',
+  [PropKind.CART]: 'MaterialCart',
+};
+
+/**
+ * The resolver, built once for the module.
+ *
+ * With no atlas every name falls back to the vector component it has always
+ * used, so this changes nothing until art arrives — which is the property that
+ * made it safe to land the seam ahead of the art. Module scope because both
+ * inputs are module constants: rebuilding it per render would allocate a new
+ * resolver every frame for an answer that cannot change.
+ */
+const art = buildArt(VECTOR_ART);
 
 /**
  * Where daylight lands.
@@ -156,12 +217,29 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
   const grid = useMemo(() => buildSiteMap(), []);
   const [pos, setPos] = useState({ ...SPAWN });
   const [progress, setProgress] = useState(emptyJobsiteProgress());
+  // Rooms walked into. Persisted, because re-darkening a job the player
+  // already explored on every launch would be a punishment, not a feature.
+  const [seen, setSeen] = useState(emptyDiscovery);
   const [active, setActive] = useState(null);
   const [toast, setToast] = useState(null);
   const [facing, setFacing] = useState('down');
   const [step, setStep] = useState(0);
-  const [tasksOpen, setTasksOpen] = useState(false);
+  const [openPanel, setOpenPanel] = useState(Panel.NONE);
+  const [sawCompletion, setSawCompletion] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
   const [side, setSide] = useState('left');
+
+  // A person who asked the OS for less motion asked for none, not for a brisk
+  // version. Read once; it is a system setting, not a per-frame concern.
+  useEffect(() => {
+    let live = true;
+    try {
+      Promise.resolve(AccessibilityInfo.isReduceMotionEnabled())
+        .then((v) => { if (live) setReduceMotion(!!v); })
+        .catch(() => {});
+    } catch (e) { /* not available in preview */ }
+    return () => { live = false; };
+  }, []);
   const solvedRef = useRef(false);
   const dir = useRef({ x: 0, y: 0 });
 
@@ -172,6 +250,9 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
       .catch(() => {});
     AsyncStorage.getItem(KEY_SIDE)
       .then((v) => { if (v === 'left' || v === 'right') setSide(v); })
+      .catch(() => {});
+    AsyncStorage.getItem(KEY_SEEN)
+      .then((raw) => { if (raw) setSeen(sanitizeDiscovered(JSON.parse(raw), ROOMS)); })
       .catch(() => {});
   }, []);
 
@@ -198,7 +279,17 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
       const f = facing4(d.x, d.y);
       if (f) setFacing(f);
       setStep((s) => s + 0.42);
-      setPos((p) => movePlayer(grid, p, d.x * SPEED, d.y * SPEED));
+      setPos((p) => {
+        const next = movePlayer(grid, p, d.x * SPEED, d.y * SPEED);
+        // Reveal on arrival. discoverAt returns the SAME array when nothing
+        // changed, so this is a no-op 99 ticks out of 100 and React skips.
+        setSeen((prev) => {
+          const after = discoverAt(prev, ROOMS, next.x, next.y);
+          if (after !== prev) AsyncStorage.setItem(KEY_SEEN, JSON.stringify(after)).catch(() => {});
+          return after;
+        });
+        return next;
+      });
     }, TICK);
     return () => clearInterval(id);
   }, [grid, active]);
@@ -245,99 +336,169 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
   const done = progress.completed.length;
   const nearWho = near ? characterForStation(near.id) : null;
 
+  // ── HUD state. Every number is derived, so a panel can never disagree with
+  // the header above it or with the world underneath it.
+  const { width: SW, height: SH } = Dimensions.get('window');
+  const mo = useMemo(() => hudMotion(reduceMotion), [reduceMotion]);
+  const bar = useMemo(() => xpBar(levelFor(progress.xp)), [progress.xp]);
+  const coin = useMemo(() => currency({ balance: progress.xp, enabled: false }), [progress.xp]);
+
+  const taskRows = useMemo(() => STATIONS.map((st) => ({
+    id: st.id, label: st.label, xp: st.xp, done: isComplete(progress, st.id),
+  })), [progress]);
+  const rollup = useMemo(() => taskProgress(taskRows), [taskRows]);
+  const doneRooms = useMemo(
+    () => STATIONS.filter((st) => isComplete(progress, st.id)).map((st) => st.room),
+    [progress],
+  );
+
+  const layout = useMemo(() => hudLayout({
+    openPanel, dialogue: toast || near, nearStation: near, objective,
+    size: { width: SW, height: SH },
+  }), [openPanel, toast, near, objective, SW, SH]);
+
+  // Inventory and tutorials are derived from what the site actually contains,
+  // not invented lists — an empty panel that says why is honest, a padded one
+  // is busywork.
+  const inventory = useMemo(() => SITE_PROPS
+    .filter((p) => p.kind === PropKind.MATERIAL)
+    .slice(0, 12)
+    .map((p) => ({ id: p.id, label: p.label ?? p.kind, sub: p.room, icon: 'cube-outline' })), []);
+
+  const tutorials = useMemo(() => STATIONS
+    .filter((st) => dialogueFor(st.id)?.brief)
+    .map((st) => ({ id: st.id, label: st.label, sub: dialogueFor(st.id).brief, icon: 'book-outline' })), []);
+
+  const scoreRows = useMemo(() => taskRows.map((t) => ({
+    id: t.id, label: t.label, sub: t.done ? 'Signed off' : 'Not started',
+    icon: t.done ? 'checkmark-circle' : 'ellipse-outline',
+    tone: t.done ? HUD.objective : HUD.textDim, count: t.xp,
+  })), [taskRows]);
+
+  // One geometry for the whole bottom band: the stick's own reserved strip, and
+  // the room left beside it for the dock. Both measured from the home indicator.
+  const anchor = useMemo(
+    () => stickAnchor({ width: SW, height: SH, side, inset: HOME_INDICATOR_MIN, radius: STICK_R }),
+    [SW, SH, side],
+  );
+
+  const finishedResult = useMemo(
+    () => completion({ tasks: taskRows, xpEarned: progress.xp }),
+    [taskRows, progress.xp],
+  );
+  const finished = finishedResult.ready && !sawCompletion ? finishedResult : null;
+
   return (
     <View style={{ flex: 1, backgroundColor: SKY.dirt }}>
       <World grid={grid} pos={pos} progress={progress} near={near} route={route}
-        facing={facing} step={step} />
+        facing={facing} step={step} reduceMotion={mo.reduce} seen={seen} />
 
-      {/* ── HUD: back, title, XP, tasks. Nothing else permanent. ── */}
+      {/* ── HUD ──────────────────────────────────────────────────────────
+          Four things are permanent: level, objective, stick, action. The task
+          list, map, inventory and tutorials are one tap away in the dock.
+
+          The reference mockup shows all of them at once. That composition is
+          desktop-density — on a 6.1" phone those panels cover roughly 40% of
+          the display, and all of it sits over the part you are walking
+          through. Same visual language, a hierarchy instead of a wall.
+          Layout decisions live in core/game/hud.js. */}
+
+      {/* Top strip — always */}
       <View pointerEvents="box-none" style={{ position: 'absolute', top: 14, left: 12, right: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <TouchableOpacity onPress={() => setTab && setTab('home')} activeOpacity={0.8}
-            accessibilityRole="button" accessibilityLabel="Leave the job site" style={hudBtn}>
-            <Ionicons name="chevron-back" size={19} color="#fff" />
-          </TouchableOpacity>
-
-          <View style={[hudCard, { flex: 1 }]}>
-            <Text style={{ fontSize: 11.5, fontWeight: '800', color: '#fff', letterSpacing: 0.3 }}>
-              COMMERCIAL ROUGH-IN
-            </Text>
-            <View style={{ height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.2)', marginTop: 4, overflow: 'hidden' }}>
-              <View style={{ width: `${jobsitePercent(progress)}%`, height: 4, backgroundColor: SKY.green }} />
-            </View>
-          </View>
-
-          <TouchableOpacity onPress={() => setTasksOpen((v) => !v)} activeOpacity={0.8}
-            accessibilityRole="button" accessibilityLabel={`Task list, ${done} of ${STATIONS.length} complete`}
-            style={[hudCard, { flexDirection: 'row', alignItems: 'center', gap: 5 }]}>
-            <Ionicons name="list" size={14} color={SKY.green} />
-            <Text style={{ fontSize: 11.5, fontWeight: '800', color: '#fff' }}>{done}/{STATIONS.length}</Text>
-          </TouchableOpacity>
+          <Press motion={mo} onPress={() => setTab && setTab('home')}
+            accessibilityLabel="Leave the job site"
+            style={[panelStyle(), { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' }]}>
+            <Ionicons name="chevron-back" size={19} color={HUD.text} />
+          </Press>
+          <LevelBar bar={bar} phase="COMMERCIAL ROUGH-IN" percent={jobsitePercent(progress)}
+            coin={coin} motion={mo} />
         </View>
 
-        {tasksOpen && (
-          <View style={[hudCard, { marginTop: 8, padding: 12 }]}>
-            <ScrollView style={{ maxHeight: 210 }}>
-              {STATIONS.map((st) => {
-                const d = isComplete(progress, st.id);
-                return (
-                  <View key={st.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 7 }}>
-                    <Ionicons name={d ? 'checkbox' : 'square-outline'} size={15} color={d ? SKY.green : 'rgba(255,255,255,0.45)'} />
-                    <Text numberOfLines={1} style={{ flex: 1, fontSize: 12, color: d ? 'rgba(255,255,255,0.42)' : '#fff', textDecorationLine: d ? 'line-through' : 'none' }}>
-                      {st.label}
-                    </Text>
-                    <Text style={{ fontSize: 10.5, color: SKY.amber, fontWeight: '700' }}>{st.xp}</Text>
-                  </View>
-                );
-              })}
-            </ScrollView>
+        {/* Next step — collapses on a small screen; its content is already in
+            the task list and the objective chip. */}
+        {layout.nextStep && objective ? (
+          <View style={{ alignSelf: 'flex-end', marginTop: 10 }}>
+            <NextStep
+              title={objective.label}
+              hint={dialogueFor(objective.id)?.brief}
+              feet={distanceFeet(pos, objective)}
+              icon={objective.icon}
+            />
           </View>
-        )}
+        ) : null}
       </View>
 
-      {/* ── Instruction / sign-off, clear of the controls ── */}
-      <View pointerEvents="box-none" style={{ position: 'absolute', left: 14, right: 14, bottom: 205 }}>
-        {toast ? (
-          <View style={{ backgroundColor: 'rgba(16,24,20,0.93)', borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 11, borderWidth: 1.5, borderColor: SKY.green }}>
-            {toast.who && portraitFor(toast.who.id) && (
-              <Image source={portraitFor(toast.who.id)} style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: SKY.green }} />
-            )}
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 11.5, fontWeight: '800', color: SKY.green }}>{toast.who?.name}</Text>
-              <Text style={{ fontSize: 11.5, color: '#fff', lineHeight: 16 }}>“{toast.text}”</Text>
-            </View>
-            <Text style={{ fontSize: 12.5, fontWeight: '800', color: SKY.green }}>+{toast.xp}</Text>
-          </View>
-        ) : near ? (
-          <View style={{ backgroundColor: 'rgba(14,18,22,0.92)', borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 11, borderWidth: 1.5, borderColor: SKY.amber }}>
-            {nearWho && portraitFor(nearWho.id) && (
-              <Image source={portraitFor(nearWho.id)}
-                style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: SKY.amber }} />
-            )}
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 11.5, fontWeight: '800', color: SKY.amber }}>
-                {nearWho?.name} · {near.label}
-              </Text>
-              <Text numberOfLines={2} style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.86)', lineHeight: 16 }}>
-                “{isComplete(progress, near.id) ? dialogueFor(near.id)?.done : dialogueFor(near.id)?.brief}”
-              </Text>
-            </View>
-          </View>
-        ) : objective ? (
-          <View style={{ alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(14,18,22,0.88)', borderRadius: 13, paddingHorizontal: 14, paddingVertical: 10 }}>
-            <Ionicons name="navigate" size={14} color={SKY.green} />
-            <Text style={{ fontSize: 12, color: '#fff' }}>
-              {objective.room} · {distanceFeet(pos, objective)} ft
-            </Text>
-          </View>
-        ) : (
-          <View style={{ alignSelf: 'center', backgroundColor: 'rgba(14,18,22,0.88)', borderRadius: 13, paddingHorizontal: 14, paddingVertical: 10 }}>
-            <Text style={{ fontSize: 12, color: '#fff' }}>Every station signed off. Nice work.</Text>
-          </View>
-        )}
+      {/* Opened panel — sits over the world because the player asked for it */}
+      {layout.panel !== Panel.NONE ? (
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, top: 68 }}>
+          {layout.panel === Panel.TASKS ? (
+            <TasksPanel tasks={taskRows} rollup={rollup} motion={mo}
+              onClose={() => setOpenPanel(Panel.NONE)} />
+          ) : null}
+          {layout.panel === Panel.MAP ? (
+            <MapPanel rooms={ROOMS} player={pos} objective={objective} seenRooms={seen}
+              doneRooms={doneRooms} mapW={MAP_W} mapH={MAP_H}
+              size={layout.density.minimapSize * 2.2}
+              onClose={() => setOpenPanel(Panel.NONE)} />
+          ) : null}
+          {layout.panel === Panel.INVENTORY ? (
+            <ListPanel title="INVENTORY" items={inventory}
+              empty="Nothing staged yet. Materials you are issued on a station show up here."
+              onClose={() => setOpenPanel(Panel.NONE)} />
+          ) : null}
+          {layout.panel === Panel.TUTORIALS ? (
+            <ListPanel title="TUTORIALS" items={tutorials}
+              empty="No walkthroughs for this phase yet."
+              onClose={() => setOpenPanel(Panel.NONE)} />
+          ) : null}
+          {layout.panel === Panel.SCORE ? (
+            <ListPanel title="PROGRESS" items={scoreRows}
+              empty="Nothing signed off yet."
+              onClose={() => setOpenPanel(Panel.NONE)} />
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* Lower band — one thing at a time, never a stack of dark cards over
+          the strip of world the player is walking through. */}
+      <View pointerEvents="box-none" style={{ position: 'absolute', left: 14, right: 14, bottom: anchor.reserved + 24 }}>
+        {layout.dialogue && toast ? (
+          <Dialogue portrait={portraitFor(toast.who?.id)} name={toast.who?.name}
+            text={toast.text} xp={toast.xp} tone={HUD.objective} motion={mo} />
+        ) : layout.dialogue && near ? (
+          <Dialogue portrait={portraitFor(nearWho?.id)}
+            name={`${nearWho?.name ?? ''} · ${near.label}`}
+            text={isComplete(progress, near.id) ? dialogueFor(near.id)?.done : dialogueFor(near.id)?.brief}
+            tone={HUD.warn} motion={mo} />
+        ) : layout.always.objective && objective ? (
+          <ObjectiveChip room={objective.room} feet={distanceFeet(pos, objective)} />
+        ) : rollup.allDone ? (
+          <Glass style={{ alignSelf: 'center', paddingHorizontal: 14, paddingVertical: 10 }}>
+            <Text style={{ fontSize: 12, color: HUD.text }}>Every station signed off. Nice work.</Text>
+          </Glass>
+        ) : null}
       </View>
 
-      <Stick dir={dir} side={side} onSwap={swapSide} />
+      {/* Dock — BESIDE the stick, on the same band, not stacked above it.
+          Stacked, it floated a fifth of the way up the screen across the middle
+          of the world, and the stick had nowhere left to travel. */}
+      <View pointerEvents="box-none" style={{
+        position: 'absolute', bottom: anchor.dockBottom,
+        [side === 'left' ? 'left' : 'right']: anchor.dockInset,
+        [side === 'left' ? 'right' : 'left']: 12,
+      }}>
+        <Dock slots={layout.density.dock} open={layout.panel} motion={mo}
+          badge={{ [Panel.TASKS]: rollup.total - rollup.done || null }}
+          onSelect={(id) => setOpenPanel((cur) => togglePanel(cur, id))} />
+      </View>
+
+      {finished ? (
+        <CompletionCard result={finished} onClose={() => setSawCompletion(true)}
+          onLeave={() => setTab && setTab('home')} />
+      ) : null}
+
+      <Stick dir={dir} side={side} onSwap={swapSide} bottomInset={HOME_INDICATOR_MIN} />
 
       {/* Interact — opposite the stick, above the home indicator */}
       {near && !toast && (
@@ -363,19 +524,9 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
   );
 }
 
-const hudCard = {
-  backgroundColor: 'rgba(14,18,22,0.86)', borderRadius: 11,
-  paddingHorizontal: 11, paddingVertical: 8,
-  borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
-};
-const hudBtn = {
-  ...hudCard, width: 38, height: 38, alignItems: 'center', justifyContent: 'center',
-  paddingHorizontal: 0, paddingVertical: 0,
-};
-
 // ─── World ───────────────────────────────────────────────────────────────────
 
-function World({ grid, pos, progress, near, route, facing, step }) {
+function World({ grid, pos, progress, near, route, facing, step, reduceMotion = false, seen = [] }) {
   // Ambient dust. Deliberately slow and few — motes that move fast read as
   // snow, and a screen full of drifting particles is what makes a game look
   // cheap rather than atmospheric. Held completely still under reduced motion.
@@ -409,13 +560,42 @@ function World({ grid, pos, progress, near, route, facing, step }) {
   const floors = [];
   const walls = [];
   const overhead = [];
+  const yard = [];
+
+  /**
+   * How travelled a patch of ground is, from its distance to the building.
+   *
+   * Right against the wall it is gravel; a few tiles out it is driven dirt;
+   * past that it is turf nobody has a reason to cross. Derived rather than
+   * painted, so moving a wall moves the wear with it.
+   */
+  // The apron ring: everything outside the map footprint the camera can reach.
+  for (let y = -7; y < MAP_H + 7; y++) {
+    for (let x = -7; x < MAP_W + 7; x++) {
+      if (x >= 0 && y >= 0 && x < MAP_W && y < MAP_H) continue;
+      if (!tileVisible(x, y, cam, W, H)) continue;
+      yard.push(<GroundTile key={`y${x},${y}`} tx={x} ty={y} wear={wearAt(x, y)} />);
+    }
+  }
   for (let y = 0; y < MAP_H; y++) {
     for (let x = 0; x < MAP_W; x++) {
       if (!tileVisible(x, y, cam, W, H)) continue;
       if (grid[y][x] === Tile.WALL) {
-        walls.push(<StudWall key={`w${x},${y}`} tx={x} ty={y} horiz={wallHoriz(x, y)} />);
+        // Through the art layer: raster the moment StudWall.png lands, the
+        // vector framing until then. The raster is authored as a horizontal
+        // run and turns 90° for vertical walls; the vector component reads
+        // `horiz` and orients itself as it always has.
+        const h = wallHoriz(x, y);
+        walls.push(<Art key={`w${x},${y}`} art={art} name="StudWall" tx={x} ty={y} tile={TILE} horiz={h} turn={h ? 0 : 90} />);
       } else {
-        floors.push(<SlabTile key={`f${x},${y}`} tx={x} ty={y} indoor={indoor(x, y)} />);
+        // Indoors goes through the art layer, so a real slab texture replaces
+        // the vector one the moment it lands. OUTDOORS DELIBERATELY DOES NOT:
+        // the yard is dirt, and painting a concrete photo across it would pave
+        // the site. The vector tile tints itself for outside, and it stays
+        // until there is a ground texture that is actually ground.
+        floors.push(indoor(x, y)
+          ? <Art key={`f${x},${y}`} art={art} name="SlabTile" tx={x} ty={y} tile={TILE} indoor />
+          : <SlabTile key={`f${x},${y}`} tx={x} ty={y} indoor={false} />);
         // Layout marks, chalk lines and pallet stains — the details somebody
         // who has stood on a commercial slab recognises instantly. Deterministic
         // from the tile coords, so the floor does not reshuffle its own scuffs
@@ -428,7 +608,7 @@ function World({ grid, pos, progress, near, route, facing, step }) {
         // interior read as a floor plan instead of a building. Every third tile
         // so it reads as a rhythm of joists rather than a hatch pattern.
         if (indoor(x, y) && y % 3 === 0) {
-          overhead.push(<BarJoist key={`j${x},${y}`} tx={x} ty={y} horiz />);
+          overhead.push(<Art key={`j${x},${y}`} art={art} name="BarJoist" tx={x} ty={y} tile={TILE} horiz />);
         }
       }
     }
@@ -454,14 +634,20 @@ function World({ grid, pos, progress, near, route, facing, step }) {
         </Defs>
 
         <G transform={`translate(${cam.tx}, ${cam.ty})`}>
-          {/* Exterior apron — what replaces the black void */}
-          <Rect x={-8 * TILE} y={-8 * TILE} width={(MAP_W + 16) * TILE} height={(MAP_H + 16) * TILE} fill={SKY.grass} />
-          <Rect x={-6 * TILE} y={-3 * TILE} width={(MAP_W + 12) * TILE} height={(MAP_H + 6) * TILE} fill={SKY.dirt} />
+          {/* THE YARD.
+              A flat green rectangle around a grey one reads as a diagram. Real
+              ground wears where people walk, so the apron grades from turf out
+              at the fence, through driven dirt, to gravel at the doors — and
+              the grading is computed from distance to the building rather than
+              painted, so it stays right if the map changes. */}
+          <Rect x={-9 * TILE} y={-9 * TILE} width={(MAP_W + 18) * TILE} height={(MAP_H + 18) * TILE} fill={SKY.grass} />
+          {yard}
+          {FENCE.map((f, i) => (
+            <FenceRun key={`f${i}`} tx={f.x} ty={f.y} len={f.len} horiz={f.dir === 'H'} />
+          ))}
           {EXTERIOR.map((e, i) => {
-            if (e.k === 'fenceH') return <FenceRun key={`e${i}`} tx={e.x} ty={e.y} len={e.len} horiz />;
-            if (e.k === 'fenceV') return <FenceRun key={`e${i}`} tx={e.x} ty={e.y} len={e.len} horiz={false} />;
-            const A = PROP_ART[e.k];
-            return A ? <A key={`e${i}`} tx={e.x} ty={e.y} /> : null;
+            const name = PROP_ART_NAME[e.k];
+            return name ? <Art key={`e${i}`} art={art} name={name} tx={e.x} ty={e.y} tile={TILE} /> : null;
           })}
 
           {floors}
@@ -478,45 +664,86 @@ function World({ grid, pos, progress, near, route, facing, step }) {
           {overhead}
           <DustMotes pools={SUN_POOLS} t={dust} />
 
-          {routeD && (
-            <G>
-              <Path d={routeD} stroke="rgba(34,197,94,0.30)" strokeWidth={TILE * 0.34} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-              <Path d={routeD} stroke={SKY.green} strokeWidth={TILE * 0.1} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-            </G>
-          )}
+          {routeD && (() => {
+            // Three strokes: a soft glow that lifts it off the floor, a body,
+            // and a travelling dashed core that says which way to walk. The
+            // dash movement is the whole point — a static line tells you where
+            // the path is, not which end of it you are meant to reach.
+            const rs = routeStyle(step, { reduceMotion, tile: TILE });
+            return (
+              <G>
+                <Path d={routeD} stroke={rs.glow} strokeWidth={rs.glowWidth} fill="none"
+                  strokeLinecap="round" strokeLinejoin="round" />
+                <Path d={routeD} stroke={rs.body} strokeWidth={rs.bodyWidth} fill="none"
+                  strokeLinecap="round" strokeLinejoin="round" />
+                <Path d={routeD} stroke={rs.core} strokeWidth={rs.coreWidth} fill="none"
+                  strokeLinecap="round" strokeLinejoin="round"
+                  strokeDasharray={rs.dashArray} strokeDashoffset={rs.dashOffset}
+                  opacity={rs.coreOpacity} />
+              </G>
+            );
+          })()}
 
           {PROPS.map((p, i) => {
             if (p.k === 'emtH') return <EmtRun key={`p${i}`} tx={p.x} ty={p.y} len={p.len} horiz />;
             if (p.k === 'emtV') return <EmtRun key={`p${i}`} tx={p.x} ty={p.y} len={p.len} horiz={false} />;
-            const A = PROP_ART[p.k];
-            return A ? <A key={`p${i}`} tx={p.x} ty={p.y} /> : null;
+            const name = PROP_ART_NAME[p.k];
+            if (!name) return null;
+            // Nothing inside a room the player has not walked into yet.
+            if (!showsContents(seen, ROOMS, p.x, p.y)) return null;
+            return <Art key={`p${i}`} art={art} name={name} tx={p.x} ty={p.y} tile={TILE} />;
           })}
 
           {/* The clutter you go around. Drawn at the CENTRE of its footprint so
               a two-tile pallet sits over both tiles it blocks — art that does
               not match the collision box is worse than no collision box. */}
           {SITE_PROPS.map((p) => {
+            const cx = p.x + p.w / 2;
+            const cy = p.y + p.h / 2;
+            if (!showsContents(seen, ROOMS, cx, cy)) return null;
+            const name = SITE_PROP_ART_NAME[p.kind];
+            if (name) return <Art key={p.id} art={art} name={name} tx={cx} ty={cy} tile={TILE} />;
+            // No art name yet — lift, temp power, conduit bundle. Vector only,
+            // and drawn directly so nothing disappears while the pack fills in.
             const A = SITE_PROP_ART[p.kind];
-            if (!A) return null;
-            return <A key={p.id} tx={p.x + p.w / 2} ty={p.y + p.h / 2} />;
+            return A ? <A key={p.id} tx={cx} ty={cy} /> : null;
           })}
+
+          {/* THE UNLIT SHELL.
+              A room on the prints but never walked into is drawn dark: you see
+              the framing and the shape, not what is in it. Under the walls so
+              the studs stay legible — the point is that the building has
+              somewhere left to go, not that it is hidden. */}
+          {ROOMS.map((r) => (isDiscovered(seen, r.id) ? null : (
+            <Rect key={`shell${r.id}`}
+              x={r.x * TILE} y={r.y * TILE}
+              width={r.w * TILE} height={r.h * TILE}
+              fill="#0A1018" opacity={shadeFor(seen, r.id)} pointerEvents="none" />
+          )))}
 
           {walls}
 
           {STATIONS.map((s) => {
+            // The crew and the objective pin are the payoff for walking in.
+            if (!showsContents(seen, ROOMS, s.x, s.y)) return null;
             const who = characterForStation(s.id);
             const look = (who && CREW_LOOK[who.id]) || ROLE_LOOK.journeyman;
             const d = isComplete(progress, s.id);
             return (
               <G key={s.id}>
-                <Worker tx={s.x} ty={s.y} facing="down" {...look}
+                <Art art={art} name="Worker" tx={s.x} ty={s.y} tile={TILE} facing="down" {...look}
                   ring={near?.id === s.id ? SKY.green : null} />
-                {d ? <DoneMarker tx={s.x} ty={s.y} /> : <ObjectiveMarker tx={s.x} ty={s.y} pulse={pulse} />}
+                {/* The pin is anchored at its tip, so it occupies the space
+                    ABOVE its anchor — drawn at the station tile it would sit on
+                    the worker's head. Floated up so it hovers over them. */}
+                {d
+                  ? <Art art={art} name="DoneMarker" tx={s.x} ty={s.y - 0.55} tile={TILE} />
+                  : <Art art={art} name="ObjectiveMarker" tx={s.x} ty={s.y - 0.55} tile={TILE} pulse={pulse} />}
               </G>
             );
           })}
 
-          <Worker tx={pos.x} ty={pos.y} facing={facing} step={step}
+          <Art art={art} name="Worker" tx={pos.x} ty={pos.y} tile={TILE} facing={facing} step={step}
             hat={SKY.amber} vest={SKY.vestLime} shirt="#1F2937" ring={SKY.green} scale={1.05} />
         </G>
 
@@ -538,15 +765,20 @@ function World({ grid, pos, progress, near, route, facing, step }) {
  * positioned by the touch rather than by a fixed offset guessing at the safe
  * area, which is what clipped the old pad.
  */
-function Stick({ dir, side, onSwap }) {
+function Stick({ dir, side, onSwap, bottomInset = 0 }) {
   const { width: W, height: H } = Dimensions.get('window');
-  // Sits higher than it did. At H-155 the base was inside the bottom dock and
-  // the home-indicator strip, so a downward pull either clipped or got taken
-  // by the system gesture. STICK_R + travel + inset is the floor.
-  const rest = useMemo(
-    () => ({ x: side === 'left' ? 104 : W - 104, y: H - 232 }),
-    [side, W, H],
+  // The rest position comes from stickAnchor, which refuses to place the
+  // control within HOME_INDICATOR_MIN of the bottom whatever it is handed —
+  // including an inset of 0, which is usually a measurement that has not
+  // arrived rather than a phone without an indicator. A stick whose lower
+  // travel is inside that strip cannot be pulled downward: the OS takes the
+  // gesture, so the player cannot walk down. A test asserts the clearance on
+  // every screen size rather than trusting a number typed here.
+  const anchor = useMemo(
+    () => stickAnchor({ width: W, height: H, side, inset: bottomInset, radius: STICK_R }),
+    [W, H, side, bottomInset],
   );
+  const rest = useMemo(() => ({ x: anchor.x, y: anchor.y }), [anchor]);
   const [origin, setOrigin] = useState(rest);
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const [active, setActive] = useState(false);
@@ -557,7 +789,7 @@ function Stick({ dir, side, onSwap }) {
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: (e) => {
       const o = floatingOrigin(e.nativeEvent.pageX, e.nativeEvent.pageY, W, H, {
-        side, margin: STICK_R + 16, bottomInset: 110,
+        side, margin: STICK_R + 16, bottomInset: anchor.reserved,
       });
       if (o) setOrigin(o);
       setActive(true);
@@ -585,7 +817,7 @@ function Stick({ dir, side, onSwap }) {
         accessibilityRole="adjustable"
         accessibilityLabel="Movement stick. Drag to walk."
         style={{
-          position: 'absolute', bottom: 0, height: H * 0.45,
+          position: 'absolute', bottom: Math.max(bottomInset, HOME_INDICATOR_MIN), height: H * 0.42,
           [side === 'left' ? 'left' : 'right']: 0, width: W * 0.5,
         }}
       />
@@ -606,7 +838,7 @@ function Stick({ dir, side, onSwap }) {
       </View>
       <TouchableOpacity onPress={onSwap} hitSlop={{ top: 10, bottom: 10, left: 14, right: 14 }}
         accessibilityRole="button" accessibilityLabel="Swap the stick to the other side"
-        style={{ position: 'absolute', bottom: 24, [side === 'left' ? 'left' : 'right']: 28 }}>
+        style={{ position: 'absolute', bottom: Math.max(bottomInset, HOME_INDICATOR_MIN) + 6, [side === 'left' ? 'left' : 'right']: 28 }}>
         <Text style={{ fontSize: 9, fontWeight: '800', letterSpacing: 1, color: 'rgba(255,255,255,0.55)' }}>
           SWAP SIDE
         </Text>

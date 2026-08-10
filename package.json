@@ -17,7 +17,13 @@
     "health": "node -e \"import('./src/core/health.js').then(m=>console.log(m.healthText()))\"",
     "audit:ui": "node scripts/audit-ui.mjs",
     "legal": "node scripts/build-legal-pages.mjs",
-    "legal:check": "node scripts/build-legal-pages.mjs --check"
+    "legal:check": "node scripts/build-legal-pages.mjs --check",
+    "allowance": "node scripts/build-allowance-policy.mjs",
+    "allowance:check": "node scripts/build-allowance-policy.mjs --check",
+    "connect:schema": "node scripts/build-connect-schema.mjs",
+    "connect:schema:check": "node scripts/build-connect-schema.mjs --check",
+    "atlas": "node scripts/pack-atlas.mjs",
+    "atlas:check": "node scripts/pack-atlas.mjs --check"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

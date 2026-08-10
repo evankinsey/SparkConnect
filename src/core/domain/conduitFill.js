@@ -40,6 +40,9 @@ export const WIRE_AREA = Object.freeze({
   XHHW: Object.freeze({ '14': 0.0139, '12': 0.0181, '10': 0.0243, '8': 0.0437, '6': 0.0590, '4': 0.0814, '2': 0.1146, '1/0': 0.1825, '2/0': 0.2190 }),
 });
 
+/** Trade sizes smallest-first, which is the order you'd try them on a job. */
+export const TRADE_SIZES = Object.freeze(['1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"']);
+
 export const conduitArea = (type, size) => CONDUIT_AREA[type]?.[size] ?? null;
 export const wireArea = (insulation, gauge) => WIRE_AREA[insulation]?.[gauge] ?? null;
 
@@ -97,4 +100,20 @@ export const maxConductors = (conduitType, tradeSize, insulation, gauge) => {
   const whole = Math.floor(raw);
   const rounded = raw - whole >= 0.8 ? whole + 1 : whole;
   return Math.max(2, rounded);
+};
+
+/**
+ * The other direction: "what size pipe do I need for nine #12?"
+ *
+ * Walks the trade sizes smallest-first and returns the first one that passes,
+ * or null when nothing on file is big enough — never a guess at 3" from a
+ * table that stops at 2".
+ */
+export const smallestConduit = ({ conduitType, insulation, gauge, count }) => {
+  const n = Math.max(1, Math.floor(Number(count) || 0));
+  for (const tradeSize of TRADE_SIZES) {
+    const r = fillFor({ conduitType, tradeSize, insulation, gauge, count: n });
+    if (r && r.passed) return Object.freeze({ tradeSize, ...r });
+  }
+  return null;
 };

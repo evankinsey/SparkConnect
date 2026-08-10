@@ -14,14 +14,22 @@
 //
 // Every tool declares:
 //   - what it answers, in the user's words
+//   - the phrasings that reach it: `triggers` are literal substrings, `patterns`
+//     are the shapes a question actually arrives in
 //   - the parameters it needs, so a partial question produces a specific
 //     follow-up rather than a guess
 //   - a pure `run` that computes, and cites
 //
+// The `patterns` list is not decoration. A tool that a real question cannot
+// reach is the same as a tool that does not exist: the question falls through
+// to the model, the model states a number, and the answer contract refuses it.
+// The user sees "SparkAI won't guess" for a question the app can compute
+// exactly. Every phrasing added here is one fewer wrongly-refused question.
+//
 // Pure module: no React, no network.
 
 import { Provenance, answer, refuse } from './answer.js';
-import { fillFor, maxConductors, MAX_FILL } from '../domain/conduitFill.js';
+import { fillFor, maxConductors, smallestConduit, MAX_FILL } from '../domain/conduitFill.js';
 
 /** Conductor DC resistance, ohms per 1000 ft. Shared with the VD calculator. */
 const VD_RESISTANCE = Object.freeze({
@@ -56,7 +64,14 @@ const num = (v) => {
 
 const missing = (tool, params, need) => need.filter((k) => num(params?.[k]) === null);
 
-const tool = (def) => Object.freeze({ ...def, params: Object.freeze(def.params) });
+const tool = (def) => Object.freeze({
+  ...def,
+  params: Object.freeze(def.params),
+  patterns: Object.freeze(def.patterns ?? []),
+});
+
+/** The nouns that mean "raceway", so a fill question is never mistaken for a count. */
+const RACEWAY = '(?:emt|conduit|raceway|imc|rmc|pvc|ent|pipe|nipple)';
 
 export const TOOLS = Object.freeze([
   tool({
@@ -64,6 +79,19 @@ export const TOOLS = Object.freeze([
     tab: 'volt',
     answers: 'voltage drop on a run',
     triggers: ['voltage drop', 'vd', 'volt drop', 'dropping'],
+    patterns: [
+      /\bvolt(?:age)?\s*(?:drop|loss)\b/,
+      /\bdrop\b.*\b(?:over|on|across)\b.*\b\d+\s*(?:ft|feet|foot|')/,
+      /\bhow\s+(?:much|many)\s+volt(?:age|s)?\b.*\b(?:lose|lost|losing|drop)/,
+      /\b(?:will|do|would)\s+i\s+(?:lose|drop)\b.*\bvolt/,
+      /\bhow\s+far\s+can\s+i\s+(?:run|pull)\b/,
+      /\btoo\s+(?:long|far)\s+(?:a\s+)?(?:run|pull)\b/,
+      // "will 12 awg work for 20 amps at 120 feet" — a sizing question over a
+      // distance is a voltage drop question, whatever words it arrives in.
+      /\b(?:will|is|does)\b.*\b(?:awg|gauge|ga)\b.*\b(?:ok|okay|work|enough|fine|good)\b.*\b\d+\s*(?:ft|feet|foot|')/,
+      /\bis\s+\d+\s*(?:ft|feet|foot|')\s+too\s+(?:far|long|much)\b/,
+      /\b\d+\s*(?:ft|feet|foot)\b.*\btoo\s+(?:far|long)\b/,
+    ],
     params: ['awg', 'amps', 'feet'],
     optional: ['volts', 'phase'],
     ask: {
@@ -104,6 +132,17 @@ export const TOOLS = Object.freeze([
     tab: 'boxfill',
     answers: 'the box volume a set of conductors needs',
     triggers: ['box fill', 'box size', 'cubic inch', 'how big a box'],
+    patterns: [
+      /\bbox\s*fill\b/,
+      /\bwhat\s+size\s+(?:j[- ]?)?(?:box|junction\s*box|device\s*box)\b/,
+      /\bhow\s+(?:big|large|deep)\s+(?:a|of\s+a)?\s*(?:j[- ]?)?box\b/,
+      /\bcubic\s*inch/,
+      /\b(?:fit|cram|get)\b.*\bin\s+(?:a|one|this)\s+(?:\d+["']?\s*)?(?:j[- ]?)?box\b/,
+      /\bbox\b.*\bbig\s+enough\b/,
+      // "do I need a deeper box for 6 #12 with a ground and clamps"
+      /\b(?:deeper|bigger|larger|another)\s+(?:j[- ]?)?box\b/,
+      /\bdo\s+i\s+need\b.*\b(?:j[- ]?)?box\b/,
+    ],
     params: ['awg', 'conductors'],
     optional: ['devices', 'grounds', 'clamps'],
     ask: {
@@ -145,11 +184,35 @@ export const TOOLS = Object.freeze([
     tab: 'conduitfill',
     answers: 'how many conductors fit in a conduit',
     triggers: ['conduit fill', 'how many wires fit', 'fill percent', 'emt fill'],
-    params: ['awg', 'conduitSize'],
-    optional: ['count', 'conduitType', 'insulation'],
+    patterns: [
+      /\bconduit\s*fill\b/,
+      // "How many 12 AWG THHN fit in 3/4 inch EMT?" — the phrasing this tool
+      // exists for, and the one that used to reach the model instead.
+      new RegExp(`\\bhow\\s+many\\b.*\\b(?:fit|go|pull|run|stuff|cram)\\b.*\\b${RACEWAY}\\b`),
+      new RegExp(`\\bhow\\s+many\\b.*\\b(?:awg|gauge|ga|thhn|thwn|xhhw)\\b.*\\bin\\b.*\\b${RACEWAY}\\b`),
+      new RegExp(`\\bhow\\s+many\\b.*#\\s*\\d+.*\\bin\\b.*\\b${RACEWAY}\\b`),
+      new RegExp(`\\bwhat\\s+size\\s+${RACEWAY}\\b`),
+      new RegExp(`\\b${RACEWAY}\\b.*\\bbig\\s+enough\\b`),
+      /\bfill\s*(?:percent|percentage|%)/,
+      /\b(?:over|under|within)\s+(?:the\s+)?40\s*%/,
+      // "what's the fill on 6 #12 in 3/4 EMT" — "fill" alone, next to a raceway.
+      new RegExp(`\\bfill\\b.*\\b${RACEWAY}\\b`),
+      new RegExp(`\\b${RACEWAY}\\b.*\\bfill\\b`),
+      // "can I put 10 #12 in a 1/2 inch pipe", "is 12 #10 too many for 3/4 EMT"
+      new RegExp(`\\b(?:can|could|may)\\s+i\\s+(?:put|fit|pull|run|get|cram)\\b.*\\b(?:in|into|through)\\b.*\\b${RACEWAY}\\b`),
+      new RegExp(`\\btoo\\s+many\\b.*\\b(?:for|in)\\b.*\\b${RACEWAY}\\b`),
+      new RegExp(`\\bwill\\b.*\\bfit\\b.*\\b${RACEWAY}\\b`),
+    ],
+    // Only the conductor size is genuinely required. The question can arrive
+    // from either end — "how many fit in 3/4?" or "what size for nine #12?" —
+    // and demanding the conduit size up front turned the second one into a
+    // circular follow-up: "what size conduit?" answered with "what size conduit?"
+    params: ['awg'],
+    optional: ['conduitSize', 'count', 'conduitType', 'insulation'],
     ask: {
       awg: 'What size conductors?',
       conduitSize: 'What trade size conduit? (for example 1/2")',
+      count: 'How many conductors are going in?',
     },
     run: (p) => {
       const awg = String(num(p.awg) ?? '');
@@ -157,6 +220,34 @@ export const TOOLS = Object.freeze([
       const type = String(p.conduitType ?? 'EMT').toUpperCase();
       const insulation = String(p.insulation ?? 'THHN').toUpperCase();
       const count = num(p.count);
+
+      // Solving for the pipe rather than the conductors.
+      if (!size) {
+        if (count === null) {
+          return Object.freeze({
+            ...refuse('Need one more detail before that can be calculated.', {
+              suggestion: 'What trade size conduit, or how many conductors are going in?',
+            }),
+            needs: Object.freeze(['conduitSize']),
+            needsPrompts: Object.freeze(['What trade size conduit, or how many conductors are going in?']),
+            tool: 'conduit_fill',
+          });
+        }
+        const pick = smallestConduit({ conduitType: type, insulation, gauge: awg, count });
+        if (!pick) {
+          return refuse(`Nothing on file takes ${count} × ${awg} AWG ${insulation}.`, {
+            suggestion: `SparkConnect carries ${type} through 2". Above that, size it off Chapter 9, Table 4 directly.`,
+          });
+        }
+        return answer({
+          provenance: Provenance.ENGINE,
+          tool: 'conduit_fill',
+          text: `${pick.tradeSize} ${type}.`,
+          detail: `${count} × ${pick.wireArea} in² = ${pick.totalWireArea.toFixed(4)} in², which is ${pick.percent.toFixed(1)}% of the ${pick.conduitArea} in² in ${pick.tradeSize} ${type} — inside the ${pick.limit}% limit. Anything smaller is over.`,
+          sources: ['NEC Chapter 9, Table 1', 'NEC Chapter 9, Table 4'],
+          confidence: 1,
+        });
+      }
 
       if (count !== null) {
         const r = fillFor({ conduitType: type, tradeSize: size, insulation, gauge: awg, count });
@@ -189,6 +280,13 @@ export const TOOLS = Object.freeze([
     tab: 'ampacity',
     answers: 'ampacity after adjustment for conductor count',
     triggers: ['derate', 'derating', 'adjustment factor', 'current carrying conductors', 'ccc'],
+    patterns: [
+      /\bderat/,
+      /\badjust(?:ment)?\s*factor\b/,
+      /\bcurrent[- ]carrying\b/,
+      /\bampacity\b.*\b(?:after|with|adjust|more\s+than\s+three)\b/,
+      /\bhow\s+many\s+amps?\b.*\b(?:before|after)\b.*\b(?:derat|adjust)/,
+    ],
     params: ['awg', 'ccc'],
     optional: ['baseAmpacity'],
     ask: {

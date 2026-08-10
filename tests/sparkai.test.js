@@ -23,7 +23,7 @@ import { ask, ground, inheritParams, modelContext, SYSTEM_RULES, MEMORY_TURNS } 
 import { resolveCitation } from '../src/nec/citations.js';
 import { createDevice, Origin } from '../src/core/blueprint/device.js';
 import { accept } from '../src/core/blueprint/verification.js';
-import { fillFor } from '../src/core/domain/conduitFill.js';
+import { fillFor, maxConductors } from '../src/core/domain/conduitFill.js';
 
 const box = (x) => ({ x1: x, y1: 0, x2: x + 10, y2: 10 });
 const confirmedDevices = () => [
@@ -305,6 +305,74 @@ test('every tool is well formed and cites what it claims', () => {
     assert.ok(t.triggers.length > 0, `${t.id} can never be matched`);
   }
   assert.equal(new Set(TOOLS.map((t) => t.id)).size, TOOLS.length);
+});
+
+// ─── Reachability ────────────────────────────────────────────────────────────
+// A tool nobody can reach is worse than a missing tool: the question falls
+// through to the model, the model states a number, and the answer contract
+// refuses it — so the user is told SparkAI won't guess about something the app
+// computes exactly. These are the phrasings that were doing that.
+
+test('real phrasings reach the calculator instead of the model', () => {
+  const cases = [
+    ['How many 12 AWG THHN fit in 3/4 inch EMT?', 'conduit_fill'],
+    ['how many #12 can I pull in 1 inch conduit', 'conduit_fill'],
+    ['what size conduit for 9 12 AWG conductors', 'conduit_fill'],
+    ['how many 12 AWG wires fit in 1/2 EMT', 'conduit_fill'],
+    ['what size box for 6 12 AWG conductors and 1 device', 'box_fill'],
+    ['how big of a box do I need', 'box_fill'],
+    ['how much voltage will I lose over 150 feet', 'voltage_drop'],
+    ['ampacity after adjustment for more than three', 'derating'],
+  ];
+  for (const [q, expected] of cases) {
+    const d = route(q);
+    assert.equal(d.route, Route.TOOL, `"${q}" went to ${d.route}, not a calculator`);
+    assert.equal(d.tool, expected, `"${q}" reached ${d.tool}`);
+  }
+});
+
+test('the question from the screenshot computes end to end', () => {
+  const d = route('How many 12 AWG THHN fit in 3/4 inch EMT?');
+  assert.ok(readyForTool(d), 'the question supplied everything and still asked for more');
+  const r = runTool(d.tool, d.params);
+  assert.equal(r.provenance, Provenance.ENGINE);
+  assert.equal(r.text, `${maxConductors('EMT', '3/4"', 'THHN', '12')} conductors.`);
+});
+
+test('conduit fill solves in both directions', () => {
+  const forCount = runTool('conduit_fill', { awg: 12, conduitSize: '3/4"' });
+  assert.match(forCount.text, /conductors?\./);
+
+  const forSize = runTool('conduit_fill', { awg: 12, count: 9 });
+  assert.equal(forSize.provenance, Provenance.ENGINE);
+  assert.equal(forSize.text, '1/2" EMT.');
+
+  // Nothing on file is big enough → say so, never round up past the table.
+  const tooMany = runTool('conduit_fill', { awg: 8, count: 40 });
+  assert.equal(tooMany.provenance, Provenance.REFUSED);
+
+  // Neither end given → one specific question, not a circular one.
+  const empty = runTool('conduit_fill', { awg: 12 });
+  assert.equal(empty.provenance, Provenance.REFUSED);
+  assert.ok(empty.needsPrompts?.length, 'a gap must name what it needs');
+  assert.doesNotMatch(empty.needsPrompts[0], /^What trade size conduit\? \(for example/,
+    'answering "what size conduit?" with "what size conduit?" is the bug');
+});
+
+test('a gauge in the sentence is not mistaken for a conductor count', () => {
+  assert.equal(extractParams('6 12 AWG conductors').conductors, 6);
+  assert.equal(extractParams('12 AWG conductors').conductors, null,
+    'an unstated count must stay unstated so the follow-up asks for it');
+  assert.equal(extractParams('how many 12 AWG wires fit in 1/2 EMT').count, null);
+});
+
+test('a stated raceway and insulation are read, not assumed', () => {
+  const p = extractParams('9 12 AWG XHHW in 3/4 PVC');
+  assert.equal(p.conduitType, 'PVC-40');
+  assert.equal(p.insulation, 'XHHW');
+  assert.equal(extractParams('12 AWG in 3/4 EMT').conduitType, 'EMT');
+  assert.equal(extractParams('12 AWG in 3/4 conduit').insulation, null,
+    'unstated insulation stays null so the tool applies its own documented default');
 });
 
 test('tool results carry citations that resolve', () => {
@@ -756,4 +824,106 @@ test('a backend answer that reports no confidence is not treated as unsure', asy
   const unsure = async () => ({ text: 'Probably something loose somewhere.', confidence: 0.4 });
   const r2 = await ask('why does my light dim when the compressor starts', { askModel: unsure });
   assert.equal(r2.provenance, Provenance.REFUSED);
+});
+
+// ─── The corpus ──────────────────────────────────────────────────────────────
+// An audit ran 51 real phrasings through the whole pipeline and found that most
+// code questions reached the model, stated a number, and were then correctly
+// refused by the answer contract. The architecture was right; the routing had
+// gaps and the reference was too thin. To the user that reads as SparkAI
+// refusing easy questions, which is exactly what was reported.
+//
+// This is that corpus. It asserts the ROUTE, because the route is what decides
+// whether an answer can exist at all — a code question that reaches MODEL is a
+// question that will be refused the moment the model does its job properly.
+
+const CORPUS = [
+  // Computable — must reach a calculator, never the model.
+  ['How many 12 AWG THHN fit in 3/4 inch EMT?', Route.TOOL, 'conduit_fill'],
+  ['how many #12 in 1/2 emt', Route.TOOL, 'conduit_fill'],
+  ['can I put 10 #12 in a 1/2 inch pipe', Route.TOOL, 'conduit_fill'],
+  ['whats the fill on 6 12 awg in 3/4 emt', Route.TOOL, 'conduit_fill'],
+  ['is 12 #10 too many for 3/4 emt', Route.TOOL, 'conduit_fill'],
+  ['what size conduit for 9 12 AWG conductors', Route.TOOL, 'conduit_fill'],
+  ['how many 10 awg can i pull through 1 inch pvc', Route.TOOL, 'conduit_fill'],
+  ['what size box for 6 12 AWG conductors and 1 device', Route.TOOL, 'box_fill'],
+  ['do I need a deeper box for 6 #12 with a ground and clamps', Route.TOOL, 'box_fill'],
+  ['box fill for 4 12 awg conductors', Route.TOOL, 'box_fill'],
+  ['voltage drop on 100 feet of 12 AWG at 20 amps', Route.TOOL, 'voltage_drop'],
+  ['will 12 awg work for 20 amps at 120 feet', Route.TOOL, 'voltage_drop'],
+  ['how far can I run 10 awg at 30 amps', Route.TOOL, 'voltage_drop'],
+  ['is 250 feet too far for 12 gauge', Route.TOOL, 'voltage_drop'],
+  ['derate 12 AWG with 6 current carrying conductors', Route.TOOL, 'derating'],
+  ['ampacity of 10 awg with 9 conductors in the pipe', Route.TOOL, 'derating'],
+
+  // Code questions — must reach the reviewed reference, because a model
+  // answering one necessarily states a number and gets refused for it.
+  ['what size ground for a 100 amp feeder', Route.KNOWLEDGE],
+  ['how deep does underground pvc have to be', Route.KNOWLEDGE],
+  ['when do I need an arc fault breaker', Route.KNOWLEDGE],
+  ['how many receptacles on a 20 amp circuit', Route.KNOWLEDGE],
+  ['how far apart do receptacles go on a wall', Route.KNOWLEDGE],
+  ['whats the torque spec on a lug', Route.KNOWLEDGE],
+  ['how many bends between pull points', Route.KNOWLEDGE],
+  ['is 14 gauge ok on a 20 amp breaker', Route.KNOWLEDGE],
+  ['what temperature column do I use for terminations', Route.KNOWLEDGE],
+  ['when do I need a 4 wire feeder to a subpanel', Route.KNOWLEDGE],
+  ['what does a shared neutral do', Route.KNOWLEDGE],
+  ['what color is the neutral on 277', Route.KNOWLEDGE],
+  ['do I need a disconnect at the AC unit', Route.KNOWLEDGE],
+  ['can I use romex in conduit', Route.KNOWLEDGE],
+  ['what size wire for a 50 amp range', Route.KNOWLEDGE],
+  ['do I need a permit to change a panel', Route.KNOWLEDGE],
+  ['what is the required working clearance in front of a panel', Route.KNOWLEDGE],
+  ['when is gfci required in a kitchen', Route.KNOWLEDGE],
+];
+
+test('every question in the corpus reaches something that can answer it', () => {
+  const wrong = [];
+  for (const [q, expectedRoute, expectedTool] of CORPUS) {
+    const d = route(q, { knowledgeHit: knowledgeBase.find(q)?.id ?? null });
+    if (d.route !== expectedRoute) { wrong.push(`${q}\n      went to ${d.route}, wanted ${expectedRoute}`); continue; }
+    if (expectedTool && d.tool !== expectedTool) wrong.push(`${q}\n      reached ${d.tool}, wanted ${expectedTool}`);
+  }
+  assert.deepEqual(wrong, [], `\n  ${wrong.join('\n  ')}\n`);
+});
+
+test('a computable question is answered, not merely routed', async () => {
+  // Routing to a tool is worthless if the tool then asks for something the
+  // question already contained.
+  const answered = [
+    'How many 12 AWG THHN fit in 3/4 inch EMT?',
+    'can I put 10 #12 in a 1/2 inch pipe',
+    'whats the fill on 6 12 awg in 3/4 emt',
+    'what size box for 6 12 AWG conductors and 1 device',
+    'do I need a deeper box for 6 #12 with a ground and clamps',
+    'will 12 awg work for 20 amps at 120 feet',
+    'derate 12 AWG with 6 current carrying conductors',
+  ];
+  for (const q of answered) {
+    const r = await ask(q, { knowledge: knowledgeBase });
+    assert.equal(r.provenance, Provenance.ENGINE, `"${q}" → ${r.provenance}: ${r.reason ?? ''}`);
+  }
+});
+
+test('nothing in the corpus refuses when the model behaves', async () => {
+  // A model that stays narrative, which is what a real one does on a how-to
+  // question. Anything refusing here is the app's fault, not the model's.
+  const narrative = async () => ({ text: 'That depends on the install — here is how to narrow it down.', confidence: 0.9 });
+  const refused = [];
+  for (const [q] of CORPUS) {
+    const r = await ask(q, { askModel: narrative, knowledge: knowledgeBase });
+    if (r.provenance === Provenance.REFUSED && !r.needs?.length) refused.push(`${q} → ${r.reason}`);
+  }
+  assert.deepEqual(refused, [], `\n  ${refused.join('\n  ')}\n`);
+});
+
+test('every reference entry cites something that resolves', () => {
+  for (const e of knowledgeBase.all) {
+    assert.ok(e.refs.length > 0, `${e.id} states a fact with no citation`);
+    for (const ref of e.refs) {
+      assert.ok(resolveCitation(ref), `${e.id} cites ${ref}, which does not resolve`);
+    }
+    assert.ok(e.short?.length > 20 && e.explain?.length > 40, `${e.id} is too thin to be useful`);
+  }
 });
