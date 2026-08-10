@@ -71,7 +71,7 @@ export const buildArt = (vector) => artLayer({ atlas: ATLAS, vector });
  * by placeSprite and nowhere else — a prop nudged into place by a magic number
  * at one call site is a prop that is wrong at every other one.
  */
-export function Art({ art, name, tx, ty, tile, children, ...rest }) {
+export function Art({ art, name, tx, ty, tile, turn = 0, children, ...rest }) {
   const r = art.resolve(name);
 
   if (r.source === Source.VECTOR) {
@@ -87,11 +87,19 @@ export function Art({ art, name, tx, ty, tile, children, ...rest }) {
     // A repeating texture gets a stable orientation per tile, so a thousand
     // copies of one image stop assembling into a grid. Directional art is not
     // on the TILED list and is never turned.
-    const transform = isTiled(name)
+    const variant = isTiled(name)
       ? variantTransform(tileVariant(tx, ty, { square: r.sprite.w === r.sprite.h }), box)
       : null;
+    // Directional raster art is authored horizontal and TURNED for a vertical
+    // run — a wall or a joist has an orientation that means something, so the
+    // caller states it instead of the variant hash guessing. The pivot is the
+    // tile centre, the same point placeSprite anchored the sprite to.
+    const turned = turn
+      ? `rotate(${turn}, ${tx * tile + tile / 2}, ${ty * tile + tile / 2})`
+      : null;
+    const transform = [turned, variant].filter(Boolean).join(' ');
     return (
-      <G transform={transform ?? undefined}>
+      <G transform={transform || undefined}>
         <Defs>
           <ClipPath id={clipId}>
             <Rect x={box.left} y={box.top} width={box.width} height={box.height} />

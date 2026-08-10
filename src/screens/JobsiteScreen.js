@@ -548,7 +548,12 @@ function World({ grid, pos, progress, near, route, facing, step }) {
     for (let x = 0; x < MAP_W; x++) {
       if (!tileVisible(x, y, cam, W, H)) continue;
       if (grid[y][x] === Tile.WALL) {
-        walls.push(<StudWall key={`w${x},${y}`} tx={x} ty={y} horiz={wallHoriz(x, y)} />);
+        // Through the art layer: raster the moment StudWall.png lands, the
+        // vector framing until then. The raster is authored as a horizontal
+        // run and turns 90° for vertical walls; the vector component reads
+        // `horiz` and orients itself as it always has.
+        const h = wallHoriz(x, y);
+        walls.push(<Art key={`w${x},${y}`} art={art} name="StudWall" tx={x} ty={y} tile={TILE} horiz={h} turn={h ? 0 : 90} />);
       } else {
         // Indoors goes through the art layer, so a real slab texture replaces
         // the vector one the moment it lands. OUTDOORS DELIBERATELY DOES NOT:
@@ -570,7 +575,7 @@ function World({ grid, pos, progress, near, route, facing, step }) {
         // interior read as a floor plan instead of a building. Every third tile
         // so it reads as a rhythm of joists rather than a hatch pattern.
         if (indoor(x, y) && y % 3 === 0) {
-          overhead.push(<BarJoist key={`j${x},${y}`} tx={x} ty={y} horiz />);
+          overhead.push(<Art key={`j${x},${y}`} art={art} name="BarJoist" tx={x} ty={y} tile={TILE} horiz />);
         }
       }
     }
