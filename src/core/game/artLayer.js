@@ -143,9 +143,15 @@ export const readSprite = (raw) => {
 export const artLayer = ({ atlas = null, vector = {} } = {}) => {
   const sprites = {};
   if (atlas && atlas.sprites) {
-    for (const name of ART) {
-      const s = readSprite(atlas.sprites[name]);
-      if (s) sprites[name] = s;
+    // Accept variant frames alongside base names: Worker ships as
+    // Worker_down_0 … Worker_right_1, and each is resolvable directly. A key
+    // whose base is not in the art order is ignored, so a stray file cannot
+    // smuggle itself into the world by being in the atlas.
+    for (const key of Object.keys(atlas.sprites)) {
+      const base = key.includes('_') ? key.slice(0, key.indexOf('_')) : key;
+      if (!ART.includes(key) && !ART.includes(base)) continue;
+      const s = readSprite(atlas.sprites[key]);
+      if (s) sprites[key] = s;
     }
   }
 
@@ -165,9 +171,11 @@ export const artLayer = ({ atlas = null, vector = {} } = {}) => {
     // What the art pack still owes, and what is already done. Reported rather
     // than discovered on a device.
     coverage: () => {
-      const raster = ART.filter((n) => sprites[n]);
-      const vectorOnly = ART.filter((n) => !sprites[n] && vector[n]);
-      const missing = ART.filter((n) => !sprites[n] && !vector[n]);
+      // A name counts as raster when it or any of its variant frames packed.
+      const hasRaster = (n) => !!sprites[n] || Object.keys(sprites).some((k) => k.startsWith(`${n}_`));
+      const raster = ART.filter(hasRaster);
+      const vectorOnly = ART.filter((n) => !hasRaster(n) && vector[n]);
+      const missing = ART.filter((n) => !hasRaster(n) && !vector[n]);
       return Object.freeze({
         total: ART.length,
         raster: Object.freeze(raster),

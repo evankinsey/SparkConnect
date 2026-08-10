@@ -72,7 +72,21 @@ export const buildArt = (vector) => artLayer({ atlas: ATLAS, vector });
  * at one call site is a prop that is wrong at every other one.
  */
 export function Art({ art, name, tx, ty, tile, turn = 0, children, ...rest }) {
-  const r = art.resolve(name);
+  // The worker is the one name with animation frames. The vector component
+  // reads `facing` and `step` itself; the raster ships eight sprites, so the
+  // facing and the stride pick the frame here. ~6 ticks a frame is a walk
+  // cadence at the 30fps world tick, and a missing frame falls through to the
+  // vector worker rather than to nothing.
+  let resolved = name;
+  if (name === 'Worker') {
+    const facing = ['up', 'down', 'left', 'right'].includes(rest.facing) ? rest.facing : 'down';
+    const frame = Math.floor((Number(rest.step) || 0) / 6) % 2;
+    const candidate = `Worker_${facing}_${frame}`;
+    // Only switch to the frame when it actually packed — otherwise the base
+    // name falls through to the vector worker, which animates itself.
+    if (art.hasRaster(candidate)) resolved = candidate;
+  }
+  const r = art.resolve(resolved);
 
   if (r.source === Source.VECTOR) {
     return <r.Component tx={tx} ty={ty} {...rest} />;

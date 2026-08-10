@@ -2,17 +2,287 @@
   "_generated": "npm run atlas — do not edit by hand",
   "tilePx": 72,
   "scale": 3,
-  "width": 220,
-  "height": 220,
+  "width": 1964,
+  "height": 1936,
   "sprites": {
-    "SlabTile": {
-      "x": 2,
-      "y": 2,
+    "AFrameLadder": {
+      "x": 438,
+      "y": 1270,
+      "w": 216,
+      "h": 246,
+      "anchorX": 0.5,
+      "anchorY": 0.75,
+      "scale": 1
+    },
+    "BarJoist": {
+      "x": 438,
+      "y": 1778,
+      "w": 216,
+      "h": 62,
+      "anchorX": 0.5,
+      "anchorY": 0.5,
+      "scale": 1
+    },
+    "DoneMarker": {
+      "x": 220,
+      "y": 1270,
+      "w": 216,
+      "h": 265,
+      "anchorX": 0.5,
+      "anchorY": 1,
+      "scale": 1
+    },
+    "DoorOpening": {
+      "x": 1528,
+      "y": 1270,
       "w": 216,
       "h": 216,
       "anchorX": 0.5,
       "anchorY": 0.5,
       "scale": 1
+    },
+    "DrywallStack": {
+      "x": 438,
+      "y": 1560,
+      "w": 216,
+      "h": 213,
+      "anchorX": 0.5,
+      "anchorY": 0.8,
+      "scale": 1
+    },
+    "Dumpster": {
+      "x": 870,
+      "y": 2,
+      "w": 432,
+      "h": 430,
+      "anchorX": 0.5,
+      "anchorY": 0.7,
+      "scale": 2
+    },
+    "EmtRun": {
+      "x": 656,
+      "y": 1778,
+      "w": 216,
+      "h": 49,
+      "anchorX": 0.5,
+      "anchorY": 0.5,
+      "scale": 1
+    },
+    "FenceRun": {
+      "x": 874,
+      "y": 1560,
+      "w": 216,
+      "h": 198,
+      "anchorX": 0.5,
+      "anchorY": 0.5,
+      "scale": 1
+    },
+    "GangBox": {
+      "x": 1086,
+      "y": 893,
+      "w": 432,
+      "h": 351,
+      "anchorX": 0.5,
+      "anchorY": 0.8,
+      "scale": 2
+    },
+    "JBox": {
+      "x": 656,
+      "y": 1560,
+      "w": 216,
+      "h": 199,
+      "anchorX": 0.5,
+      "anchorY": 0.6,
+      "scale": 1
+    },
+    "MaterialCart": {
+      "x": 220,
+      "y": 1778,
+      "w": 216,
+      "h": 104,
+      "anchorX": 0.5,
+      "anchorY": 0.75,
+      "scale": 1
+    },
+    "ObjectiveMarker": {
+      "x": 2,
+      "y": 1270,
+      "w": 216,
+      "h": 288,
+      "anchorX": 0.5,
+      "anchorY": 1,
+      "scale": 1
+    },
+    "Pallet": {
+      "x": 2,
+      "y": 893,
+      "w": 432,
+      "h": 375,
+      "anchorX": 0.5,
+      "anchorY": 0.6,
+      "scale": 2
+    },
+    "Palm": {
+      "x": 436,
+      "y": 2,
+      "w": 432,
+      "h": 441,
+      "anchorX": 0.5,
+      "anchorY": 0.7,
+      "scale": 2
+    },
+    "Panelboard": {
+      "x": 1092,
+      "y": 1270,
+      "w": 216,
+      "h": 228,
+      "anchorX": 0.5,
+      "anchorY": 0.8,
+      "scale": 1
+    },
+    "PrintTable": {
+      "x": 1528,
+      "y": 1560,
+      "w": 216,
+      "h": 160,
+      "anchorX": 0.5,
+      "anchorY": 0.7,
+      "scale": 1
+    },
+    "SafetyCone": {
+      "x": 220,
+      "y": 1560,
+      "w": 216,
+      "h": 215,
+      "anchorX": 0.5,
+      "anchorY": 0.8,
+      "scale": 1
+    },
+    "SiteTrailer": {
+      "x": 436,
+      "y": 893,
+      "w": 648,
+      "h": 371,
+      "anchorX": 0.5,
+      "anchorY": 0.7,
+      "scale": 3
+    },
+    "SlabTile": {
+      "x": 1746,
+      "y": 1270,
+      "w": 216,
+      "h": 216,
+      "anchorX": 0.5,
+      "anchorY": 0.5,
+      "scale": 1
+    },
+    "StudWall": {
+      "x": 2,
+      "y": 1560,
+      "w": 216,
+      "h": 216,
+      "anchorX": 0.5,
+      "anchorY": 0.5,
+      "scale": 1
+    },
+    "Tree": {
+      "x": 1304,
+      "y": 2,
+      "w": 432,
+      "h": 430,
+      "anchorX": 0.5,
+      "anchorY": 0.7,
+      "scale": 2
+    },
+    "WireReel": {
+      "x": 1310,
+      "y": 1270,
+      "w": 216,
+      "h": 219,
+      "anchorX": 0.5,
+      "anchorY": 0.7,
+      "scale": 1
+    },
+    "Worker_down_0": {
+      "x": 656,
+      "y": 1270,
+      "w": 216,
+      "h": 236,
+      "anchorX": 0.5,
+      "anchorY": 0.7,
+      "scale": 1
+    },
+    "Worker_down_1": {
+      "x": 1520,
+      "y": 893,
+      "w": 216,
+      "h": 300,
+      "anchorX": 0.5,
+      "anchorY": 0.7,
+      "scale": 1
+    },
+    "Worker_left_0": {
+      "x": 1092,
+      "y": 1560,
+      "w": 216,
+      "h": 198,
+      "anchorX": 0.5,
+      "anchorY": 0.7,
+      "scale": 1
+    },
+    "Worker_left_1": {
+      "x": 1746,
+      "y": 1560,
+      "w": 216,
+      "h": 156,
+      "anchorX": 0.5,
+      "anchorY": 0.7,
+      "scale": 1
+    },
+    "Worker_right_0": {
+      "x": 1310,
+      "y": 1560,
+      "w": 216,
+      "h": 198,
+      "anchorX": 0.5,
+      "anchorY": 0.7,
+      "scale": 1
+    },
+    "Worker_right_1": {
+      "x": 2,
+      "y": 1778,
+      "w": 216,
+      "h": 156,
+      "anchorX": 0.5,
+      "anchorY": 0.7,
+      "scale": 1
+    },
+    "Worker_up_0": {
+      "x": 874,
+      "y": 1270,
+      "w": 216,
+      "h": 236,
+      "anchorX": 0.5,
+      "anchorY": 0.7,
+      "scale": 1
+    },
+    "Worker_up_1": {
+      "x": 1738,
+      "y": 893,
+      "w": 216,
+      "h": 300,
+      "anchorX": 0.5,
+      "anchorY": 0.7,
+      "scale": 1
+    },
+    "WorkTruck": {
+      "x": 2,
+      "y": 2,
+      "w": 432,
+      "h": 889,
+      "anchorX": 0.5,
+      "anchorY": 0.6,
+      "scale": 2
     }
   }
 }

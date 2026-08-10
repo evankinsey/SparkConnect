@@ -664,9 +664,12 @@ function World({ grid, pos, progress, near, route, facing, step }) {
               <G key={s.id}>
                 <Art art={art} name="Worker" tx={s.x} ty={s.y} tile={TILE} facing="down" {...look}
                   ring={near?.id === s.id ? SKY.green : null} />
+                {/* The pin is anchored at its tip, so it occupies the space
+                    ABOVE its anchor — drawn at the station tile it would sit on
+                    the worker's head. Floated up so it hovers over them. */}
                 {d
-                  ? <Art art={art} name="DoneMarker" tx={s.x} ty={s.y} tile={TILE} />
-                  : <Art art={art} name="ObjectiveMarker" tx={s.x} ty={s.y} tile={TILE} pulse={pulse} />}
+                  ? <Art art={art} name="DoneMarker" tx={s.x} ty={s.y - 0.55} tile={TILE} />
+                  : <Art art={art} name="ObjectiveMarker" tx={s.x} ty={s.y - 0.55} tile={TILE} pulse={pulse} />}
               </G>
             );
           })}
