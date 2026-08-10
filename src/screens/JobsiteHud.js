@@ -220,10 +220,26 @@ export function TasksPanel({ tasks, rollup, onClose, motion }) {
  * is unreadable at 118px, and a plan drawing is what an electrician reads
  * anyway.
  */
-export function MapPanel({ rooms, player, objective, doneRooms = [], mapW, mapH, size, onClose }) {
+/**
+ * The plan, filling in as it is walked.
+ *
+ * The WALLS are on it from the start — on a real job you arrive with the
+ * prints, and hiding the layout would be a puzzle-game conceit rather than a
+ * jobsite one. What fills in is where you have actually been, and the
+ * objective pin only shows once its room has been entered: the map tells you
+ * the shape of the building, not the answer to it.
+ */
+export function MapPanel({
+  rooms, player, objective, doneRooms = [], seenRooms = null, mapW, mapH, size, onClose,
+}) {
   const s = size;
   const sx = (v) => (v / mapW) * s;
   const sy = (v) => (v / mapH) * s;
+  // null means "discovery is off" — every room reads as visited, which is how
+  // this behaved before and what a caller that does not pass it should get.
+  const visited = (id) => seenRooms === null || seenRooms.includes(id);
+  const roomOf = (pt) => (pt ? rooms.find((r) => pt.x >= r.x && pt.x < r.x + r.w
+    && pt.y >= r.y && pt.y < r.y + r.h) : null);
   return (
     <PanelShell title="JOB MAP" onClose={onClose} maxHeight={s + 60}>
       <View style={{
@@ -232,15 +248,22 @@ export function MapPanel({ rooms, player, objective, doneRooms = [], mapW, mapH,
       }}>
         {rooms.map((r) => {
           const done = doneRooms.includes(r.id);
+          const been = visited(r.id);
           return (
             <View key={r.id} style={{
               position: 'absolute', left: sx(r.x), top: sy(r.y), width: sx(r.w), height: sy(r.h),
-              borderWidth: 1, borderColor: done ? 'rgba(34,197,94,0.6)' : 'rgba(59,130,246,0.45)',
-              backgroundColor: done ? 'rgba(34,197,94,0.10)' : 'rgba(59,130,246,0.07)',
+              borderWidth: 1,
+              borderColor: done ? 'rgba(34,197,94,0.6)'
+                : been ? 'rgba(59,130,246,0.45)' : 'rgba(59,130,246,0.18)',
+              backgroundColor: done ? 'rgba(34,197,94,0.10)'
+                : been ? 'rgba(59,130,246,0.07)' : 'transparent',
+              // An unvisited room is an outline: the plan shows it, nothing
+              // says what is in it.
+              borderStyle: been ? 'solid' : 'dashed',
             }} />
           );
         })}
-        {objective ? (
+        {objective && visited(roomOf(objective)?.id ?? null) ? (
           <View style={{
             position: 'absolute', left: sx(objective.x) - 4, top: sy(objective.y) - 4,
             width: 8, height: 8, borderRadius: 4, backgroundColor: HUD.warn,

@@ -45,6 +45,10 @@ import {
 } from './topdownArt';
 import { PROPS as SITE_PROPS, PropKind, buildSiteMap } from '../core/game/props';
 import { FENCE, YARD, wearAt } from '../core/game/yard';
+import {
+  discoverAt, isDiscovered, sanitizeDiscovered, emptyDiscovery,
+  showsContents, shadeFor, explored,
+} from '../core/game/discovery';
 import { Art, buildArt } from './jobsiteArt';
 import {
   Panel, DOCK, HUD, panelStyle, stickAnchor, HOME_INDICATOR_MIN, density,
@@ -62,6 +66,7 @@ import FieldTaskScreen from './FieldTaskScreen';
 
 const KEY = '@sc_jobsite_progress_v1';
 const KEY_SIDE = '@sc_jobsite_side_v1';
+const KEY_SEEN = '@sc_jobsite_seen_v1';
 
 const SPEED = 0.075;    // tiles per tick
 const TICK = 33;        // ~30fps
@@ -212,6 +217,9 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
   const grid = useMemo(() => buildSiteMap(), []);
   const [pos, setPos] = useState({ ...SPAWN });
   const [progress, setProgress] = useState(emptyJobsiteProgress());
+  // Rooms walked into. Persisted, because re-darkening a job the player
+  // already explored on every launch would be a punishment, not a feature.
+  const [seen, setSeen] = useState(emptyDiscovery);
   const [active, setActive] = useState(null);
   const [toast, setToast] = useState(null);
   const [facing, setFacing] = useState('down');
@@ -243,6 +251,9 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
     AsyncStorage.getItem(KEY_SIDE)
       .then((v) => { if (v === 'left' || v === 'right') setSide(v); })
       .catch(() => {});
+    AsyncStorage.getItem(KEY_SEEN)
+      .then((raw) => { if (raw) setSeen(sanitizeDiscovered(JSON.parse(raw), ROOMS)); })
+      .catch(() => {});
   }, []);
 
   const persist = useCallback((next) => {
@@ -268,7 +279,17 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
       const f = facing4(d.x, d.y);
       if (f) setFacing(f);
       setStep((s) => s + 0.42);
-      setPos((p) => movePlayer(grid, p, d.x * SPEED, d.y * SPEED));
+      setPos((p) => {
+        const next = movePlayer(grid, p, d.x * SPEED, d.y * SPEED);
+        // Reveal on arrival. discoverAt returns the SAME array when nothing
+        // changed, so this is a no-op 99 ticks out of 100 and React skips.
+        setSeen((prev) => {
+          const after = discoverAt(prev, ROOMS, next.x, next.y);
+          if (after !== prev) AsyncStorage.setItem(KEY_SEEN, JSON.stringify(after)).catch(() => {});
+          return after;
+        });
+        return next;
+      });
     }, TICK);
     return () => clearInterval(id);
   }, [grid, active]);
@@ -370,7 +391,7 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
   return (
     <View style={{ flex: 1, backgroundColor: SKY.dirt }}>
       <World grid={grid} pos={pos} progress={progress} near={near} route={route}
-        facing={facing} step={step} reduceMotion={mo.reduce} />
+        facing={facing} step={step} reduceMotion={mo.reduce} seen={seen} />
 
       {/* ── HUD ──────────────────────────────────────────────────────────
           Four things are permanent: level, objective, stick, action. The task
@@ -416,7 +437,7 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
               onClose={() => setOpenPanel(Panel.NONE)} />
           ) : null}
           {layout.panel === Panel.MAP ? (
-            <MapPanel rooms={ROOMS} player={pos} objective={objective}
+            <MapPanel rooms={ROOMS} player={pos} objective={objective} seenRooms={seen}
               doneRooms={doneRooms} mapW={MAP_W} mapH={MAP_H}
               size={layout.density.minimapSize * 2.2}
               onClose={() => setOpenPanel(Panel.NONE)} />
@@ -505,7 +526,7 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
 
 // ─── World ───────────────────────────────────────────────────────────────────
 
-function World({ grid, pos, progress, near, route, facing, step, reduceMotion = false }) {
+function World({ grid, pos, progress, near, route, facing, step, reduceMotion = false, seen = [] }) {
   // Ambient dust. Deliberately slow and few — motes that move fast read as
   // snow, and a screen full of drifting particles is what makes a game look
   // cheap rather than atmospheric. Held completely still under reduced motion.
@@ -668,6 +689,8 @@ function World({ grid, pos, progress, near, route, facing, step, reduceMotion = 
             if (p.k === 'emtV') return <EmtRun key={`p${i}`} tx={p.x} ty={p.y} len={p.len} horiz={false} />;
             const name = PROP_ART_NAME[p.k];
             if (!name) return null;
+            // Nothing inside a room the player has not walked into yet.
+            if (!showsContents(seen, ROOMS, p.x, p.y)) return null;
             return <Art key={`p${i}`} art={art} name={name} tx={p.x} ty={p.y} tile={TILE} />;
           })}
 
@@ -677,6 +700,7 @@ function World({ grid, pos, progress, near, route, facing, step, reduceMotion = 
           {SITE_PROPS.map((p) => {
             const cx = p.x + p.w / 2;
             const cy = p.y + p.h / 2;
+            if (!showsContents(seen, ROOMS, cx, cy)) return null;
             const name = SITE_PROP_ART_NAME[p.kind];
             if (name) return <Art key={p.id} art={art} name={name} tx={cx} ty={cy} tile={TILE} />;
             // No art name yet — lift, temp power, conduit bundle. Vector only,
@@ -685,9 +709,23 @@ function World({ grid, pos, progress, near, route, facing, step, reduceMotion = 
             return A ? <A key={p.id} tx={cx} ty={cy} /> : null;
           })}
 
+          {/* THE UNLIT SHELL.
+              A room on the prints but never walked into is drawn dark: you see
+              the framing and the shape, not what is in it. Under the walls so
+              the studs stay legible — the point is that the building has
+              somewhere left to go, not that it is hidden. */}
+          {ROOMS.map((r) => (isDiscovered(seen, r.id) ? null : (
+            <Rect key={`shell${r.id}`}
+              x={r.x * TILE} y={r.y * TILE}
+              width={r.w * TILE} height={r.h * TILE}
+              fill="#0A1018" opacity={shadeFor(seen, r.id)} pointerEvents="none" />
+          )))}
+
           {walls}
 
           {STATIONS.map((s) => {
+            // The crew and the objective pin are the payoff for walking in.
+            if (!showsContents(seen, ROOMS, s.x, s.y)) return null;
             const who = characterForStation(s.id);
             const look = (who && CREW_LOOK[who.id]) || ROLE_LOOK.journeyman;
             const d = isComplete(progress, s.id);
