@@ -36,7 +36,7 @@ import {
   knobOffset, floatingOrigin,
 } from '../core/game/topdown';
 import {
-  SKY, SlabTile, SlabMarks, Daylight, AmbientShade, DustMotes,
+  SKY, SlabTile, SlabMarks, GroundTile, groundNoise, Daylight, AmbientShade, DustMotes,
   StudWall, BarJoist, Worker, ROLE_LOOK,
   Panelboard, JBox, EmtRun, AFrameLadder, WireReel, GangBox, MaterialCart,
   PrintTable, DrywallStack, SafetyCone, WorkTruck, Dumpster, SiteTrailer,
@@ -48,7 +48,7 @@ import { Art, buildArt } from './jobsiteArt';
 import {
   Panel, DOCK, HUD, panelStyle, stickAnchor, HOME_INDICATOR_MIN, density,
   hudLayout, togglePanel, motion as hudMotion, xpBar, levelFor, currency,
-  taskProgress, completion,
+  taskProgress, completion, routeStyle,
 } from '../core/game/hud';
 import {
   Glass, Press, LevelBar, ObjectiveChip, NextStep, Dialogue,
@@ -375,7 +375,7 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
   return (
     <View style={{ flex: 1, backgroundColor: SKY.dirt }}>
       <World grid={grid} pos={pos} progress={progress} near={near} route={route}
-        facing={facing} step={step} />
+        facing={facing} step={step} reduceMotion={mo.reduce} />
 
       {/* ── HUD ──────────────────────────────────────────────────────────
           Four things are permanent: level, objective, stick, action. The task
@@ -510,7 +510,7 @@ export default function JobsiteScreen({ C, setTab, onStreakUpdate, pickImage, on
 
 // ─── World ───────────────────────────────────────────────────────────────────
 
-function World({ grid, pos, progress, near, route, facing, step }) {
+function World({ grid, pos, progress, near, route, facing, step, reduceMotion = false }) {
   // Ambient dust. Deliberately slow and few — motes that move fast read as
   // snow, and a screen full of drifting particles is what makes a game look
   // cheap rather than atmospheric. Held completely still under reduced motion.
@@ -544,6 +544,41 @@ function World({ grid, pos, progress, near, route, facing, step }) {
   const floors = [];
   const walls = [];
   const overhead = [];
+  const yard = [];
+
+  /**
+   * How travelled a patch of ground is, from its distance to the building.
+   *
+   * Right against the wall it is gravel; a few tiles out it is driven dirt;
+   * past that it is turf nobody has a reason to cross. Derived rather than
+   * painted, so moving a wall moves the wear with it.
+   */
+  const wearAt = (x, y) => {
+    const dx = x < 0 ? -x : x > MAP_W - 1 ? x - (MAP_W - 1) : 0;
+    const dy = y < 0 ? -y : y > MAP_H - 1 ? y - (MAP_H - 1) : 0;
+    // Distance to the building, JITTERED per tile. Without the jitter the
+    // bands come out as concentric rectangles around the footprint — visible
+    // as hard steps, which reads as a diagram of a site rather than a site.
+    // A ±1.4 tile wobble is enough to make the edge ragged the way a real
+    // worn edge is, and it is derived from the coordinates so it holds still.
+    const jitter = (groundNoise(x, y, 5) - 0.5) * 2.2;
+    const d = Math.hypot(dx, dy) + jitter;
+    // A TRACK, not a field. Everything within about two tiles of the building
+    // is driven on; past three it is grass nobody crosses. A wide gradient
+    // fills the whole visible apron with dirt and reads as one tan rectangle,
+    // which is the same failure as a flat green one.
+    if (d <= 0.8) return 0.92;
+    if (d >= 3.2) return 0.02;
+    return 0.92 - ((d - 0.8) / 2.4) * 0.9;
+  };
+  // The apron ring: everything outside the map footprint the camera can reach.
+  for (let y = -7; y < MAP_H + 7; y++) {
+    for (let x = -7; x < MAP_W + 7; x++) {
+      if (x >= 0 && y >= 0 && x < MAP_W && y < MAP_H) continue;
+      if (!tileVisible(x, y, cam, W, H)) continue;
+      yard.push(<GroundTile key={`y${x},${y}`} tx={x} ty={y} wear={wearAt(x, y)} />);
+    }
+  }
   for (let y = 0; y < MAP_H; y++) {
     for (let x = 0; x < MAP_W; x++) {
       if (!tileVisible(x, y, cam, W, H)) continue;
@@ -601,9 +636,14 @@ function World({ grid, pos, progress, near, route, facing, step }) {
         </Defs>
 
         <G transform={`translate(${cam.tx}, ${cam.ty})`}>
-          {/* Exterior apron — what replaces the black void */}
-          <Rect x={-8 * TILE} y={-8 * TILE} width={(MAP_W + 16) * TILE} height={(MAP_H + 16) * TILE} fill={SKY.grass} />
-          <Rect x={-6 * TILE} y={-3 * TILE} width={(MAP_W + 12) * TILE} height={(MAP_H + 6) * TILE} fill={SKY.dirt} />
+          {/* THE YARD.
+              A flat green rectangle around a grey one reads as a diagram. Real
+              ground wears where people walk, so the apron grades from turf out
+              at the fence, through driven dirt, to gravel at the doors — and
+              the grading is computed from distance to the building rather than
+              painted, so it stays right if the map changes. */}
+          <Rect x={-9 * TILE} y={-9 * TILE} width={(MAP_W + 18) * TILE} height={(MAP_H + 18) * TILE} fill={SKY.grass} />
+          {yard}
           {EXTERIOR.map((e, i) => {
             if (e.k === 'fenceH') return <FenceRun key={`e${i}`} tx={e.x} ty={e.y} len={e.len} horiz />;
             if (e.k === 'fenceV') return <FenceRun key={`e${i}`} tx={e.x} ty={e.y} len={e.len} horiz={false} />;
@@ -625,12 +665,25 @@ function World({ grid, pos, progress, near, route, facing, step }) {
           {overhead}
           <DustMotes pools={SUN_POOLS} t={dust} />
 
-          {routeD && (
-            <G>
-              <Path d={routeD} stroke="rgba(34,197,94,0.30)" strokeWidth={TILE * 0.34} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-              <Path d={routeD} stroke={SKY.green} strokeWidth={TILE * 0.1} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-            </G>
-          )}
+          {routeD && (() => {
+            // Three strokes: a soft glow that lifts it off the floor, a body,
+            // and a travelling dashed core that says which way to walk. The
+            // dash movement is the whole point — a static line tells you where
+            // the path is, not which end of it you are meant to reach.
+            const rs = routeStyle(step, { reduceMotion, tile: TILE });
+            return (
+              <G>
+                <Path d={routeD} stroke={rs.glow} strokeWidth={rs.glowWidth} fill="none"
+                  strokeLinecap="round" strokeLinejoin="round" />
+                <Path d={routeD} stroke={rs.body} strokeWidth={rs.bodyWidth} fill="none"
+                  strokeLinecap="round" strokeLinejoin="round" />
+                <Path d={routeD} stroke={rs.core} strokeWidth={rs.coreWidth} fill="none"
+                  strokeLinecap="round" strokeLinejoin="round"
+                  strokeDasharray={rs.dashArray} strokeDashoffset={rs.dashOffset}
+                  opacity={rs.coreOpacity} />
+              </G>
+            );
+          })()}
 
           {PROPS.map((p, i) => {
             if (p.k === 'emtH') return <EmtRun key={`p${i}`} tx={p.x} ty={p.y} len={p.len} horiz />;

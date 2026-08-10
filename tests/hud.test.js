@@ -9,6 +9,7 @@ import {
   Panel, DOCK, HUD, panelStyle, HOME_INDICATOR_MIN, STICK_FLOOR,
   stickAnchor, clearsHomeIndicator, density, hudLayout, togglePanel,
   MOTION, motion, PRESS_SCALE, xpBar, currency, taskProgress, completion,
+  routeStyle, ROUTE,
 } from '../src/core/game/hud.js';
 
 // ─── The control the OS was eating ───────────────────────────────────────────
@@ -196,4 +197,48 @@ test('completion reports time without scoring it', () => {
   assert.doesNotMatch(JSON.stringify(c), /fast|record|beat|rank|par time/i);
 
   assert.equal(completion({ tasks: [{ done: true }, { done: false }] }).ready, false);
+});
+
+// ─── The route line ──────────────────────────────────────────────────────────
+// A flat stroke tells you where the path is. It does not tell you which way
+// along it to walk — that comes from movement, and movement is the one thing
+// Reduced Motion has to be able to switch off without losing the line.
+
+test('the route dashes travel forward, and never backward', () => {
+  const period = ROUTE.dash + ROUTE.gap;
+  let previous = null;
+  for (let t = 0; t < period; t += 1) {
+    const { dashOffset } = routeStyle(t, { tile: 72 });
+    assert.ok(dashOffset <= 0, `offset ${dashOffset} is positive — the dashes run backward`);
+    assert.ok(dashOffset > -period - 0.001, 'the offset left its period');
+    if (previous !== null && dashOffset > previous) {
+      // Only legal at the wrap.
+      assert.ok(previous < -period * 0.5, `offset jumped forward mid-cycle: ${previous} → ${dashOffset}`);
+    }
+    previous = dashOffset;
+  }
+});
+
+test('reduced motion stops the dashes without hiding the line', () => {
+  const still = routeStyle(40, { reduceMotion: true, tile: 72 });
+  assert.equal(still.dashOffset, 0, 'the line is still animating');
+  assert.ok(still.coreOpacity > 0.9, 'the line faded out instead of just holding still');
+  assert.deepEqual(still.dashArray, routeStyle(40, { tile: 72 }).dashArray,
+    'the dash pattern changed, so the line reads differently with motion off');
+});
+
+test('the route never fades to something hard to follow', () => {
+  for (let t = 0; t < 120; t += 3) {
+    const { coreOpacity, glowWidth, bodyWidth, coreWidth } = routeStyle(t, { tile: 72 });
+    assert.ok(coreOpacity >= 0.72, `route dipped to ${coreOpacity.toFixed(2)} — it disappears`);
+    assert.ok(coreOpacity <= 1);
+    // Widest to narrowest, or the glow stops reading as a glow.
+    assert.ok(glowWidth > bodyWidth && bodyWidth > coreWidth, 'the three strokes are out of order');
+  }
+});
+
+test('the route scales with the tile rather than being fixed pixels', () => {
+  const small = routeStyle(0, { tile: 48 });
+  const big = routeStyle(0, { tile: 96 });
+  assert.ok(big.coreWidth > small.coreWidth * 1.9, 'the line does not scale with the world');
 });

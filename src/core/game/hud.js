@@ -233,6 +233,44 @@ export const MOTION = Object.freeze({
   minimapMarker: 300,
 });
 
+/**
+ * The route line, as data.
+ *
+ * A flat stroke tells you where the path is. What actually helps is knowing
+ * which WAY along it to go, and that comes from movement — dashes travelling
+ * toward the objective. Reduced Motion gets the same line with the dashes
+ * standing still, which still reads directionally because of the taper.
+ *
+ * `t` is the world tick. The offset counts DOWN because an SVG dash offset
+ * moving negative makes the dashes appear to travel forward along the path.
+ */
+export const ROUTE = Object.freeze({
+  glow: 'rgba(34,197,94,0.18)',
+  body: 'rgba(34,197,94,0.34)',
+  core: '#22C55E',
+  dash: 26,
+  gap: 18,
+});
+
+export const routeStyle = (t = 0, { reduceMotion = false, tile = 72 } = {}) => {
+  const period = ROUTE.dash + ROUTE.gap;
+  const offset = reduceMotion ? 0 : -(((Number(t) || 0) * 1.6) % period);
+  return Object.freeze({
+    // Slim. A heavy stripe covers the floor it is drawn over and stops
+    // reading as a route somebody walks — the reference art is a thin
+    // confident line, and the glow is what makes a thin line legible.
+    glowWidth: tile * 0.26,
+    bodyWidth: tile * 0.15,
+    coreWidth: tile * 0.055,
+    dashArray: [ROUTE.dash, ROUTE.gap],
+    dashOffset: offset,
+    // The core pulses gently so the line has life even when the player is
+    // standing still. Held above 0.72 so it never reads as fading out.
+    coreOpacity: reduceMotion ? 0.95 : 0.86 + Math.sin((Number(t) || 0) * 0.12) * 0.12,
+    ...ROUTE,
+  });
+};
+
 export const motion = (reduced = false) => {
   if (!reduced) return MOTION;
   const off = {};
