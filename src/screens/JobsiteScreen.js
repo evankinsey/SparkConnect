@@ -36,7 +36,7 @@ import {
   knobOffset, floatingOrigin,
 } from '../core/game/topdown';
 import {
-  SKY, SlabTile, SlabMarks, GroundTile, groundNoise, Daylight, AmbientShade, DustMotes,
+  SKY, SlabTile, SlabMarks, GroundTile, Daylight, AmbientShade, DustMotes,
   StudWall, BarJoist, Worker, ROLE_LOOK,
   Panelboard, JBox, EmtRun, AFrameLadder, WireReel, GangBox, MaterialCart,
   PrintTable, DrywallStack, SafetyCone, WorkTruck, Dumpster, SiteTrailer,
@@ -44,6 +44,7 @@ import {
   ScissorLift, TempPower, ConduitBundle,
 } from './topdownArt';
 import { PROPS as SITE_PROPS, PropKind, buildSiteMap } from '../core/game/props';
+import { FENCE, YARD, wearAt } from '../core/game/yard';
 import { Art, buildArt } from './jobsiteArt';
 import {
   Panel, DOCK, HUD, panelStyle, stickAnchor, HOME_INDICATOR_MIN, density,
@@ -81,12 +82,6 @@ const EXTERIOR = [
   { k: 'tree', x: -4.5, y: 12.5 }, { k: 'tree', x: 29.5, y: 11.5 },
   { k: 'palm', x: 28.6, y: 1.4 }, { k: 'palm', x: -4.2, y: -1.2 },
   { k: 'palm', x: 13, y: -2.6 }, { k: 'palm', x: 20, y: -2.4 },
-  { k: 'fenceH', x: -5, y: -2.2, len: 10 },
-  { k: 'fenceH', x: 6, y: -2.2, len: 10 },
-  { k: 'fenceH', x: 17, y: -2.2, len: 12 },
-  { k: 'fenceH', x: -5, y: 15.4, len: 34 },
-  { k: 'fenceV', x: -5.2, y: -2, len: 17 },
-  { k: 'fenceV', x: 29.4, y: -2, len: 17 },
 ];
 
 /** Interior set dressing. Scenery only — nothing here affects collision. */
@@ -553,24 +548,6 @@ function World({ grid, pos, progress, near, route, facing, step, reduceMotion = 
    * past that it is turf nobody has a reason to cross. Derived rather than
    * painted, so moving a wall moves the wear with it.
    */
-  const wearAt = (x, y) => {
-    const dx = x < 0 ? -x : x > MAP_W - 1 ? x - (MAP_W - 1) : 0;
-    const dy = y < 0 ? -y : y > MAP_H - 1 ? y - (MAP_H - 1) : 0;
-    // Distance to the building, JITTERED per tile. Without the jitter the
-    // bands come out as concentric rectangles around the footprint — visible
-    // as hard steps, which reads as a diagram of a site rather than a site.
-    // A ±1.4 tile wobble is enough to make the edge ragged the way a real
-    // worn edge is, and it is derived from the coordinates so it holds still.
-    const jitter = (groundNoise(x, y, 5) - 0.5) * 2.2;
-    const d = Math.hypot(dx, dy) + jitter;
-    // A TRACK, not a field. Everything within about two tiles of the building
-    // is driven on; past three it is grass nobody crosses. A wide gradient
-    // fills the whole visible apron with dirt and reads as one tan rectangle,
-    // which is the same failure as a flat green one.
-    if (d <= 0.8) return 0.92;
-    if (d >= 3.2) return 0.02;
-    return 0.92 - ((d - 0.8) / 2.4) * 0.9;
-  };
   // The apron ring: everything outside the map footprint the camera can reach.
   for (let y = -7; y < MAP_H + 7; y++) {
     for (let x = -7; x < MAP_W + 7; x++) {
@@ -644,9 +621,10 @@ function World({ grid, pos, progress, near, route, facing, step, reduceMotion = 
               painted, so it stays right if the map changes. */}
           <Rect x={-9 * TILE} y={-9 * TILE} width={(MAP_W + 18) * TILE} height={(MAP_H + 18) * TILE} fill={SKY.grass} />
           {yard}
+          {FENCE.map((f, i) => (
+            <FenceRun key={`f${i}`} tx={f.x} ty={f.y} len={f.len} horiz={f.dir === 'H'} />
+          ))}
           {EXTERIOR.map((e, i) => {
-            if (e.k === 'fenceH') return <FenceRun key={`e${i}`} tx={e.x} ty={e.y} len={e.len} horiz />;
-            if (e.k === 'fenceV') return <FenceRun key={`e${i}`} tx={e.x} ty={e.y} len={e.len} horiz={false} />;
             const name = PROP_ART_NAME[e.k];
             return name ? <Art key={`e${i}`} art={art} name={name} tx={e.x} ty={e.y} tile={TILE} /> : null;
           })}

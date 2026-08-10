@@ -18,6 +18,7 @@ import React from 'react';
 import { G, Rect, Circle, Ellipse, Path, Line, Defs, LinearGradient, RadialGradient, Stop } from 'react-native-svg';
 
 import { TILE } from '../core/game/topdown';
+import { groundNoise } from '../core/game/yard';
 
 export const SKY = {
   // Daylight. The old palette was near-black and made an unfinished shell look
@@ -50,11 +51,7 @@ const Shade = ({ x, y, rx, ry, o = 0.28 }) => (
  * the same reason the floor variants are: ground that reshuffles its own grass
  * as you walk past is worse than ground with a pattern in it.
  */
-export const groundNoise = (x, y, salt = 0) => {
-  let h = ((x + 1013) * 73856093) ^ ((y + 2477) * 19349663) ^ ((salt + 11) * 83492791);
-  h = (h ^ (h >>> 13)) >>> 0;
-  return h / 4294967295;
-};
+export { groundNoise };
 
 /**
  * The yard.
