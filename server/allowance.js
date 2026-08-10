@@ -23,7 +23,7 @@
 //
 //      const verdict = await checkAllowance({
 //        deviceId: body.deviceId,
-//        planType: body.planType,        // 'pro' | 'free'
+//        planType: body.planType,        // 'free' | 'pro' | 'pro_legacy' | 'lifetime'
 //        usage: await readUsage(body.deviceId),   // your existing store
 //      });
 //      if (!verdict.allowed) {
@@ -75,9 +75,22 @@ export const loadPolicy = async (fetchImpl = fetch) => {
   }
 };
 
+/**
+ * Which tier meters this request.
+ *
+ * `pro_legacy` is a real tier, not a typo: the App Store sold Pro as 20 answers
+ * a day before 10 Aug 2026, and anybody who subscribed on that promise keeps it
+ * for as long as they stay subscribed. The app decides which of the two a
+ * customer is from RevenueCat's originalPurchaseDate and sends the answer.
+ *
+ * ANYTHING UNRECOGNISED IS METERED AS FREE. An unknown tier is either an older
+ * app build or a tampered request, and free is the right answer to both — it
+ * can never grant more than was paid for.
+ */
 const tierFor = (planType) => {
   const p = String(planType ?? '').toLowerCase();
   if (p === 'pro') return 'pro';
+  if (p === 'pro_legacy') return 'pro_legacy';
   if (p === 'lifetime') return 'lifetime';
   return 'free';
 };

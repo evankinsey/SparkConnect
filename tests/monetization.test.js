@@ -8,6 +8,7 @@ import fs from 'node:fs';
 
 import {
   ASK_ALLOWANCE, FREE_LIMITS, PRO_LIMITS, Feature, FREE_PROJECT_LIMIT,
+  Plan, planFor, allowanceForPlan, ALLOWANCE_CHANGED_AT,
   LIFETIME_ENTITLEMENT, usageLabel, proAskAllowanceLabel, freeAskAllowanceLabel,
   PRICING_DISCREPANCIES,
 } from '../src/core/paywall/entitlements.js';
@@ -368,4 +369,73 @@ test('the site cannot offer a trial the store will not honour', () => {
   // promise StoreKit will not keep.
   assert.doesNotMatch(html, /\$7\.99[\s\S]{0,400}?\d+[- ]day (?:free )?trial/i,
     'a trial is advertised against the monthly plan, which does not carry one');
+});
+
+// ─── Grandfathering ──────────────────────────────────────────────────────────
+// The App Store sold Pro as "20 AI answers/day". Cutting an existing
+// subscriber to 10 because we changed our minds is taking back something that
+// was paid for, and it is the kind of thing that gets a subscription app
+// reported — reasonably. So the old allowance is kept for anybody who bought
+// on the old promise, for as long as they stay subscribed.
+
+test('an existing Pro subscriber keeps the allowance they paid for', () => {
+  const before = new Date(Date.parse(ALLOWANCE_CHANGED_AT) - 86400000).toISOString();
+  const plan = planFor({ isPro: true, proSince: before });
+  assert.equal(plan, Plan.LEGACY_PRO);
+  assert.equal(allowanceForPlan(plan).perDay, 20, 'an existing member was downgraded');
+});
+
+test('a renewal is the same subscription, not a new one', () => {
+  // originalPurchaseDate, never latestPurchaseDate. Using the latter would
+  // downgrade every grandfathered member on their next billing date — a month
+  // after launch, silently, which is worse than never grandfathering at all.
+  const src = fs.readFileSync(new URL('../src/purchases.js', import.meta.url), 'utf8');
+  assert.match(src, /originalPurchaseDate/, 'the original purchase date is not read');
+  assert.doesNotMatch(src.replace(/\/\*[\s\S]*?\*\//g, ''), /latestPurchaseDate/,
+    'latestPurchaseDate is used, which moves forward on every renewal');
+});
+
+test('a new subscriber gets the new allowance', () => {
+  const after = new Date(Date.parse(ALLOWANCE_CHANGED_AT) + 86400000).toISOString();
+  const plan = planFor({ isPro: true, proSince: after });
+  assert.equal(plan, Plan.PRO);
+  assert.equal(allowanceForPlan(plan).perDay, ASK_ALLOWANCE.pro.perDay);
+});
+
+test('an unknown purchase date resolves GENEROUSLY', () => {
+  // If we cannot tell when somebody subscribed, giving them the smaller
+  // allowance is taking something away on a guess. The cost of guessing the
+  // other way is ten answers.
+  for (const missing of [null, undefined, '', 'not a date']) {
+    assert.equal(planFor({ isPro: true, proSince: missing }), Plan.LEGACY_PRO,
+      `a member with proSince=${JSON.stringify(missing)} was downgraded on a guess`);
+  }
+});
+
+test('the grandfathered tier is not a trapdoor for non-subscribers', () => {
+  assert.equal(planFor({ isPro: false }), Plan.FREE);
+  assert.equal(planFor({ isPro: false, proSince: '2020-01-01T00:00:00Z' }), Plan.FREE,
+    'a lapsed date granted Pro to somebody who is not subscribed');
+  assert.equal(planFor({ isPro: false, isLifetime: true }), Plan.LIFETIME);
+});
+
+test('the published policy carries every tier the app can send', () => {
+  const policy = JSON.parse(
+    fs.readFileSync(new URL('../website/allowance-policy.json', import.meta.url), 'utf8'));
+  for (const plan of Object.values(Plan)) {
+    assert.ok(policy.tiers[plan], `the server has no limits for "${plan}" — it would meter as free`);
+    assert.equal(policy.tiers[plan].perDay, allowanceForPlan(plan).perDay,
+      `the server and the app disagree about ${plan}`);
+  }
+  assert.equal(policy.unknownTierFallsBackTo, 'free',
+    'an unrecognised tier must never be granted more than free');
+  assert.equal(policy.grandfatheredAt, ALLOWANCE_CHANGED_AT);
+});
+
+test('the server module knows the grandfathered tier', () => {
+  // The drop-in that goes into /api/ask-nec. If it does not recognise
+  // pro_legacy it meters existing members as free, which is worse than the
+  // downgrade this exists to prevent.
+  const src = fs.readFileSync(new URL('../server/allowance.js', import.meta.url), 'utf8');
+  assert.match(src, /pro_legacy/, 'the server would meter grandfathered members as free');
 });

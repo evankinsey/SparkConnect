@@ -76,6 +76,25 @@ const proFrom = (customerInfo) =>
   !!customerInfo?.entitlements?.active?.[ENTITLEMENT];
 
 /**
+ * When this subscription ORIGINALLY started, for the grandfathered allowance.
+ *
+ * `originalPurchaseDate`, never `latestPurchaseDate`. The latter moves forward
+ * on every renewal, so using it would quietly downgrade every grandfathered
+ * member on their next billing date — a month after launch, silently, which is
+ * worse than never having grandfathered them at all.
+ *
+ * Returns null when the field is missing rather than guessing a date. The
+ * caller resolves an unknown date to the GENEROUS side.
+ */
+const proSinceFrom = (customerInfo) => {
+  const ent = customerInfo?.entitlements?.active?.[ENTITLEMENT];
+  const raw = ent?.originalPurchaseDate ?? customerInfo?.originalPurchaseDate ?? null;
+  if (!raw) return null;
+  const t = typeof raw === 'number' ? raw : Date.parse(raw);
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+};
+
+/**
  * Configure RevenueCat once and report current Pro state.
  * Never throws — a billing SDK problem must never take the app down.
  */
@@ -89,7 +108,7 @@ export async function initPurchases() {
       configured = true;
     }
     const info = await Purchases.getCustomerInfo();
-    return { available: true, isPro: proFrom(info) };
+    return { available: true, isPro: proFrom(info), proSince: proSinceFrom(info) };
   } catch (e) {
     return { available: false, isPro: false, error: e?.message };
   }

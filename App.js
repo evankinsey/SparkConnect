@@ -27,7 +27,9 @@ import {
   answerActions, AnswerAction, SIMPLIFY_PROMPT, sourceBadge, historyGroups,
 } from './src/core/ai/modes';
 import { buildPriceQuestion, priceAskBlocker, PRICE_DISCLAIMER } from './src/core/ai/estimatorAsk';
-import { FREE_LIMITS, Feature, proAskAllowanceLabel, usageLabel } from './src/core/paywall/entitlements';
+import {
+  FREE_LIMITS, Feature, proAskAllowanceLabel, usageLabel, planFor, Plan,
+} from './src/core/paywall/entitlements';
 import { Source as PaywallSource, heroFor, paywallEvent } from './src/core/paywall/contexts';
 import { CAST_IMAGES } from './src/screens/castImages';
 import { buildPulse, dayIndexFor } from './src/core/home/pulse';
@@ -1900,7 +1902,7 @@ const QtyRow = ({ C, icon, label, hint, value, onChange, step = 1 }) => {
   );
 };
 
-const EstimatorScreen = ({ C, setTab, isPro = false }) => {
+const EstimatorScreen = ({ C, setTab, isPro = false, planType = 'free' }) => {
   const [estimatorZip, setEstimatorZip] = useState('');
   const [recs, setRecs] = useState('10');
   const [sw, setSw] = useState('5');
@@ -1934,7 +1936,7 @@ const EstimatorScreen = ({ C, setTab, isPro = false }) => {
         question,
         deviceId: await getDeviceId(),
         appVersion: '1.0.0',
-        planType: isPro ? 'pro' : 'free',
+        planType,
       });
       if (res === 'rate_limited') {
         setPriceAsk({ state: 'FAILED', text: null, error: RATE_LIMIT_MESSAGE });
@@ -2305,7 +2307,7 @@ const getExamQuestions = (level, category, count) => {
   return shuffled.slice(0, Math.min(count, shuffled.length));
 };
 
-const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade, onBuyPacks, isPro = IS_PRO }) => {
+const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade, onBuyPacks, isPro = IS_PRO, planType = 'free' }) => {
   const [inputText, setInputText] = React.useState(initialSearch || '');
   const [messages, setMessages] = React.useState([]);
   const [convos, setConvos] = React.useState([]);
@@ -2602,7 +2604,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
       question: finalQuestion,
       deviceId,
       appVersion: '1.0.0',
-      planType: isPro ? 'pro' : 'free',
+      planType,
       conversationHistory,
       ...(imgBase64 ? { image: imgBase64, imageType: 'image/jpeg' } : {}),
     };
@@ -4791,13 +4793,32 @@ export default function App() {
   // paywall: null | 'pro' | 'packs' — which sheet is open.
   const [paywall, setPaywall] = useState(null);
   const [isPro, setIsPro] = useState(false);
+  // When this subscription originally started, for the grandfathered
+  // allowance. Null means the store did not tell us, which planFor resolves to
+  // the generous side rather than guessing somebody down.
+  const [proSince, setProSince] = useState(null);
   const [store, setStore] = useState(null);
   React.useEffect(() => {
     // initPurchases never throws; a billing SDK problem must never block launch.
     Promise.resolve(initPurchases())
-      .then(({ isPro: pro }) => { if (pro) setIsPro(true); })
+      .then(({ isPro: pro, proSince: since }) => {
+        if (pro) setIsPro(true);
+        if (since) setProSince(since);
+      })
       .catch(e => safeLog('purchases.init', e));
   }, []);
+
+  /**
+   * The plan the SERVER meters against.
+   *
+   * Sent as 'free' | 'pro' | 'pro_legacy' rather than a number, so the app and
+   * /api/ask-nec agree on the tier and the limits live in one generated policy
+   * instead of being typed into two systems.
+   */
+  const planType = React.useMemo(
+    () => planFor({ isPro, proSince }),
+    [isPro, proSince],
+  );
 
   // Ask the store what it will sell the moment the sheet opens, so a plan that
   // cannot be bought is a disabled card rather than an alert after the tap.
@@ -5116,8 +5137,8 @@ export default function App() {
       case 'boxfill':     return <BoxFillScreen C={C} setTab={navigateTo} />;
       case 'conduitfill': return <ConduitFillScreen C={C} setTab={navigateTo} />;
       case 'ampacity':    return <AmpacityScreen C={C} />;
-      case 'estimator':   return <EstimatorScreen C={C} setTab={navigateTo} isPro={isPro} />;
-      case 'necai':       return <NecAiScreen C={C} setTab={navigateTo} initialSearch={necaiInitSearch} clearInitSearch={() => setNecaiInitSearch('')} onUpgrade={() => setPaywall(PaywallSource.SETTINGS)} onBuyPacks={() => setPaywall('packs')} isPro={isPro} />;
+      case 'estimator':   return <EstimatorScreen C={C} setTab={navigateTo} isPro={isPro} planType={planType} />;
+      case 'necai':       return <NecAiScreen C={C} setTab={navigateTo} initialSearch={necaiInitSearch} clearInitSearch={() => setNecaiInitSearch('')} onUpgrade={() => setPaywall(PaywallSource.SETTINGS)} onBuyPacks={() => setPaywall('packs')} isPro={isPro} planType={planType} />;
       case 'examprep':    return <ExamPrepScreen C={C} onStreakUpdate={updateStreak} isPro={isPro} />;
       case 'tools':       return <ToolsScreen C={C} setTab={navigateTo} />;
       // Learn is still reachable — it is the study-path index now, one of

@@ -16,7 +16,7 @@
 // enforce exactly what the app promises.
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { ASK_ALLOWANCE } from '../src/core/paywall/entitlements.js';
+import { ASK_ALLOWANCE, ALLOWANCE_CHANGED_AT } from '../src/core/paywall/entitlements.js';
 
 const OUT = 'website/allowance-policy.json';
 
@@ -25,12 +25,24 @@ const policy = () => ({
     'Generated from src/core/paywall/entitlements.js by scripts/build-allowance-policy.mjs. '
     + 'DO NOT EDIT BY HAND — run `npm run allowance`. /api/ask-nec must enforce exactly these '
     + 'numbers, or the app advertises a limit the server does not honour.',
-  version: 1,
+  version: 2,
   tiers: {
     free: { perDay: ASK_ALLOWANCE.free.perDay, perMonth: null },
     pro: { perDay: ASK_ALLOWANCE.pro.perDay, perMonth: ASK_ALLOWANCE.pro.monthlyBackstop },
+    // Grandfathered: sold as 20/day on the App Store before the cutoff, and
+    // kept for as long as the subscription stays active. The app sends
+    // planType 'pro_legacy' for these accounts.
+    pro_legacy: {
+      perDay: ASK_ALLOWANCE.legacyPro.perDay,
+      perMonth: ASK_ALLOWANCE.legacyPro.monthlyBackstop,
+    },
     lifetime: { perDay: ASK_ALLOWANCE.lifetime.perDay, perMonth: null },
   },
+  // Anything the server does not recognise is metered as free. An unknown tier
+  // is either an older app or a tampered request, and free is the safe answer
+  // to both — it never grants more than was paid for.
+  unknownTierFallsBackTo: 'free',
+  grandfatheredAt: ALLOWANCE_CHANGED_AT,
   // Purchased answers are NOT part of the allowance. They are permanent until
   // spent and must survive every daily and monthly reset.
   purchasedAnswers: {

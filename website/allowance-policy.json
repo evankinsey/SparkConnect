@@ -1,6 +1,6 @@
 {
   "_readme": "Generated from src/core/paywall/entitlements.js by scripts/build-allowance-policy.mjs. DO NOT EDIT BY HAND — run `npm run allowance`. /api/ask-nec must enforce exactly these numbers, or the app advertises a limit the server does not honour.",
-  "version": 1,
+  "version": 2,
   "tiers": {
     "free": {
       "perDay": 5,
@@ -10,11 +10,17 @@
       "perDay": 10,
       "perMonth": 250
     },
+    "pro_legacy": {
+      "perDay": 20,
+      "perMonth": 500
+    },
     "lifetime": {
       "perDay": 5,
       "perMonth": null
     }
   },
+  "unknownTierFallsBackTo": "free",
+  "grandfatheredAt": "2026-08-10T00:00:00.000Z",
   "purchasedAnswers": {
     "consumedAfterIncluded": true,
     "expires": false,

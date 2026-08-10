@@ -87,6 +87,16 @@ export const FREE_PROJECT_LIMIT = 1;
 export const ASK_ALLOWANCE = Object.freeze({
   free: Object.freeze({ perDay: 5 }),
   pro: Object.freeze({ perDay: 10, monthlyBackstop: 250 }),
+  // GRANDFATHERED. The App Store sold Pro as "20 AI answers/day" up to the
+  // cutoff below, and anybody who bought on that promise keeps it for as long
+  // as they stay subscribed. Cutting an active subscriber from 20 to 10
+  // because we changed our minds is taking something back that was paid for —
+  // and it is the kind of thing that gets a subscription app reported, quite
+  // reasonably.
+  //
+  // This is not a "legacy plan" to be quietly retired later. It has no end
+  // date, and it lapses only when the subscription itself does.
+  legacyPro: Object.freeze({ perDay: 20, monthlyBackstop: 500 }),
   lifetime: Object.freeze({ perDay: 5 }),
 });
 
@@ -298,6 +308,46 @@ export const freeTierSummary = () =>
  * been able to check the historical listing yet, so this stays false and the
  * check is recorded as outstanding.
  */
+/**
+ * The day the allowance changed.
+ *
+ * A Pro subscription whose ORIGINAL purchase predates this was sold on the old
+ * promise. Original, not latest: a renewal is the same subscription continuing,
+ * and treating a renewal as a new purchase would silently downgrade every
+ * grandfathered member on their next billing date — which is worse than never
+ * having grandfathered them, because it happens quietly a month later.
+ */
+export const ALLOWANCE_CHANGED_AT = '2026-08-10T00:00:00.000Z';
+
+export const Plan = Object.freeze({
+  FREE: 'free',
+  PRO: 'pro',
+  LEGACY_PRO: 'pro_legacy',
+  LIFETIME: 'lifetime',
+});
+
+/**
+ * Which plan's allowance applies, from what the store actually reports.
+ *
+ * An unparseable or absent purchase date resolves to LEGACY_PRO — deliberately
+ * the GENEROUS side. If we cannot tell when somebody subscribed, giving them
+ * the smaller allowance is taking something away on a guess, and the cost of
+ * guessing wrong the other way is ten answers.
+ */
+export const planFor = ({ isPro = false, proSince = null, isLifetime = false } = {}) => {
+  if (!isPro) return isLifetime ? Plan.LIFETIME : Plan.FREE;
+  const t = Date.parse(proSince ?? '');
+  if (!Number.isFinite(t)) return Plan.LEGACY_PRO;
+  return t < Date.parse(ALLOWANCE_CHANGED_AT) ? Plan.LEGACY_PRO : Plan.PRO;
+};
+
+export const allowanceForPlan = (plan) => (
+  plan === Plan.LEGACY_PRO ? ASK_ALLOWANCE.legacyPro
+    : plan === Plan.PRO ? ASK_ALLOWANCE.pro
+      : plan === Plan.LIFETIME ? ASK_ALLOWANCE.lifetime
+        : ASK_ALLOWANCE.free
+);
+
 export const LIFETIME_ENTITLEMENT = Object.freeze({
   aiPerDay: ASK_ALLOWANCE.lifetime.perDay,
   unlimitedAi: false,
@@ -341,7 +391,13 @@ export const PRICING_DISCREPANCIES = Object.freeze([
       + 'the cap. The unlimited claim is fixed because it is false under every reading. The '
       + 'remaining number is copied from the shipping paywall, which is the best evidence '
       + 'available from inside the app, NOT a verified fact.',
-    decision: 'RESOLVED 9 Aug 2026 — Pro is 10/day with a 250/month abuse backstop. OUTSTANDING AND BLOCKING: /api/ask-nec must enforce 5/day free and 10/day + 250/month Pro before this build ships, or the app advertises a limit the server does not honour.',
+    decision: 'RESOLVED 9 Aug 2026 — Pro is 10/day with a 250/month abuse backstop, and '
+      + 'existing subscribers keep 20/day + 500/month for as long as they stay '
+      + 'subscribed (see ALLOWANCE_CHANGED_AT). STILL OUTSTANDING: /api/ask-nec must '
+      + 'enforce the four tiers in website/allowance-policy.json. The client sends '
+      + 'planType and server/allowance.js is the drop-in, but the endpoint lives in a '
+      + 'separate CLI-deployed Vercel project that nothing in this repo can reach — so '
+      + 'until somebody pastes it in, the app advertises a limit the server does not honour.',
   },
   {
     id: 'calculators-advertised-as-pro',
