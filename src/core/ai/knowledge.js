@@ -78,7 +78,11 @@ export const KNOWLEDGE = Object.freeze([
   }),
   entry({
     id: 'small-conductor', topic: 'The small-conductor rule', tab: 'ampacity',
-    tags: ['small conductor', '240.4', '12 awg 20 amp', 'overcurrent limit'],
+    tags: ['small conductor', '240.4', '12 awg 20 amp', 'overcurrent limit',
+      // The way this question actually arrives. Without these it reached the
+      // model, which stated a breaker size and was refused for it.
+      '14 gauge', '14 awg', '20 amp breaker', '15 amp breaker', '30 amp breaker',
+      'what breaker for', 'biggest breaker', 'max breaker'],
     short: 'Regardless of what the ampacity table allows after correction, overcurrent protection for small copper conductors is capped: 15 A for 14 AWG, 20 A for 12 AWG, 30 A for 10 AWG.',
     explain: 'This is why a 12 AWG THHN conductor rated 30 A at 90°C still ends up on a 20 A breaker. Derating and temperature correction happen first; this cap then has the last word if it is more restrictive.',
     refs: ['NEC 240.4(D)'],
@@ -89,6 +93,134 @@ export const KNOWLEDGE = Object.freeze([
     short: 'More than three current-carrying conductors in a raceway reduces their allowable ampacity: 80% for four to six, 70% for seven to nine, 50% for ten to twenty.',
     explain: 'A conductor carrying only the unbalanced current of a multiwire branch circuit is not counted as current-carrying. Adjustment is applied to the ampacity from the conductor’s own temperature column, and the result is then subject to the termination rating and the small-conductor rule.',
     refs: ['NEC 310.15(C)(1)'],
+  }),
+
+  // ── Added after an audit ran 51 real phrasings through the pipeline and found
+  // that most code questions reached the model, stated a number, and were then
+  // correctly refused by the answer contract. The architecture was right; the
+  // reference was too thin. Every entry below states PRINCIPLE and points at the
+  // authority, and every citation resolves — the test walks all of them.
+
+  entry({
+    id: 'egc-sizing', topic: 'Sizing an equipment ground', tab: null,
+    tags: ['what size ground', 'size the ground', 'ground wire size', 'egc size', 'size of ground', 'ground for a', 'grounding conductor size', '250.122'],
+    short: 'The equipment grounding conductor is sized from the rating of the overcurrent device ahead of the circuit, using Table 250.122 — not from the size of the circuit conductors.',
+    explain: 'Table 250.122 is indexed by the breaker or fuse rating, so a 100 A device and a 60 A device get different grounds even where the phase conductors were upsized. Two things change that number: if the circuit conductors are increased in size for any reason, the EGC is increased proportionally; and the EGC never has to be larger than the circuit conductors it runs with.',
+    refs: ['NEC 250.122', 'NEC Table 250.122'],
+  }),
+  entry({
+    id: 'burial-depth', topic: 'Underground burial depth', tab: null,
+    tags: ['burial depth', 'how deep', 'bury', 'buried', 'underground', 'trench depth', 'direct burial', '300.5'],
+    short: 'Minimum cover comes from Table 300.5, and it depends on the wiring method, the circuit, and what is above the trench — there is no single number.',
+    explain: 'The same run is buried at different depths under a lawn, a driveway and a public road, and PVC, direct-burial cable and rigid metal each get their own column. Cover is measured from the top of the raceway to the finished grade. Read the row for your method and the column for what is on top of it, then check whether your AHJ has adopted anything stricter.',
+    refs: ['NEC 300.5', 'NEC Table 300.5'],
+  }),
+  entry({
+    id: 'afci-where', topic: 'Where arc-fault protection is required', tab: null,
+    tags: ['arc fault', 'arc-fault', 'afci', 'when do i need an arc', '210.12'],
+    short: 'Arc-fault protection is required for most 120-volt, 15- and 20-amp branch circuits supplying the living areas of a dwelling. 210.12 has the list, and it has grown with each edition.',
+    explain: 'The rooms covered have expanded over successive editions, so which code your jurisdiction has adopted decides the answer — this is one of the places where the edition genuinely matters. 210.12 also sets out how protection may be provided and what happens when an existing circuit is extended or modified.',
+    refs: ['NEC 210.12'],
+  }),
+  entry({
+    id: 'receptacle-spacing', topic: 'Receptacle spacing', tab: null,
+    tags: ['receptacle spacing', 'how far apart', 'spacing of receptacles', '6 foot rule', 'six foot rule', 'outlet spacing', '210.52'],
+    short: 'In a dwelling, receptacles are placed so that no point along the floor line of a wall is more than 6 ft from one — which works out to roughly every 12 ft.',
+    explain: 'Any wall space 2 ft or wider counts, and so do fixed panels in exterior walls and the wall space occupied by railings or dividers. The rule is written as a maximum distance to a receptacle rather than a spacing, which is why the 12 ft figure is a consequence rather than the requirement.',
+    refs: ['NEC 210.52', 'NEC 210.52(A)(1)'],
+  }),
+  entry({
+    id: 'receptacles-per-circuit', topic: 'Receptacles on one circuit', tab: null,
+    tags: ['how many receptacles on', 'receptacles on a circuit', 'outlets on a circuit', 'how many outlets on', 'receptacles per circuit'],
+    short: 'The NEC sets no limit on the number of receptacles on a dwelling branch circuit. Commercial and other non-dwelling occupancies are load-calculated instead, at 180 VA per outlet.',
+    explain: 'Rules of thumb like "eight per circuit" come from load calculation habits and from other trades, not from the code. In a dwelling the general lighting and receptacle load is calculated by area rather than by counting outlets, which is why no count appears. Where a circuit serves a specific known load, that load governs.',
+    refs: ['NEC 220.12', 'NEC 210.52'],
+  }),
+  entry({
+    id: 'termination-torque', topic: 'Torque', tab: null,
+    tags: ['torque', 'torque spec', 'tighten', 'foot pounds', 'inch pounds', 'lug tight', '110.14(d)'],
+    short: 'Terminations are tightened to the value the equipment manufacturer gives, using a calibrated torque tool. There is no general table in the NEC to fall back on.',
+    explain: 'The value is on the label, in the instructions, or in the manufacturer literature, and it differs between makes of the same device. Loose terminations are one of the more common causes of heating at a connection, and over-torquing damages the conductor — which is why the code names a calibrated tool rather than a feel.',
+    refs: ['NEC 110.14(D)'],
+  }),
+  entry({
+    id: 'bends-per-run', topic: 'Bends between pull points', tab: 'bend',
+    tags: ['how many bends', 'bends between', '360 degrees', 'four 90s', 'four 90', 'bends in a run', '358.26'],
+    short: 'No more than the equivalent of four quarter bends — 360° total — between pull points.',
+    explain: 'Every bend counts toward the total, including offsets and the bend at a fitting, which is what catches people out: two 90s and a couple of offsets is already at the limit. The rule exists so the pull tension stays reasonable and the conductor insulation survives the pull. A pull point resets the count.',
+    refs: ['NEC 358.26'],
+  }),
+  entry({
+    id: 'termination-temperature', topic: 'Termination temperature rating', tab: 'ampacity',
+    tags: ['termination temperature', 'temperature column', 'which column', '75 degree column', '60 degree column', 'terminal rating', '110.14(c)'],
+    short: 'Ampacity is limited by the lowest-rated part of the circuit, and that is usually the termination — so you size from the 60°C or 75°C column even when the conductor insulation is rated 90°C.',
+    explain: 'The 90°C column is used for the derating arithmetic — temperature correction and conductor count — and the result is then compared back against the termination rating. So a 90°C conductor is derated from 90°C but may not be loaded past what its terminals allow. Equipment 100 A and below is commonly rated 60°C unless it is marked otherwise.',
+    refs: ['NEC 110.14(C)', 'NEC 110.14(C)(1)(a)'],
+  }),
+  entry({
+    id: 'ground-rods', topic: 'Ground rods', tab: null,
+    tags: ['ground rod', 'grounding electrode', 'two rods', 'second rod', '25 ohms', 'driven rod'],
+    short: 'A single rod electrode has to be supplemented by a second one unless it is shown to have 25 ohms or less to earth — and since almost nobody measures it, two rods is the normal practice.',
+    explain: 'The rods are spaced at least 6 ft apart. A rod is only one kind of electrode: where a concrete-encased electrode, a metal underground water pipe or a ground ring is present, it has to be used as well. A separate building or structure supplied by a feeder needs its own grounding electrode system.',
+    refs: ['NEC 250.52(A)(5)', 'NEC 250.53(A)(2)'],
+  }),
+  entry({
+    id: 'four-wire-feeder', topic: 'Feeding a subpanel', tab: null,
+    tags: ['4 wire feeder', 'four wire feeder', 'subpanel', 'sub panel', 'separate the neutral', 'neutral and ground separate', 'bonding at a subpanel', 'detached garage'],
+    short: 'A subpanel is fed with a separate equipment grounding conductor and an insulated neutral, and the two are kept apart downstream of the service — the neutral is bonded to ground at one point only, at the service.',
+    explain: 'Bonding them again at a subpanel puts normal load current onto the grounding conductors and onto anything metallic they touch. The bonding screw or strap comes out at the subpanel, the neutral bar is isolated, and the grounding bar is bonded to the enclosure. Separate structures fed by a feeder follow the same rule and additionally need their own grounding electrode system.',
+    refs: ['NEC 250.4(A)(5)', 'NEC Article 250'],
+  }),
+  entry({
+    id: 'dimming-on-start', topic: 'Lights dimming when a motor starts', tab: 'volt',
+    tags: ['light dims', 'lights dim', 'dims when', 'flicker when', 'dimming when', 'compressor kicks'],
+    short: 'A momentary dip when a motor starts is voltage drop under inrush — a motor draws several times its running current for the moment it starts, and the drop shows up on everything sharing the path.',
+    explain: 'A brief flicker on a large motor is normal. Worth investigating are: a dip that is deep or long, one that has got worse over time, or one on a circuit with no large load on it — those point at a loose or corroded connection, an undersized or long run, or a failing neutral. A shared neutral fault will also show as dimming on one leg and brightening on the other, which is a different and more urgent problem.',
+    refs: ['NEC 210.19(A)'],
+  }),
+
+  entry({
+    id: 'sizing-a-circuit', topic: 'Sizing a conductor for a load', tab: 'ampacity',
+    tags: ['what size wire for', 'what size wire', 'wire size for', 'size wire for', 'what gauge for', 'wire for a 50 amp', 'wire for a 30 amp', 'wire for a 40 amp'],
+    short: 'Conductor size comes from the load and the conditions, in this order: the ampacity table, then temperature correction, then adjustment for conductor count, then the termination rating, then the small-conductor cap.',
+    explain: 'There is no single answer to "what size wire for 50 amps" because the same load takes different conductors in a hot attic, in a full raceway, or at 60°C terminals. The Ampacity calculator walks the same order. Continuous loads add a further step: the overcurrent device is sized at 125% of the continuous portion.',
+    refs: ['NEC 310.16', 'NEC Table 310.16', 'NEC 110.14(C)', 'NEC 240.4(D)'],
+  }),
+  entry({
+    id: 'permits', topic: 'Permits', tab: 'permits',
+    tags: ['permit', 'do i need a permit', 'pull a permit', 'inspection required', 'does this need a permit'],
+    short: 'Permit thresholds are set by your local building department, not nationally — the same job needs a permit in one city and not the next one over.',
+    explain: 'Panel changes, service work and new circuits are permitted almost everywhere; what counts as a like-for-like replacement varies. The Permit Assistant helps you record what your AHJ tells you so you only have to ask once. Nobody but the authority having jurisdiction can answer it for your address.',
+    refs: ['NEC 230.70(A)(1)'],
+  }),
+
+  entry({
+    id: 'conductor-colors', topic: 'Identifying conductors', tab: 'wire',
+    tags: ['what color', 'wire color', 'colour', 'neutral on 277', 'neutral color', 'grounded conductor color', 'gray neutral', 'phase colors', '200.6'],
+    short: 'The grounded conductor is identified white or grey, or by three continuous white or grey stripes. The code fixes the grounded and grounding conductors; ungrounded phase colours are convention, not requirement.',
+    explain: 'Where more than one system is in a building, each has to be identified separately and the scheme posted at the panel — which is why brown/orange/yellow with a grey neutral is common on 277/480 and black/red/blue with white on 120/208. Those particular colours are a widely followed convention rather than a code rule, so confirm what the building already uses before you add to it.',
+    refs: ['NEC 200.6'],
+  }),
+  entry({
+    id: 'ac-disconnect', topic: 'Disconnect at equipment', tab: null,
+    tags: ['disconnect at the ac', 'ac disconnect', 'condenser disconnect', 'disconnect at the unit', 'within sight', 'do i need a disconnect'],
+    short: 'Air-conditioning and refrigerating equipment needs a disconnecting means within sight of it and readily accessible — "within sight" means visible and not more than 50 ft away.',
+    explain: 'The point is that whoever is working on the unit can see the thing that killed it. A breaker in a panel around the corner does not satisfy it, and neither does a disconnect behind the unit where it cannot be seen from the service position. Article 440 also covers what the disconnect has to be rated for.',
+    refs: ['NEC 440.14'],
+  }),
+  entry({
+    id: 'nm-in-conduit', topic: 'NM cable in a raceway', tab: null,
+    tags: ['romex in conduit', 'nm in conduit', 'romex in pipe', 'cable in conduit', 'sleeve romex'],
+    short: 'NM cable may be run in a raceway used as physical protection — it is not prohibited, but the raceway has to be sized for it and the cable is still derated as a cable.',
+    explain: 'Two things catch people: conduit fill is calculated on the overall cross-section of the cable, not on the individual conductors, so a sleeve fills far faster than the same conductors would; and the conductors inside are still counted for adjustment. A long raceway full of NM is usually the wrong answer — pulling individual conductors instead is cheaper and cooler.',
+    refs: ['NEC 334.15(B)', 'NEC Chapter 9'],
+  }),
+  entry({
+    id: 'shared-neutral', topic: 'Multiwire branch circuits', tab: 'wiringlab',
+    tags: ['shared neutral', 'multiwire', 'mwbc', 'common neutral', 'two circuits one neutral', 'handle tie'],
+    short: 'A multiwire branch circuit shares one neutral between two ungrounded conductors taken from different phases, so the neutral carries only the difference between the two loads rather than their sum.',
+    explain: 'Two things make it safe, and both are easy to get wrong. The ungrounded conductors must be taken from different phases — put both on the same leg and the neutral carries the SUM and overheats with no overcurrent device watching it. And the neutral must never be opened while the circuits are energised: with the neutral broken, the two loads end up in series across the full phase-to-phase voltage, which destroys equipment and can be lethal to work on. That is why simultaneous disconnect and pigtailed neutrals matter.',
+    refs: ['NEC 300.4(A)(1)', 'NEC 310.15(C)(1)'],
   }),
 ]);
 

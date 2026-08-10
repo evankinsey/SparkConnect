@@ -86,6 +86,11 @@ export const TOOLS = Object.freeze([
       /\b(?:will|do|would)\s+i\s+(?:lose|drop)\b.*\bvolt/,
       /\bhow\s+far\s+can\s+i\s+(?:run|pull)\b/,
       /\btoo\s+(?:long|far)\s+(?:a\s+)?(?:run|pull)\b/,
+      // "will 12 awg work for 20 amps at 120 feet" — a sizing question over a
+      // distance is a voltage drop question, whatever words it arrives in.
+      /\b(?:will|is|does)\b.*\b(?:awg|gauge|ga)\b.*\b(?:ok|okay|work|enough|fine|good)\b.*\b\d+\s*(?:ft|feet|foot|')/,
+      /\bis\s+\d+\s*(?:ft|feet|foot|')\s+too\s+(?:far|long|much)\b/,
+      /\b\d+\s*(?:ft|feet|foot)\b.*\btoo\s+(?:far|long)\b/,
     ],
     params: ['awg', 'amps', 'feet'],
     optional: ['volts', 'phase'],
@@ -134,6 +139,9 @@ export const TOOLS = Object.freeze([
       /\bcubic\s*inch/,
       /\b(?:fit|cram|get)\b.*\bin\s+(?:a|one|this)\s+(?:\d+["']?\s*)?(?:j[- ]?)?box\b/,
       /\bbox\b.*\bbig\s+enough\b/,
+      // "do I need a deeper box for 6 #12 with a ground and clamps"
+      /\b(?:deeper|bigger|larger|another)\s+(?:j[- ]?)?box\b/,
+      /\bdo\s+i\s+need\b.*\b(?:j[- ]?)?box\b/,
     ],
     params: ['awg', 'conductors'],
     optional: ['devices', 'grounds', 'clamps'],
@@ -187,6 +195,13 @@ export const TOOLS = Object.freeze([
       new RegExp(`\\b${RACEWAY}\\b.*\\bbig\\s+enough\\b`),
       /\bfill\s*(?:percent|percentage|%)/,
       /\b(?:over|under|within)\s+(?:the\s+)?40\s*%/,
+      // "what's the fill on 6 #12 in 3/4 EMT" — "fill" alone, next to a raceway.
+      new RegExp(`\\bfill\\b.*\\b${RACEWAY}\\b`),
+      new RegExp(`\\b${RACEWAY}\\b.*\\bfill\\b`),
+      // "can I put 10 #12 in a 1/2 inch pipe", "is 12 #10 too many for 3/4 EMT"
+      new RegExp(`\\b(?:can|could|may)\\s+i\\s+(?:put|fit|pull|run|get|cram)\\b.*\\b(?:in|into|through)\\b.*\\b${RACEWAY}\\b`),
+      new RegExp(`\\btoo\\s+many\\b.*\\b(?:for|in)\\b.*\\b${RACEWAY}\\b`),
+      new RegExp(`\\bwill\\b.*\\bfit\\b.*\\b${RACEWAY}\\b`),
     ],
     // Only the conductor size is genuinely required. The question can arrive
     // from either end — "how many fit in 3/4?" or "what size for nine #12?" —
