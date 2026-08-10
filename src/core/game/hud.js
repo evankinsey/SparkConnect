@@ -98,8 +98,16 @@ export const panelStyle = ({ raised = false, deep = false } = {}) => Object.free
 /** Below this the home indicator owns the gesture, whatever we draw there. */
 export const HOME_INDICATOR_MIN = 34;
 
-/** Breathing room above it, so the stick's lower travel is still reachable. */
-export const STICK_FLOOR = 22;
+/**
+ * Breathing room above it, so the stick's lower travel is still reachable.
+ *
+ * Raised from 22 after playing build 33: clearing the home indicator is the
+ * floor, not the target. A stick resting that close to the bottom edge is one
+ * you steer with the very tip of a thumb, and pulling DOWN — walking south, the
+ * direction you use most on a map that is wider than it is tall — runs out of
+ * screen before it runs out of deflection.
+ */
+export const STICK_FLOOR = 46;
 
 /**
  * Where the stick's rest position goes.

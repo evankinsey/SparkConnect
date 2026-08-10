@@ -44,7 +44,7 @@ import {
   ScissorLift, TempPower, ConduitBundle,
 } from './topdownArt';
 import { PROPS as SITE_PROPS, PropKind, buildSiteMap } from '../core/game/props';
-import { FENCE, YARD, wearAt } from '../core/game/yard';
+import { FENCE, YARD, wearAt, onSlab } from '../core/game/yard';
 import {
   discoverAt, isDiscovered, sanitizeDiscovered, emptyDiscovery,
   showsContents, shadeFor, explored,
@@ -545,8 +545,12 @@ function World({ grid, pos, progress, near, route, facing, step, reduceMotion = 
   const { width: W, height: H } = Dimensions.get('window');
   const cam = useMemo(() => followCamera(pos, MAP_W, MAP_H, W, H), [pos, W, H]);
 
+  // On the slab, not in a room. These are different questions and the second
+  // one was being asked: everything between the six rooms is corridor, inside
+  // the same walled envelope, standing on the same pour. Asking "is it a room"
+  // sent every corridor tile down the outdoor branch and grew grass on it.
   const indoor = useCallback(
-    (x, y) => ROOMS.some((r) => x > r.x && x < r.x + r.w - 1 && y > r.y && y < r.y + r.h - 1),
+    (x, y) => onSlab(x, y, { mapW: MAP_W, mapH: MAP_H }),
     [],
   );
 
@@ -778,7 +782,8 @@ function Stick({ dir, side, onSwap, bottomInset = 0 }) {
     () => stickAnchor({ width: W, height: H, side, inset: bottomInset, radius: STICK_R }),
     [W, H, side, bottomInset],
   );
-  const rest = useMemo(() => ({ x: anchor.x, y: anchor.y }), [anchor]);
+  // Measured from the BOTTOM edge, never from the top. See floatingOrigin.
+  const rest = useMemo(() => ({ x: anchor.x, bottom: anchor.bottom }), [anchor]);
   const [origin, setOrigin] = useState(rest);
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const [active, setActive] = useState(false);
@@ -821,8 +826,16 @@ function Stick({ dir, side, onSwap, bottomInset = 0 }) {
           [side === 'left' ? 'left' : 'right']: 0, width: W * 0.5,
         }}
       />
+      {/* BOTTOM-ANCHORED, and that is the whole fix rather than a preference.
+          This View lives in the screen body, which begins under the "Job Site"
+          navigation bar, while `origin` is a window coordinate. Laying it out
+          with `top` therefore added the header's height to it and dropped the
+          stick most of the way off the bottom of the display — the tell being
+          that SWAP SIDE, which was already bottom-anchored, rendered ABOVE the
+          stick it labels. Distance from the bottom is independent of where the
+          container starts. */}
       <View pointerEvents="none" style={{
-        position: 'absolute', left: origin.x - STICK_R, top: origin.y - STICK_R,
+        position: 'absolute', left: origin.x - STICK_R, bottom: origin.bottom - STICK_R,
         width: STICK_R * 2, height: STICK_R * 2, borderRadius: STICK_R,
         backgroundColor: 'rgba(14,18,22,0.42)',
         borderWidth: 2, borderColor: active ? 'rgba(34,197,94,0.6)' : 'rgba(255,255,255,0.28)',

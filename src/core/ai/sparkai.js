@@ -348,7 +348,12 @@ export const ask = async (question, {
       sources: knowledgeHit.refs ?? [],
       confidence: 1,
       question,
-      followUp: knowledgeHit.tab ? { tab: knowledgeHit.tab, label: 'Open the calculator' } : null,
+      // Most reference entries hand off to a calculator, but not all of them
+      // do — the permit entries hand off to the Permit Assistant, and calling
+      // that "the calculator" is a button that lies about where it goes.
+      followUp: knowledgeHit.tab
+        ? { tab: knowledgeHit.tab, label: knowledgeHit.action ?? 'Open the calculator' }
+        : null,
     });
     return Object.freeze({ ...sealAnswer(sealed), route: decision.route, routeReason: decision.reason });
   }

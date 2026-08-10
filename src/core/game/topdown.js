@@ -126,10 +126,19 @@ export const floatingOrigin = (touchX, touchY, viewW, viewH, {
   if (!inX || !inY) return null;
 
   const clamp = (v, lo, hi) => (hi < lo ? (lo + hi) / 2 : Math.min(Math.max(v, lo), hi));
+  const y = clamp(touchY, viewH * 0.45, viewH - bottomInset - margin);
   return {
     x: clamp(touchX, margin, viewW - margin),
     // bottomInset keeps the base clear of the home indicator and the dock, so
     // pulling the knob down does not hand the gesture to the system.
-    y: clamp(touchY, viewH * 0.45, viewH - bottomInset - margin),
+    y,
+    // The SAME point measured from the bottom edge, and the one the screen
+    // draws with. `y` is a window coordinate; the stick is rendered inside the
+    // screen body, which starts below the navigation header, so laying it out
+    // with `top: y` pushes it down by the height of that header — off the
+    // bottom of the display on any phone with a title bar. Distance from the
+    // bottom does not care where the container starts, and the container's
+    // bottom IS the window's bottom because the world runs to the edge.
+    bottom: viewH - y,
   };
 };

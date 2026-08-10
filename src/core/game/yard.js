@@ -88,3 +88,23 @@ export const coverAt = (x, y, opts) => {
   const w = wearAt(x, y, opts);
   return w > 0.66 ? Cover.YARD : w > 0.33 ? Cover.VERGE : Cover.GRASS;
 };
+
+/**
+ * Is this tile on the poured pad?
+ *
+ * THE BUG THIS EXISTS TO KILL. The screen decided this with "is it inside one
+ * of the six ROOMS", which is not the same question and is wrong everywhere the
+ * two differ. The map is a walled envelope — perimeter studs on all four sides
+ * — so everything between the rooms is CORRIDOR, inside the building, standing
+ * on the same slab. Grading it as "not a room" sent it down the outdoor branch,
+ * which draws turf with grass tufts. The result was a commercial shell with a
+ * lawn growing down the middle of it, and it was most of the floor you actually
+ * walk on, because the corridors are where you walk.
+ *
+ * The pad is the map footprint. Outside it is the apron ring, which is graded
+ * by `wearAt` and is genuinely ground. There is no third case: every exterior
+ * prop on this level — trucks, trailer, dumpster, trees — is placed beyond the
+ * footprint precisely because inside it is a building.
+ */
+export const onSlab = (x, y, { mapW = 26, mapH = 14 } = {}) =>
+  x >= 0 && y >= 0 && x < mapW && y < mapH;

@@ -13,10 +13,32 @@
 //
 // Pure module: no React, no network, no storage.
 
+/**
+ * Who actually says so.
+ *
+ * THE BUG THIS EXISTS TO KILL. Every entry was required to carry an NEC
+ * citation, and the test enforced it. That is right for almost everything here
+ * and wrong for the handful of topics the NEC does not govern at all — so the
+ * permits entry, which is purely administrative, was given `NEC 230.70(A)(1)`
+ * to satisfy the rule. That section is about where a service disconnect goes.
+ * It has nothing to do with permits. The app then printed it under an answer
+ * about Tampa's permit office as though the code had ruled on the matter.
+ *
+ * A required field that cannot be left honest gets filled dishonestly. So an
+ * entry may now say the authority is the local one, and when it does, an NEC
+ * citation is FORBIDDEN rather than merely optional — the failure mode is
+ * inventing authority, not omitting it.
+ */
+export const Authority = Object.freeze({
+  NEC: 'NEC',       // the code states it; `refs` must resolve against citations.js
+  LOCAL: 'LOCAL',   // the AHJ states it; `basis` says which document, and refs stay empty
+});
+
 const entry = (def) => Object.freeze({
   ...def,
   tags: Object.freeze(def.tags),
-  refs: Object.freeze(def.refs),
+  refs: Object.freeze(def.refs ?? []),
+  authority: def.authority ?? Authority.NEC,
 });
 
 export const KNOWLEDGE = Object.freeze([
@@ -191,7 +213,34 @@ export const KNOWLEDGE = Object.freeze([
     tags: ['permit', 'do i need a permit', 'pull a permit', 'inspection required', 'does this need a permit'],
     short: 'Permit thresholds are set by your local building department, not nationally — the same job needs a permit in one city and not the next one over.',
     explain: 'Panel changes, service work and new circuits are permitted almost everywhere; what counts as a like-for-like replacement varies. The Permit Assistant helps you record what your AHJ tells you so you only have to ask once. Nobody but the authority having jurisdiction can answer it for your address.',
-    refs: ['NEC 230.70(A)(1)'],
+    authority: Authority.LOCAL,
+    action: 'Open the Permit Assistant',
+    basis: 'The adopted building code and local ordinance, not the NEC. The NEC is a model standard with no administrative provisions of its own — permits, fees and inspections come from whoever adopted it.',
+    refs: [],
+  }),
+
+  entry({
+    // Somebody asking this has named a city and wants three specific things.
+    // Answering with the generic permit-threshold paragraph answers none of
+    // them, which is what shipped in build 33 and is why this entry exists.
+    //
+    // SparkConnect does not carry a jurisdiction table, and it should not
+    // pretend to: adopted editions change on their own schedule, amendments
+    // are local, and a stale answer here is worse than no answer because it
+    // reads authoritative. What it CAN do is say exactly what to ask for and
+    // who to ask, which is the part that is the same everywhere.
+    id: 'adopted-code-edition', topic: 'Which code your jurisdiction is on', tab: 'permits',
+    tags: [
+      'adopted', 'adopted edition', 'code edition', 'which nec', 'what nec edition',
+      'nec edition', 'what code', 'inspection process', 'building department',
+      'permit office', 'ahj', 'authority having jurisdiction', 'local amendments',
+    ],
+    short: 'SparkConnect does not carry a per-city table of adopted editions, and will not guess at one — editions and local amendments change on their own schedule, and a stale answer here reads more authoritative than it is.',
+    explain: 'Three things settle it, and one phone call to the building department gets all three. FIRST, the adopted edition and the local amendments — many jurisdictions run a code cycle or two behind the current NEC, and the amendments are where the surprises live. SECOND, what needs a permit and what the fee schedule is, which is the threshold question and is local. THIRD, the inspection sequence: which inspections apply, what has to be open when the inspector arrives, and how far ahead you schedule. Ask for it in writing or take the name of who told you. SparkConnect’s Permit Assistant is built to record those answers per jurisdiction so the call happens once rather than on every job. In the app, set your code edition in Settings so citations match the book your inspector is holding.',
+    authority: Authority.LOCAL,
+    action: 'Open the Permit Assistant',
+    basis: 'Your building department. Adopted editions are set by state or local adoption, are amended locally, and change between code cycles.',
+    refs: [],
   }),
 
   entry({

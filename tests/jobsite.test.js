@@ -12,7 +12,7 @@ import {
   STATIONS, SPAWN, MAP_W, MAP_H, PLAYER_RADIUS, Tile, TaskKind,
   pathBetween, distanceFeet, nextObjective,
 } from '../src/core/game/jobsite.js';
-import { FENCE, YARD, wearAt, coverAt, Cover, groundNoise } from '../src/core/game/yard.js';
+import { FENCE, YARD, wearAt, coverAt, Cover, groundNoise, onSlab } from '../src/core/game/yard.js';
 import { ALL_LESSONS } from '../src/circuit/lessons/index.js';
 import {
   CHARACTERS, CAST_IDS, STATION_DIALOGUE, dialogueFor,
@@ -337,4 +337,95 @@ test('walking out of the building crosses yard, then verge, then grass', () => {
   for (let i = 1; i < walk.length; i++) {
     assert.ok(walk[i] <= walk[i - 1], `the ground gets more worn further out at step ${i}`);
   }
+});
+
+// ─── The pad ─────────────────────────────────────────────────────────────────
+// Build 33 shipped a commercial shell with a lawn down the middle of it.
+//
+// The screen decided "is this tile indoors?" by asking whether it fell inside
+// one of the six ROOMS. Everything else — every corridor, which is most of the
+// floor and ALL of the floor you actually walk on — answered no and was drawn
+// through the outdoor branch, which paints turf and grass tufts. The map is a
+// walled envelope; there is no outdoors inside it.
+
+test('every walkable tile in the building is on the slab, corridors included', () => {
+  const grid = buildMap();
+  const off = [];
+  for (let y = 0; y < MAP_H; y++) {
+    for (let x = 0; x < MAP_W; x++) {
+      if (grid[y][x] === Tile.WALL) continue;
+      if (!onSlab(x, y, { mapW: MAP_W, mapH: MAP_H })) off.push(`${x},${y}`);
+    }
+  }
+  assert.deepEqual(off, [], `walkable tiles drawn as ground, not slab: ${off.join(' ')}`);
+});
+
+test('the corridor between the rooms is slab — this is what grew grass', () => {
+  // y=7 is the band the props module calls "the yard": it is the corridor
+  // between the two rows of rooms, and every solid prop on the level sits in
+  // it. Under the old room-interior test it was lawn.
+  for (let x = 1; x < MAP_W - 1; x++) {
+    assert.ok(onSlab(x, 7, { mapW: MAP_W, mapH: MAP_H }),
+      `the corridor at ${x},7 is not on the slab`);
+  }
+});
+
+test('the apron outside the footprint is still ground, not paved over', () => {
+  // The other half of the fix: widening the slab must not pour concrete across
+  // the yard where the trucks and the trailer are parked.
+  for (const [x, y] of [[-3, 6], [-4, 2], [28, 4], [13, -3], [MAP_W + 1, 5]]) {
+    assert.equal(onSlab(x, y, { mapW: MAP_W, mapH: MAP_H }), false,
+      `${x},${y} is outside the building and is being drawn as slab`);
+  }
+});
+
+test('every exterior prop is placed off the pad', () => {
+  // Trucks, trailer, dumpster and trees are positioned in the screen's EXTERIOR
+  // list. If one ever drifts onto the footprint it would be parked on concrete
+  // inside a building, which is the mirror image of the bug just fixed.
+  const src = readFileSync(new URL('../src/screens/JobsiteScreen.js', import.meta.url), 'utf8');
+  const block = src.slice(src.indexOf('const EXTERIOR = ['));
+  const list = block.slice(0, block.indexOf('];'));
+  const coords = [...list.matchAll(/x:\s*(-?[\d.]+),\s*y:\s*(-?[\d.]+)/g)];
+  assert.ok(coords.length >= 6, 'could not read the EXTERIOR list');
+  for (const [, sx, sy] of coords) {
+    const x = Number(sx); const y = Number(sy);
+    assert.equal(onSlab(x, y, { mapW: MAP_W, mapH: MAP_H }), false,
+      `an exterior prop at ${x},${y} is standing on the building slab`);
+  }
+});
+
+// ─── The movement stick ──────────────────────────────────────────────────────
+// It rendered half off the bottom of the phone in build 33.
+//
+// The visible circle was laid out with `top: origin.y - STICK_R`, where origin
+// is a WINDOW coordinate, inside a container that begins below the "Job Site"
+// navigation bar. So the header's height was silently added to it. The tell in
+// the screenshot: SWAP SIDE, which was already bottom-anchored, rendered ABOVE
+// the stick it labels. Distance from the bottom does not care where the
+// container starts, and the container's bottom is the window's bottom.
+
+test('the stick is laid out from the bottom edge, never from the top', () => {
+  const src = readFileSync(new URL('../src/screens/JobsiteScreen.js', import.meta.url), 'utf8');
+  const i = src.indexOf('function Stick(');
+  assert.ok(i > 0, 'the Stick component moved');
+  const body = src.slice(i, src.indexOf('\n}', src.indexOf('return (', i)));
+  const code = body.split('\n').filter((l) => !l.trim().startsWith('*') && !l.trim().startsWith('//')).join('\n');
+  assert.equal(/top:\s*origin\./.test(code), false,
+    'the stick is positioned with `top` again — it will sit a header-height too low');
+  assert.ok(/bottom:\s*origin\.bottom/.test(code),
+    'the stick is no longer anchored to the bottom edge');
+});
+
+test('the floor decides slab-vs-ground from the footprint, not from ROOMS', () => {
+  // The predicate that caused it, so reintroducing the old one fails here
+  // rather than in a screenshot. `indoor` is allowed to be renamed; what is
+  // not allowed is deciding it by asking which room a tile falls in.
+  const src = readFileSync(new URL('../src/screens/JobsiteScreen.js', import.meta.url), 'utf8');
+  const i = src.indexOf('const indoor = useCallback(');
+  assert.ok(i > 0, 'the indoor predicate moved — check what replaced it');
+  const body = src.slice(i, src.indexOf('[]', i));
+  assert.equal(/ROOMS\.some/.test(body), false,
+    'indoor() is testing room membership again — every corridor becomes lawn');
+  assert.ok(/onSlab\(/.test(body), 'indoor() no longer asks whether the tile is on the pad');
 });

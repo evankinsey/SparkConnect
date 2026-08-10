@@ -18,7 +18,7 @@ import {
   extractTradeSize, matchTool, readyForTool,
 } from '../src/core/ai/router.js';
 import { TOOLS, runTool, toolById, toolManifest, adjustmentFactor } from '../src/core/ai/tools.js';
-import { KNOWLEDGE, find, byId, knowledgeBase } from '../src/core/ai/knowledge.js';
+import { KNOWLEDGE, find, byId, knowledgeBase, Authority } from '../src/core/ai/knowledge.js';
 import { ask, ground, inheritParams, modelContext, SYSTEM_RULES, MEMORY_TURNS } from '../src/core/ai/sparkai.js';
 import { resolveCitation } from '../src/nec/citations.js';
 import { createDevice, Origin } from '../src/core/blueprint/device.js';
@@ -425,11 +425,35 @@ test('an unknown tool refuses', () => {
 
 test('EVERY citation in the knowledge base resolves', () => {
   for (const e of KNOWLEDGE) {
+    if (e.authority === Authority.LOCAL) continue;
     assert.ok(e.refs.length > 0, `${e.id} states something with no reference`);
     for (const ref of e.refs) {
       assert.ok(resolveCitation(ref), `${e.id} cites "${ref}", which does not resolve`);
     }
   }
+});
+
+// The permits entry carried NEC 230.70(A)(1) — the service disconnect location
+// — because the schema demanded a citation and there is no NEC section on
+// permits to give it. A required field that cannot be answered honestly gets
+// answered dishonestly, so the rule is now two-sided: an entry that says the
+// authority is local may not also cite the code.
+test('an entry whose authority is local cites no NEC section at all', () => {
+  for (const e of KNOWLEDGE) {
+    if (e.authority !== Authority.LOCAL) continue;
+    assert.equal(e.refs.length, 0,
+      `${e.id} says the authority is the AHJ and then cites ${e.refs.join(', ')} anyway`);
+    assert.ok(e.basis?.length > 20,
+      `${e.id} claims local authority without saying which document that is`);
+  }
+});
+
+test('nothing in the knowledge base cites a section about something else', () => {
+  // Spot-check the one that got through, so a future edit cannot restore it.
+  const permits = KNOWLEDGE.find((e) => e.id === 'permits');
+  assert.ok(permits, 'the permits entry vanished');
+  assert.equal(permits.refs.includes('NEC 230.70(A)(1)'), false,
+    'permits is citing the service disconnect location again');
 });
 
 test('knowledge entries state principle, never a specific answer', () => {
@@ -920,9 +944,13 @@ test('nothing in the corpus refuses when the model behaves', async () => {
 
 test('every reference entry cites something that resolves', () => {
   for (const e of knowledgeBase.all) {
-    assert.ok(e.refs.length > 0, `${e.id} states a fact with no citation`);
-    for (const ref of e.refs) {
-      assert.ok(resolveCitation(ref), `${e.id} cites ${ref}, which does not resolve`);
+    if (e.authority === Authority.LOCAL) {
+      assert.equal(e.refs.length, 0, `${e.id} claims local authority and cites the NEC too`);
+    } else {
+      assert.ok(e.refs.length > 0, `${e.id} states a fact with no citation`);
+      for (const ref of e.refs) {
+        assert.ok(resolveCitation(ref), `${e.id} cites ${ref}, which does not resolve`);
+      }
     }
     assert.ok(e.short?.length > 20 && e.explain?.length > 40, `${e.id} is too thin to be useful`);
   }
