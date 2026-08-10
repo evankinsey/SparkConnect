@@ -645,9 +645,15 @@ test('the free-answer count in the copy is the one the app enforces', async () =
   assert.doesNotMatch(gating, /sparky:\s*\d+/, 'useGating hardcodes the allowance again');
   assert.match(gating, /FREE_LIMITS\[Feature\.SPARK_AI\]\.limit/);
 
-  // The message reads the constant rather than spelling a number.
-  assert.match(src, /const FREE_ASK_LIMIT = FREE_LIMITS/);
-  assert.match(src, /RATE_LIMIT_MESSAGE/);
+  // THE RULE GOT STRICTER. Reading the constant was not enough: the app does
+  // not meter SparkAI at all — the server does, and the app learns it ran out
+  // by receiving a 429. So even a correctly-sourced app-side number is a claim
+  // about a count the app did not make, and it is wrong the moment the two
+  // systems disagree. The message now states a figure only when the SERVER
+  // supplied one, and the constant is gone entirely.
+  assert.doesNotMatch(src, /const FREE_ASK_LIMIT/,
+    'the app defines a free-answer constant again — see limitMessage.js');
+  assert.match(src, /limitLine\(/, 'the rate-limit message is not the honest one');
   assert.doesNotMatch(src, /used your \$\{isPro \? '100 monthly' : '5 daily'\}/,
     'the hardcoded mismatched count is back');
 });

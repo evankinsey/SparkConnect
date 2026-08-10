@@ -31,6 +31,7 @@ import {
   FREE_LIMITS, Feature, proAskAllowanceLabel, usageLabel, planFor, Plan,
 } from './src/core/paywall/entitlements';
 import { Source as PaywallSource, heroFor, paywallEvent } from './src/core/paywall/contexts';
+import { limitLine } from './src/core/paywall/limitMessage';
 import { CAST_IMAGES } from './src/screens/castImages';
 import { buildPulse, dayIndexFor } from './src/core/home/pulse';
 import { getDailyQuestion } from './src/core/content/dailyQuestions';
@@ -522,10 +523,22 @@ const scoredSearch = (rawQuery) => {
  * received five. A number that appears in copy and again in a limit check is
  * one number, and it lives in the module that enforces it.
  */
-const FREE_ASK_LIMIT = FREE_LIMITS[Feature.SPARK_AI]?.limit ?? 3;
-const RATE_LIMIT_MESSAGE =
-  `You've used your ${FREE_ASK_LIMIT} free answers for today. `
-  + 'Upgrade to Pro for more, or grab a quick answer pack.';
+/**
+ * What the last 429 actually said. Set by askNecBackend, read by whoever shows
+ * the message — so the wording comes from the server's own reason rather than
+ * from a constant in this file that the server has never seen.
+ */
+let lastLimit = { reason: null, serverLimit: null };
+
+/**
+ * The old message interpolated the app's own FREE_ASK_LIMIT: "you've used
+ * your 5 free answers for
+ * today.` — the app's number, in a sentence about the server's decision. When
+ * they disagree the user is cut off after three and told they used five, which
+ * is the first bug ever reported on this project. It states a count only when
+ * the server supplied one.
+ */
+const rateLimitText = (isPro = false) => limitLine({ ...lastLimit, isPro });
 
 // Backend placeholder — returns null until URL is configured
 const askNecBackend = async (payload) => {
@@ -548,7 +561,21 @@ const askNecBackend = async (payload) => {
       body: JSON.stringify(payload),
     });
     clearTimeout(to);
-    if (res.status === 429) return 'rate_limited';
+    if (res.status === 429) {
+      // Keep what the server said. The reason names WHICH ceiling was hit and
+      // any figure in the body is the only trustworthy count — the app does not
+      // meter SparkAI, so its own constant is not evidence of anything.
+      let reason = null;
+      let serverLimit = null;
+      try {
+        const body = await res.json();
+        reason = body?.error ?? null;
+        const n = Number(body?.dailyLimit ?? body?.limit);
+        if (Number.isFinite(n) && n > 0) serverLimit = n;
+      } catch { /* an empty or non-JSON 429 is still a 429 */ }
+      lastLimit = { reason, serverLimit };
+      return 'rate_limited';
+    }
     if (!res.ok) {
       // Return the STATUS rather than collapsing it to null.
       //
@@ -1939,7 +1966,7 @@ const EstimatorScreen = ({ C, setTab, isPro = false, planType = 'free' }) => {
         planType,
       });
       if (res === 'rate_limited') {
-        setPriceAsk({ state: 'FAILED', text: null, error: RATE_LIMIT_MESSAGE });
+        setPriceAsk({ state: 'FAILED', text: null, error: rateLimitText(isPro) });
         return;
       }
       if (!res?.answer) {
@@ -2668,7 +2695,7 @@ const NecAiScreen = ({ C, setTab, initialSearch = '', clearInitSearch, onUpgrade
         id: Date.now().toString(), role: 'sparky', isRateLimit: true,
         text: isPro
           ? "You've reached this month's SparkAI allowance. An answer pack tops you back up straight away."
-          : RATE_LIMIT_MESSAGE,
+          : rateLimitText(isPro),
       }]);
     } else if (pipeline.provenance !== SparkProvenance.REFUSED) {
       setMessages(prev => [...prev, {
