@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 
 import {
   ART, Source, artLayer, readSprite, isValidSprite, missingArt, placeSprite, ART_RULES,
+  TILED, isTiled, tileVariant, variantTransform,
 } from '../src/core/game/artLayer.js';
 import { PROPS, PropKind, ROOM_STORY, propsInRoom, buildSiteMap, protectedTiles, reachableFrom } from '../src/core/game/props.js';
 
@@ -187,4 +188,81 @@ test('the atlas is declared in one place and is honest about being absent', () =
   const code = src.split('\n').filter((l) => !/^\s*(\*|\/\/)/.test(l)).join('\n');
   assert.equal((code.match(/require\(/g) ?? []).length, 0,
     'no asset is required until there is one to require');
+});
+
+// ─── Tiling ──────────────────────────────────────────────────────────────────
+// A floor is a thousand copies of one image. Anything in that image lands at
+// the same place in every copy and the eye assembles it into a grid — which is
+// how a good texture makes a bad floor.
+
+test('a repeating tile gets a stable orientation, and neighbours differ', () => {
+  // Stable: a floor that reshuffles as you walk is worse than one with a grid.
+  assert.equal(tileVariant(5, 5), tileVariant(5, 5));
+  assert.equal(tileVariant(0, 0), tileVariant(0, 0));
+
+  // And adjacent tiles must not agree, or the variation achieves nothing.
+  let sameAsNeighbour = 0;
+  for (let y = 0; y < 14; y++) {
+    for (let x = 0; x < 26; x++) {
+      if (tileVariant(x, y) === tileVariant(x + 1, y)) sameAsNeighbour++;
+    }
+  }
+  assert.ok(sameAsNeighbour < 26 * 14 * 0.25,
+    `${sameAsNeighbour} tiles match their neighbour — the variation is banding`);
+});
+
+test('the orientations are evenly spread over a real floor', () => {
+  const counts = {};
+  for (let y = 0; y < 14; y++) {
+    for (let x = 0; x < 26; x++) {
+      const v = tileVariant(x, y);
+      counts[v] = (counts[v] ?? 0) + 1;
+    }
+  }
+  assert.equal(Object.keys(counts).length, 8, 'not every orientation is used');
+  const values = Object.values(counts);
+  const spread = Math.max(...values) - Math.min(...values);
+  assert.ok(spread <= 364 * 0.05, `orientation counts vary by ${spread} — the hash is clumping`);
+});
+
+test('only the ground repeats — directional art is never turned', () => {
+  assert.equal(isTiled('SlabTile'), true);
+  // A wall run, a conduit run and a fence have an orientation that means
+  // something. Mirroring one breaks the run it belongs to.
+  for (const directional of ['StudWall', 'EmtRun', 'FenceRun', 'BarJoist', 'Worker', 'WorkTruck']) {
+    assert.equal(isTiled(directional), false, `${directional} would be mirrored`);
+  }
+});
+
+test('a variant transform turns about the sprite, not about the world', () => {
+  const box = { left: 720, top: 360, width: 72, height: 72 };
+  // Identity must not move anything.
+  assert.doesNotMatch(variantTransform(0, box), /rotate|scale/);
+
+  const turned = variantTransform(4, box);
+  assert.match(turned, /translate\(756, 396\)/, 'the pivot is not the sprite centre');
+  assert.match(turned, /rotate\(90\)/);
+  assert.match(turned, /translate\(-756, -396\)/, 'the sprite is not translated back');
+
+  // A mirror is a scale of -1 on one axis only.
+  assert.match(variantTransform(1, box), /scale\(-1, 1\)/);
+  assert.match(variantTransform(2, box), /scale\(1, -1\)/);
+});
+
+test('a non-square sprite is never given a quarter turn', () => {
+  // Rotating a 2x1 prop changes the footprint it was placed on.
+  for (let x = 0; x < 40; x++) {
+    for (let y = 0; y < 40; y++) {
+      assert.ok(tileVariant(x, y, { square: false }) < 4,
+        'a non-square sprite was offered a rotation');
+    }
+  }
+});
+
+test('the screen applies the variation, and only to tiled names', () => {
+  const src = readFileSync(new URL('../src/screens/jobsiteArt.js', import.meta.url), 'utf8');
+  assert.match(src, /isTiled\(name\)/, 'every sprite would be turned, including directional runs');
+  assert.match(src, /tileVariant\(tx, ty/, 'the orientation is not derived from the tile');
+  assert.match(src, /square: r\.sprite\.w === r\.sprite\.h/,
+    'a non-square sprite could be rotated off its footprint');
 });

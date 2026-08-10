@@ -157,6 +157,69 @@ export const placeSprite = (sprite, { tileX, tileY, tile }) => {
   });
 };
 
+// ─── Tiling ──────────────────────────────────────────────────────────────────
+
+/**
+ * The names that REPEAT across the ground, and therefore need breaking up.
+ *
+ * A floor is a thousand copies of one image. Any feature in that image — a
+ * control joint, a dark patch, a crack — lands at the same place in every copy
+ * and the eye assembles it into a grid instantly. That grid is the single most
+ * common way a good texture makes a bad floor.
+ *
+ * Directional art is deliberately NOT on this list. A wall run, a conduit run
+ * and a fence have an orientation that means something, and mirroring one
+ * breaks the run it belongs to.
+ */
+export const TILED = Object.freeze(['SlabTile']);
+
+export const isTiled = (name) => TILED.includes(name);
+
+/**
+ * A stable, well-spread orientation for a tile.
+ *
+ * Deterministic from the coordinates, so a floor does not reshuffle itself
+ * between frames or between visits — a floor that flickers as you walk is
+ * worse than a floor with a grid in it. Same discipline as the existing
+ * SlabMarks, which derive their scuffs from the tile coords for the same
+ * reason.
+ */
+export const tileVariant = (x, y, { square = true } = {}) => {
+  // A cheap integer hash. The multiplies are odd primes so the low bits move
+  // when either coordinate changes by one — an obvious `(x + y) % 4` produces
+  // diagonal banding, which is a different pattern rather than no pattern.
+  let h = (Math.floor(x) * 73856093) ^ (Math.floor(y) * 19349663);
+  h = (h ^ (h >>> 13)) >>> 0;
+  return h % (square ? 8 : 4);
+};
+
+/**
+ * The SVG transform for a variant, applied about the sprite's own centre.
+ *
+ * Variants 0-3 are the mirrors, which are safe for any aspect ratio. Variants
+ * 4-7 add quarter turns and are only offered for square sprites, because
+ * rotating a non-square one changes the footprint it was placed on.
+ *
+ * A quarter turn is what actually kills a grid: mirroring a vertical joint
+ * moves it from 75% to 25% and still leaves it vertical in every tile. Turning
+ * it lays it flat in half of them.
+ */
+export const variantTransform = (variant, box) => {
+  const b = box ?? {};
+  const cx = (b.left ?? 0) + (b.width ?? 0) / 2;
+  const cy = (b.top ?? 0) + (b.height ?? 0) / 2;
+  const v = Math.max(0, Math.floor(Number(variant) || 0)) % 8;
+  const rotate = v >= 4 ? (v - 3) * 90 : 0;   // 4→90, 5→180, 6→270, 7→360≡0
+  const sx = (v === 1 || v === 3 || v === 5 || v === 7) ? -1 : 1;
+  const sy = (v === 2 || v === 3 || v === 6 || v === 7) ? -1 : 1;
+
+  const parts = [`translate(${cx}, ${cy})`];
+  if (rotate) parts.push(`rotate(${rotate})`);
+  if (sx !== 1 || sy !== 1) parts.push(`scale(${sx}, ${sy})`);
+  parts.push(`translate(${-cx}, ${-cy})`);
+  return parts.join(' ');
+};
+
 /**
  * Rules the art itself must satisfy. Shipped as data so the brief handed to an
  * artist and the thing the code expects are the same document.

@@ -17,7 +17,7 @@
 import React from 'react';
 import { Defs, ClipPath, Rect, Image as SvgImage, G } from 'react-native-svg';
 
-import { artLayer, Source, placeSprite } from '../core/game/artLayer';
+import { artLayer, Source, placeSprite, isTiled, tileVariant, variantTransform } from '../core/game/artLayer';
 
 /**
  * The art pack, when there is one.
@@ -66,8 +66,14 @@ export function Art({ art, name, tx, ty, tile, children, ...rest }) {
     // sprite lands at the tile scale its manifest asked for.
     const k = box.width / r.sprite.w;
     const clipId = `clip-${name}-${tx}-${ty}`;
+    // A repeating texture gets a stable orientation per tile, so a thousand
+    // copies of one image stop assembling into a grid. Directional art is not
+    // on the TILED list and is never turned.
+    const transform = isTiled(name)
+      ? variantTransform(tileVariant(tx, ty, { square: r.sprite.w === r.sprite.h }), box)
+      : null;
     return (
-      <G>
+      <G transform={transform ?? undefined}>
         <Defs>
           <ClipPath id={clipId}>
             <Rect x={box.left} y={box.top} width={box.width} height={box.height} />
