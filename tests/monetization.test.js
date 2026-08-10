@@ -432,6 +432,19 @@ test('the published policy carries every tier the app can send', () => {
   assert.equal(policy.grandfatheredAt, ALLOWANCE_CHANGED_AT);
 });
 
+test('the offline fallback covers every tier the client can send', () => {
+  // A tier missing from the server's FALLBACK falls through to free. Leaving
+  // pro_legacy out would meter grandfathered members at 5 a day the first time
+  // the CDN hiccups — the exact downgrade the grandfathering prevents.
+  const src = fs.readFileSync(new URL('../server/allowance.js', import.meta.url), 'utf8');
+  const block = src.match(/const FALLBACK = Object\.freeze\(\{[\s\S]*?\n\}\);/);
+  assert.ok(block, 'the server has no offline fallback');
+  for (const plan of Object.values(Plan)) {
+    assert.ok(block[0].includes(plan),
+      `the fallback has no "${plan}" — that tier is metered as free when the policy is unreachable`);
+  }
+});
+
 test('the server module knows the grandfathered tier', () => {
   // The drop-in that goes into /api/ask-nec. If it does not recognise
   // pro_legacy it meters existing members as free, which is worse than the

@@ -46,11 +46,20 @@ const CACHE_MS = 5 * 60 * 1000;
 // CURRENT values rather than something permissive: failing open on a paid
 // allowance is a cost problem, and failing closed is a support problem, but
 // failing to the last known good policy is neither.
+/**
+ * Used only if the policy has never been fetched successfully.
+ *
+ * EVERY TIER THE CLIENT CAN SEND MUST APPEAR HERE. A tier missing from this
+ * object falls through to `free` — so leaving pro_legacy out would meter
+ * grandfathered members at 5 answers a day the first time the CDN hiccups,
+ * which is the exact downgrade the grandfathering exists to prevent.
+ */
 const FALLBACK = Object.freeze({
   version: 0,
   tiers: {
     free: { perDay: 5, perMonth: null },
     pro: { perDay: 10, perMonth: 250 },
+    pro_legacy: { perDay: 20, perMonth: 500 },
     lifetime: { perDay: 5, perMonth: null },
   },
 });
