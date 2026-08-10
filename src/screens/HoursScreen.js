@@ -21,6 +21,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   HoursKind, hoursKind, hoursKindForRole, hoursEntry, totalHours,
   hoursThisWeek, hoursProgress,
+  todayISO, recentDays, dayLabel, isLoggableDay, byDayDesc,
 } from '../core/career/apprenticeship';
 
 const KEY = '@sc_hours_v1';
@@ -33,6 +34,13 @@ export default function HoursScreen({ C, role = null, setTab }) {
   const [hours, setHours] = useState('8');
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [note, setNote] = useState('');
+  // Which day these hours belong to. Defaults to today, because that is the
+  // common case — but hours are logged late far more often than they are logged
+  // on the day, and a ledger that can only say "now" quietly files a whole
+  // week's catch-up under one date.
+  const [day, setDay] = useState(() => todayISO());
+  const [olderDraft, setOlderDraft] = useState('');
+  const [pickingOlder, setPickingOlder] = useState(false);
   const [editingTarget, setEditingTarget] = useState(false);
   const [targetDraft, setTargetDraft] = useState('');
 
@@ -82,14 +90,24 @@ export default function HoursScreen({ C, role = null, setTab }) {
   const week = useMemo(() => hoursThisWeek(entries), [entries]);
 
   const log = useCallback(async () => {
-    const e = hoursEntry({ hours, category, note });
+    if (!isLoggableDay(day)) {
+      Alert.alert(
+        'Check that date',
+        'Use YYYY-MM-DD, and a day that has already happened — hours cannot be logged ahead of today.',
+      );
+      return;
+    }
+    const e = hoursEntry({ hours, category, note, date: day });
     if (!e) {
       Alert.alert('Check that number', 'Enter the hours worked — more than zero and no more than 24 in a day.');
       return;
     }
     await persist({ ...state, entries: [{ ...e, kind: kindId }, ...(state?.entries ?? [])] });
     setNote('');
-  }, [hours, category, note, state, kindId, persist]);
+    // The day deliberately STAYS where it is. Catching up on a week means five
+    // entries in a row on five different days, and resetting to today after
+    // each one is the behaviour that makes people give up halfway.
+  }, [hours, category, note, day, state, kindId, persist]);
 
   const saveTarget = useCallback(async () => {
     const n = Number(targetDraft);
@@ -209,7 +227,84 @@ export default function HoursScreen({ C, role = null, setTab }) {
             style={{ width: 84, backgroundColor: C.inputBg, borderRadius: 9, padding: 12, color: C.inputText, fontSize: 18, fontWeight: '800', textAlign: 'center', borderWidth: 1, borderColor: C.border }}
           />
           <Text style={{ fontSize: 13, color: C.textSec, fontWeight: '600' }}>hours</Text>
+          <View style={{ flex: 1 }} />
+          <Text style={{ fontSize: 12, color: day === todayISO() ? C.textTert : C.amber, fontWeight: '700' }}>
+            {dayLabel(day)}
+          </Text>
         </View>
+
+        {/* WHICH DAY. Hours get written up on the drive home, on Sunday night,
+            or the week before a review — almost never on the clock. A ledger
+            that can only say "now" turns a week of catching up into five
+            entries all dated today, and that is the version somebody has to
+            defend later. The last fortnight is one tap; anything older is a
+            typed date, which is rare enough to deserve the friction. */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
+          <View style={{ flexDirection: 'row', gap: 7, alignItems: 'center' }}>
+            {recentDays(14).map((d) => {
+              const on = day === d.iso;
+              return (
+                <TouchableOpacity key={d.iso} onPress={() => { setDay(d.iso); setPickingOlder(false); }}
+                  accessibilityRole="radio" accessibilityState={{ selected: on }}
+                  accessibilityLabel={`Log against ${dayLabel(d.iso)}`}
+                  style={{
+                    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 9,
+                    alignItems: 'center', minWidth: 54,
+                    backgroundColor: on ? C.amberBg : C.inputBg,
+                    borderWidth: 1.5, borderColor: on ? C.amber : C.border,
+                  }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: on ? C.amber : C.textTert }}>
+                    {d.offset === 0 ? 'Today' : d.offset === 1 ? 'Yest' : d.weekday}
+                  </Text>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: on ? C.amber : C.textSec, marginTop: 1 }}>
+                    {d.day}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity onPress={() => { setPickingOlder((v) => !v); setOlderDraft(day); }}
+              accessibilityRole="button" accessibilityLabel="Log against an older date"
+              style={{
+                paddingHorizontal: 12, paddingVertical: 7, borderRadius: 9, minWidth: 54,
+                alignItems: 'center', backgroundColor: C.inputBg,
+                borderWidth: 1.5, borderColor: pickingOlder ? C.blue : C.border,
+              }}>
+              <Ionicons name="calendar-outline" size={13} color={pickingOlder ? C.blue : C.textTert} />
+              <Text style={{ fontSize: 10, fontWeight: '700', color: pickingOlder ? C.blue : C.textTert, marginTop: 2 }}>
+                Older
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+
+        {pickingOlder ? (
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'center' }}>
+            <TextInput
+              value={olderDraft}
+              onChangeText={setOlderDraft}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={C.textTert}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="numbers-and-punctuation"
+              accessibilityLabel="Date worked, as year dash month dash day"
+              style={{ flex: 1, backgroundColor: C.inputBg, borderRadius: 9, padding: 11, color: C.inputText, fontSize: 13, borderWidth: 1, borderColor: C.border }}
+            />
+            <TouchableOpacity
+              onPress={() => {
+                if (!isLoggableDay(olderDraft)) {
+                  Alert.alert('Check that date', 'Use YYYY-MM-DD, and a day that has already happened.');
+                  return;
+                }
+                setDay(olderDraft);
+                setPickingOlder(false);
+              }}
+              accessibilityRole="button"
+              style={{ backgroundColor: C.blue, paddingHorizontal: 16, paddingVertical: 11, borderRadius: 9 }}>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: '#fff' }}>Use</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
           <View style={{ flexDirection: 'row', gap: 7 }}>
@@ -254,13 +349,13 @@ export default function HoursScreen({ C, role = null, setTab }) {
           Nothing logged yet. Log your first day above — the week it happens is the only time
           you will remember it accurately.
         </Text>
-      ) : entries.slice(0, 40).map((e) => (
+      ) : byDayDesc(entries).slice(0, 40).map((e) => (
         <View key={e.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: C.surface, borderRadius: 11, padding: 12, marginBottom: 7, borderWidth: 1, borderColor: C.border }}>
           <Text style={{ fontSize: 15, fontWeight: '800', color: C.text, width: 46 }}>{e.hours}h</Text>
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: 12.5, color: C.text, fontWeight: '600' }}>{e.category || 'Logged'}</Text>
             <Text style={{ fontSize: 10.5, color: C.textTert, marginTop: 2 }}>
-              {e.date}{e.note ? ` · ${e.note}` : ''}
+              {dayLabel(e.date)}{e.note ? ` · ${e.note}` : ''}
             </Text>
           </View>
           <TouchableOpacity onPress={() => remove(e.id)} hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}

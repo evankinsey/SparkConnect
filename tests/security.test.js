@@ -214,3 +214,77 @@ test('the kill switch says what it will not touch', () => {
   assert.match(KILL_SWITCH_NOTE, /cannot be removed/i);
   assert.match(KILL_SWITCH_NOTE, /Calculators/);
 });
+
+// ─── A kill has to actually hide the thing ───────────────────────────────────
+// Turning a feature off from the website hid its SCREEN and nothing else. The
+// Home tile stayed put — "Contractor Connect · Opportunities, qualifiers,
+// licences" — and tapping it landed on "Temporarily unavailable". That is not
+// hidden, it is advertised and then withdrawn, which reads worse than leaving
+// the feature switched on. This matters for launch: Contractor Connect is the
+// one feature most likely to be switched off, and switching it off has to
+// leave no trace of it on Home.
+
+import { TAB_FEATURE, isTabHidden, tabHider } from '../src/core/killSwitch.js';
+import { allToolsGrouped, DEFAULT_LAYOUT, resolveLayout } from '../src/core/home/layout.js';
+
+test('killing Contractor Connect hides its tab', () => {
+  const reg = { CONTRACTOR_CONNECT: { disabled: true } };
+  assert.equal(isTabHidden('connect', reg), true);
+});
+
+test('killing one feature hides only that one', () => {
+  const reg = { CONTRACTOR_CONNECT: { disabled: true } };
+  for (const tab of Object.keys(TAB_FEATURE)) {
+    if (TAB_FEATURE[tab] === 'CONTRACTOR_CONNECT') continue;
+    assert.equal(isTabHidden(tab, reg), false, `${tab} was hidden by an unrelated kill`);
+  }
+});
+
+test('no config, bad config or missing registry hides nothing — it fails OPEN', () => {
+  for (const reg of [null, undefined, {}, { CONTRACTOR_CONNECT: null }, { CONTRACTOR_CONNECT: {} }]) {
+    assert.equal(isTabHidden('connect', reg), false, `hid a feature on ${JSON.stringify(reg)}`);
+  }
+  // 'disabled' must be exactly true. A truthy string from a hand-edited config
+  // is a typo, and a typo must not take a feature away.
+  assert.equal(isTabHidden('connect', { CONTRACTOR_CONNECT: { disabled: 'yes' } }), false);
+});
+
+test('the tabs that must never be killable are not on the map', () => {
+  // A config, however wrong, cannot strand somebody with no way out or take
+  // away the calculators they paid for.
+  for (const tab of ['home', 'settings', 'calculators', 'volt', 'wire', 'boxfill',
+    'conduitfill', 'ampacity', 'bend', 'formulas', 'permits']) {
+    assert.equal(TAB_FEATURE[tab], undefined, `${tab} is remotely killable and must not be`);
+    assert.equal(isTabHidden(tab, { [TAB_FEATURE[tab]]: { disabled: true } }), false);
+  }
+});
+
+test('every killable tab is a real destination', () => {
+  const app = readFileSync(new URL('../App.js', import.meta.url), 'utf8');
+  const valid = app.slice(app.indexOf('const VALID_TABS = ['));
+  const list = valid.slice(0, valid.indexOf('];'));
+  for (const tab of Object.keys(TAB_FEATURE)) {
+    assert.ok(list.includes(`'${tab}'`), `killable tab "${tab}" is not in VALID_TABS`);
+  }
+});
+
+test('a killed feature loses its Home shortcut, not just its screen', () => {
+  const hide = tabHider({ CONTRACTOR_CONNECT: { disabled: true } });
+  const cards = resolveLayout(DEFAULT_LAYOUT).filter((c) => !(c.tab && hide(c.tab)));
+  assert.equal(cards.some((c) => c.tab === 'connect'), false,
+    'the Contractor Connect tile survived the kill');
+  assert.ok(cards.length > 0, 'one kill must not empty Home');
+});
+
+test('a killed feature loses its All Tools entry too', () => {
+  const hide = tabHider({ CONTRACTOR_CONNECT: { disabled: true } });
+  const groups = allToolsGrouped()
+    .map((g) => ({ ...g, cards: (g.cards ?? []).filter((c) => !(c.tab && hide(c.tab))) }))
+    .filter((g) => g.cards.length > 0);
+  const all = groups.flatMap((g) => g.cards);
+  assert.equal(all.some((c) => c.tab === 'connect'), false, 'still listed under All Tools');
+  // The shape check that matters: allToolsGrouped returns `cards`, not `items`.
+  // Reading the wrong key would silently empty every group and delete the whole
+  // All Tools section rather than one entry.
+  assert.ok(all.length > 10, `All Tools collapsed to ${all.length} entries`);
+});

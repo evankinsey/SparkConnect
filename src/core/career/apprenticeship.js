@@ -256,8 +256,101 @@ export const hoursKindForRole = (role) => {
   return (r === 'apprentice' || r === 'student') ? HoursKind.OJT : HoursKind.CONTINUING_ED;
 };
 
+// ─── Calendar days ───────────────────────────────────────────────────────────
+// Everything here works in the user's LOCAL calendar day, never UTC.
+//
+// `new Date().toISOString().slice(0,10)` — which is what this file used — is
+// the UTC day. For anyone west of Greenwich that rolls over during the working
+// evening: 7pm in New York is already tomorrow in UTC, so a sparky logging the
+// day's hours on the drive home got them stamped with tomorrow's date. On a
+// record somebody will be asked to prove, silently filing Tuesday's work under
+// Wednesday is the kind of error that surfaces a year later in front of the
+// person checking it.
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Today, in the calendar the user is standing in. */
+export const todayISO = (now = new Date()) => {
+  const d = new Date(now);
+  if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/** `n` days before the given day, as an ISO day string. */
+export const shiftDay = (iso, days) => {
+  if (!ISO_DAY.test(String(iso ?? ''))) return todayISO();
+  const [y, m, d] = iso.split('-').map(Number);
+  // Midday, so a DST shift cannot push the arithmetic onto the wrong date.
+  const t = new Date(y, m - 1, d, 12, 0, 0);
+  t.setDate(t.getDate() + days);
+  return todayISO(t);
+};
+
+/**
+ * Is this a day hours could actually have been worked on?
+ *
+ * The rule that matters is the future one. Nobody worked tomorrow, and an entry
+ * dated ahead of today quietly inflates a total that has to hold up. The far
+ * past is bounded too, but loosely — a long programme is genuinely years, and
+ * refusing a real backdated entry is worse than storing an odd one.
+ */
+export const isLoggableDay = (iso, now = new Date()) => {
+  if (!ISO_DAY.test(String(iso ?? ''))) return false;
+  const today = todayISO(now);
+  if (iso > today) return false;
+  return iso >= shiftDay(today, -365 * 15);
+};
+
+/**
+ * The last `n` days, newest first, ready to render as a row of chips.
+ *
+ * This is the actual answer to "let me record it retroactively": almost every
+ * late entry is from the past week or two, and picking "Thu" is one tap where
+ * typing a date is a keyboard, a format and a chance to get it wrong.
+ */
+export const recentDays = (n = 7, now = new Date()) => {
+  const today = todayISO(now);
+  const out = [];
+  for (let i = 0; i < Math.max(1, n); i++) {
+    const iso = shiftDay(today, -i);
+    const [y, m, d] = iso.split('-').map(Number);
+    const at = new Date(y, m - 1, d, 12, 0, 0);
+    out.push(Object.freeze({
+      iso,
+      day: d,
+      weekday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][at.getDay()],
+      label: i === 0 ? 'Today' : i === 1 ? 'Yesterday'
+        : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][at.getDay()],
+      offset: i,
+    }));
+  }
+  return Object.freeze(out);
+};
+
+/** How a stored day reads in a list. Falls back to the raw value rather than hiding it. */
+export const dayLabel = (iso, now = new Date()) => {
+  if (!ISO_DAY.test(String(iso ?? ''))) return String(iso ?? '');
+  const today = todayISO(now);
+  if (iso === today) return 'Today';
+  if (iso === shiftDay(today, -1)) return 'Yesterday';
+  const [y, m, d] = iso.split('-').map(Number);
+  const at = new Date(y, m - 1, d, 12, 0, 0);
+  const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1];
+  const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][at.getDay()];
+  return y === new Date(now).getFullYear()
+    ? `${weekday} ${d} ${month}`
+    : `${weekday} ${d} ${month} ${y}`;
+};
+
+/** Newest day first. Entries arrive in the order they were TYPED, which is not the order worked. */
+export const byDayDesc = (entries = []) =>
+  Object.freeze([...(Array.isArray(entries) ? entries : [])].sort((a, b) => {
+    const d = String(b?.date ?? '').localeCompare(String(a?.date ?? ''));
+    return d !== 0 ? d : String(b?.id ?? '').localeCompare(String(a?.id ?? ''));
+  }));
+
 /** One logged block of time. `note` is what makes it defensible a year later. */
-export const hoursEntry = (input) => {
+export const hoursEntry = (input, now = new Date()) => {
   // Defaults only fire for `undefined`, so an explicit null — which is what a
   // storage read that found nothing returns — would throw here.
   const { hours, date, category = null, note = '' } = input ?? {};
@@ -266,10 +359,14 @@ export const hoursEntry = (input) => {
   // A day longer than 24 hours is a typo, and a typo in a record somebody will
   // be asked to prove is worse than a rejected entry.
   if (h > 24) return null;
+  // A date that was SUPPLIED and is not loggable is rejected outright. Falling
+  // back to today would be worse than refusing: the entry saves, looks right,
+  // and is filed under a day the work did not happen on.
+  if (date !== undefined && date !== null && date !== '' && !isLoggableDay(date, now)) return null;
   return Object.freeze({
     id: `h${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
     hours: Math.round(h * 100) / 100,
-    date: date || new Date().toISOString().slice(0, 10),
+    date: date || todayISO(now),
     category: category || null,
     note: String(note ?? '').slice(0, 200),
   });
@@ -281,10 +378,14 @@ export const totalHours = (entries = []) =>
 
 /** Hours in the last seven days, which is the number that tells you if you are logging. */
 export const hoursThisWeek = (entries = [], today = new Date()) => {
-  const cutoff = new Date(today);
-  cutoff.setDate(cutoff.getDate() - 6);
-  const from = cutoff.toISOString().slice(0, 10);
-  return totalHours((Array.isArray(entries) ? entries : []).filter((e) => e?.date >= from));
+  // Local days, and bounded at BOTH ends. Backdating made the upper bound
+  // matter: without it a mistyped future date counts toward "this week"
+  // forever, which is the one number on the screen that is supposed to answer
+  // "am I actually logging?".
+  const to = todayISO(today);
+  const from = shiftDay(to, -6);
+  return totalHours((Array.isArray(entries) ? entries : [])
+    .filter((e) => e?.date >= from && e?.date <= to));
 };
 
 /**

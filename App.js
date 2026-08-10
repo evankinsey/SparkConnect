@@ -22,6 +22,7 @@ import { knowledgeBase } from './src/core/ai/knowledge';
 import { answerFooter } from './src/core/ai/answer';
 import { fetchConfig, resolveConfig, cacheIsFresh, EMPTY as EMPTY_CONFIG } from './src/core/remoteConfig';
 import { applyRemoteConfig } from './src/core/paywall/registry';
+import { TAB_FEATURE as KILLABLE_TABS, tabHider } from './src/core/killSwitch';
 import {
   Mode, MODES, modeById, promptFor, attachmentTray, Attachment,
   answerActions, AnswerAction, SIMPLIFY_PROMPT, sourceBadge, historyGroups,
@@ -921,7 +922,7 @@ const BendDiagram = ({ type, result, stub, offsetH, offsetA, C }) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ─── HOME ────────────────────────────────────────────────────────────────────
-const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, homeLayout = null, suggestion = null, onDismissSuggestion }) => {
+const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, homeLayout = null, suggestion = null, onDismissSuggestion, isHidden = null }) => {
   const [notifPromptShown, setNotifPromptShown] = React.useState(false);
   const [notifEnabled, setNotifEnabled] = React.useState(false);
   const [notifDismissed, setNotifDismissed] = React.useState(true); // assume hidden until storage answers
@@ -1236,6 +1237,7 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
 
       {/* ── Your custom cards ── */}
       <HomeCards C={C} setTab={setTab} layout={homeLayout} streak={streak}
+        isHidden={isHidden}
         onCustomize={() => setTab('customizehome')} />
 
       {/* Job Cam shortcut */}
@@ -1256,7 +1258,7 @@ const HomeScreen = ({ setTab, C, showDailyQ = true, streak = 0, onStreakUpdate, 
              first launch was unreachable for them forever: Home rendered the
              saved id list and nothing else, so Blueprint Takeoff, the Permit
              Assistant and the Panel Schedule all shipped into a void. ── */}
-      <AllToolsSection C={C} setTab={setTab} />
+      <AllToolsSection C={C} setTab={setTab} isHidden={isHidden} />
 
       {/* Streak + social proof */}
       {streak > 0 && (
@@ -5119,17 +5121,16 @@ export default function App() {
     );
   }
 
-  // Which tab is which feature, for the kill switch. Only tabs that CAN be
-  // switched off are listed — Home, Settings and the calculators are not on
-  // this map, so a bad config can never leave somebody with no way out.
-  const TAB_FEATURE = {
-    necai: Feature.SPARK_AI, jobsite: Feature.JOBSITE, wiringlab: Feature.WIRING_LESSON,
-    troubleshoot: Feature.TROUBLESHOOT, blueprint: Feature.BLUEPRINT, projects: Feature.JOB_CAM,
-    // The one on this map that is most likely to be used: a beta whose matching
-    // depends on somebody reading an inbox. If that stops, this goes off from
-    // the website rather than waiting for a review.
-    connect: Feature.CONTRACTOR_CONNECT,
-  };
+  // Which tab is which feature, for the kill switch. The map lives in
+  // core/killSwitch.js because Home reads it too: a killed feature has to lose
+  // its shortcut as well as its screen, and two copies of this list would
+  // eventually disagree about which. Only tabs that CAN be switched off are on
+  // it — Home, Settings and the calculators are absent, so a bad config can
+  // never leave somebody with no way out.
+  const TAB_FEATURE = KILLABLE_TABS;
+  // Passed to Home so a killed feature's tile disappears rather than becoming
+  // an advert for "Temporarily unavailable".
+  const isTabHiddenNow = React.useMemo(() => tabHider(featureRegistry), [featureRegistry]);
 
   const renderScreen = () => {
     // A feature turned off from the website says so, rather than crashing,
@@ -5155,7 +5156,7 @@ export default function App() {
       );
     }
     switch (tab) {
-      case 'home':        return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} homeLayout={homeLayout} suggestion={firstSuggestion} onDismissSuggestion={dismissSuggestion} />;
+      case 'home':        return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} homeLayout={homeLayout} suggestion={firstSuggestion} onDismissSuggestion={dismissSuggestion} isHidden={isTabHiddenNow} />;
       case 'calculators': return <CalculatorsScreen setTab={navigateTo} C={C} />;
       case 'bend':        return <BendScreen C={C} setTab={navigateTo} />;
       case 'volt':        return <VoltScreen C={C} setTab={navigateTo} />;
@@ -5198,7 +5199,7 @@ export default function App() {
       // here — a deep link, saved nav state, an old shortcut — lands on
       // Projects, which is where its photos were migrated to.
       case 'jobcam':      return <ProjectsScreen C={C} setTab={navigateTo} />;
-      default:            return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} />;
+      default:            return <HomeScreen key={homeKey} setTab={navigateTo} C={C} showDailyQ={showDailyQ} streak={streak} onStreakUpdate={updateStreak} isHidden={isTabHiddenNow} />;
     }
   };
 

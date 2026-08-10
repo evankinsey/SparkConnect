@@ -126,3 +126,97 @@ test('a screen gets everything in one call, disclaimer included', () => {
   assert.ok(h.firstSteps.length > 0);
   assert.equal(h.disclaimer, CAREER_DISCLAIMER);
 });
+
+// ─── Backdating hours ────────────────────────────────────────────────────────
+// "You should be able to retroactively record dates for OJT" — and the reason
+// it matters is that nobody writes hours up on the clock. They go in on the
+// drive home, on Sunday night, or the week before a review. A ledger that can
+// only say "now" turns a week of catching up into five entries all dated today,
+// and that is the version somebody has to defend to their programme.
+
+import {
+  todayISO, shiftDay, isLoggableDay, recentDays, dayLabel, byDayDesc,
+  hoursEntry, hoursThisWeek,
+} from '../src/core/career/apprenticeship.js';
+
+test('today is the LOCAL calendar day, not the UTC one', () => {
+  // The bug this replaces: `new Date().toISOString().slice(0,10)` is the UTC
+  // day. 7pm in New York is already tomorrow in UTC, so hours logged on the
+  // drive home were filed under tomorrow's date.
+  const evening = new Date(2026, 7, 10, 21, 30, 0); // 9:30pm local, 10 Aug
+  assert.equal(todayISO(evening), '2026-08-10');
+  const earlyHours = new Date(2026, 0, 1, 0, 30, 0); // 12:30am local, 1 Jan
+  assert.equal(todayISO(earlyHours), '2026-01-01');
+});
+
+test('shiftDay walks the calendar, including across months and years', () => {
+  assert.equal(shiftDay('2026-08-10', -1), '2026-08-09');
+  assert.equal(shiftDay('2026-08-01', -1), '2026-07-31');
+  assert.equal(shiftDay('2026-01-01', -1), '2025-12-31');
+  assert.equal(shiftDay('2024-03-01', -1), '2024-02-29', 'leap day');
+});
+
+test('a day in the future cannot be logged', () => {
+  const now = new Date(2026, 7, 10, 12, 0, 0);
+  assert.equal(isLoggableDay('2026-08-10', now), true, 'today is fine');
+  assert.equal(isLoggableDay('2026-08-09', now), true, 'yesterday is the whole point');
+  assert.equal(isLoggableDay('2026-08-11', now), false, 'nobody worked tomorrow');
+  assert.equal(isLoggableDay('not-a-date', now), false);
+  assert.equal(isLoggableDay('', now), false);
+  assert.equal(isLoggableDay(null, now), false);
+});
+
+test('a supplied bad date is REFUSED, never quietly replaced with today', () => {
+  const now = new Date(2026, 7, 10, 12, 0, 0);
+  // Falling back to today is worse than refusing: the entry saves, looks
+  // right, and is filed under a day the work did not happen on.
+  assert.equal(hoursEntry({ hours: 8, date: '2026-08-11' }, now), null, 'future date');
+  assert.equal(hoursEntry({ hours: 8, date: 'yesterday' }, now), null, 'unparseable');
+  // Omitting it entirely still means today, which is the common case.
+  assert.equal(hoursEntry({ hours: 8 }, now).date, '2026-08-10');
+  // And a real backdated entry goes in untouched.
+  assert.equal(hoursEntry({ hours: 6.5, date: '2026-07-28' }, now).date, '2026-07-28');
+});
+
+test('recentDays offers the last fortnight, newest first', () => {
+  const now = new Date(2026, 7, 10, 12, 0, 0); // Monday 10 Aug 2026
+  const days = recentDays(14, now);
+  assert.equal(days.length, 14);
+  assert.equal(days[0].iso, '2026-08-10');
+  assert.equal(days[0].offset, 0);
+  assert.equal(days[13].iso, '2026-07-28');
+  assert.equal(new Set(days.map((d) => d.iso)).size, 14, 'no repeated days');
+  for (const d of days) assert.equal(isLoggableDay(d.iso, now), true, `${d.iso} is offered but not loggable`);
+});
+
+test('the entry list reads in the order the work happened, not the order it was typed', () => {
+  // Catching up on a week means typing Friday before Tuesday. Insertion order
+  // would show Friday above Tuesday above Thursday, which reads as a mistake.
+  const typed = [
+    { id: 'a', date: '2026-08-07', hours: 8 },
+    { id: 'b', date: '2026-08-04', hours: 8 },
+    { id: 'c', date: '2026-08-10', hours: 6 },
+  ];
+  assert.deepEqual(byDayDesc(typed).map((e) => e.id), ['c', 'a', 'b']);
+  assert.deepEqual(typed.map((e) => e.id), ['a', 'b', 'c'], 'must not sort in place');
+});
+
+test('hoursThisWeek is bounded at both ends', () => {
+  const now = new Date(2026, 7, 10, 12, 0, 0);
+  const entries = [
+    { date: '2026-08-10', hours: 8 },   // today
+    { date: '2026-08-05', hours: 8 },   // inside the window
+    { date: '2026-08-03', hours: 8 },   // seven days back — outside
+    { date: '2026-09-01', hours: 99 },  // a mistyped future date
+  ];
+  assert.equal(hoursThisWeek(entries, now), 16);
+});
+
+test('a backdated day reads as a day, not as a timestamp', () => {
+  const now = new Date(2026, 7, 10, 12, 0, 0);
+  assert.equal(dayLabel('2026-08-10', now), 'Today');
+  assert.equal(dayLabel('2026-08-09', now), 'Yesterday');
+  assert.match(dayLabel('2026-08-04', now), /Aug/);
+  assert.match(dayLabel('2025-11-02', now), /2025/, 'an older year has to say which year');
+  assert.equal(dayLabel('garbage', now), 'garbage', 'never hide a value it cannot parse');
+});

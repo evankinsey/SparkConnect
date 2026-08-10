@@ -169,3 +169,40 @@ export const killedNotice = (state) => {
 export const KILL_SWITCH_NOTE =
   'Features can be switched off remotely without an App Store release. Calculators, the Permit '
   + 'Assistant, purchases and every safety notice are exempt and cannot be removed this way.';
+
+// ─── WHAT A KILL ACTUALLY HIDES ──────────────────────────────────────────────
+// A feature turned off from the website used to hide its SCREEN and nothing
+// else. The Home tile stayed exactly where it was, still saying "Contractor
+// Connect · Opportunities, qualifiers, licences", and tapping it landed on
+// "Temporarily unavailable". That is not hidden — it is advertised and then
+// withdrawn, which reads worse than leaving the feature switched on.
+//
+// So the tab→feature map lives here rather than inside the router, and Home
+// reads the same map. One list, two consumers, no way for them to disagree.
+
+export const TAB_FEATURE = Object.freeze({
+  necai: 'SPARK_AI',
+  jobsite: 'JOBSITE',
+  wiringlab: 'WIRING_LESSON',
+  troubleshoot: 'TROUBLESHOOT',
+  blueprint: 'BLUEPRINT',
+  projects: 'JOB_CAM',
+  jobcam: 'JOB_CAM',
+  connect: 'CONTRACTOR_CONNECT',
+});
+
+/**
+ * Should this destination be hidden from menus and shortcuts entirely?
+ *
+ * Only tabs on TAB_FEATURE can be hidden. Home, Settings and the calculators
+ * are deliberately absent, so no config — however wrong — can leave somebody
+ * with no way back or take away the tools they paid for.
+ */
+export const isTabHidden = (tab, registry) => {
+  const feature = TAB_FEATURE[tab];
+  if (!feature) return false;
+  return registry?.[feature]?.disabled === true;
+};
+
+/** The predicate Home filters its cards with. Safe when config never arrived. */
+export const tabHider = (registry) => (tab) => isTabHidden(tab, registry);

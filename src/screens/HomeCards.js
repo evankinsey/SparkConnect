@@ -99,8 +99,11 @@ function ToolRow({ C, card, setTab, compact = false }) {
  * the answer to "I didn't know the app could do that" — a tool that is in the
  * bundle is on this list, on the first scroll, on every install.
  */
-export function AllToolsSection({ C, setTab }) {
-  const groups = allToolsGrouped();
+export function AllToolsSection({ C, setTab, isHidden = null }) {
+  const hide = typeof isHidden === 'function' ? isHidden : () => false;
+  const groups = allToolsGrouped()
+    .map((g) => ({ ...g, cards: (g.cards ?? []).filter((c) => !(c.tab && hide(c.tab))) }))
+    .filter((g) => g.cards.length > 0);
   return (
     <View style={{ paddingHorizontal: 16, marginTop: 8, marginBottom: 4 }}>
       <Text style={{ fontSize: 13, fontWeight: '800', color: C.textSec, letterSpacing: 0.6 }}>
@@ -124,9 +127,13 @@ export function AllToolsSection({ C, setTab }) {
   );
 }
 
-export function HomeCards({ C, setTab, layout, streak = 0, xp = 0, onCustomize }) {
+export function HomeCards({ C, setTab, layout, streak = 0, xp = 0, onCustomize, isHidden = null }) {
   if (!layout) return null;
-  const cards = resolveLayout(layout);
+  // A feature killed from the website loses its tile, not just its screen. A
+  // shortcut that survives the kill is an advert for something that then says
+  // "Temporarily unavailable", which reads worse than leaving it switched on.
+  const hide = typeof isHidden === 'function' ? isHidden : () => false;
+  const cards = resolveLayout(layout).filter((c) => !(c.tab && hide(c.tab)));
 
   return (
     <View style={{ paddingHorizontal: 16, marginBottom: 4 }}>

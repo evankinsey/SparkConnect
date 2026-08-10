@@ -26,6 +26,7 @@ import {
 import { findOutcomePromise } from '../src/core/connect/index.js';
 import { Feature } from '../src/core/paywall/entitlements.js';
 import { REGISTRY, applyRemoteConfig } from '../src/core/paywall/registry.js';
+import { TAB_FEATURE, isTabHidden } from '../src/core/killSwitch.js';
 
 const goodContact = {
   name: 'Evan K', email: 'evan@example.com', phone: '(813) 555-0148',
@@ -344,7 +345,13 @@ test('the screen is reachable, and all four pathways open from it', () => {
   assert.match(app, /case 'connect':/, 'no route renders Contractor Connect');
   assert.match(app, /ContractorConnectScreen/, 'the screen is never imported');
   assert.match(app, /'panelschedule','connect'\]/, "'connect' is not a valid tab");
-  assert.match(app, /connect: Feature\.CONTRACTOR_CONNECT/, 'the tab is not on the kill switch map');
+  // The map moved to core/killSwitch.js so that Home can read it too — a
+  // killed feature has to lose its shortcut as well as its screen. Assert the
+  // mapping itself rather than the text of one copy of it.
+  assert.equal(TAB_FEATURE.connect, Feature.CONTRACTOR_CONNECT,
+    'the tab is not on the kill switch map');
+  assert.equal(isTabHidden('connect', { [Feature.CONTRACTOR_CONNECT]: { disabled: true } }), true,
+    'switching the feature off does not hide the tab');
 
   const screen = readFileSync(new URL('../src/screens/ContractorConnectScreen.js', import.meta.url), 'utf8');
   assert.match(screen, /PATHWAYS\.map/, 'the entry screen does not render the pathways');
