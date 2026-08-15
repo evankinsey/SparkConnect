@@ -39,3 +39,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Stray uploads. The art delivery archive and two phone screenshots landed at
+# the repo root; the sprites they carried live in assets/game/raw/ now. Ignored
+# so a drag-and-drop upload does not put 20MB back in the build archive.
+/*.zip
+/IMG_*.png
