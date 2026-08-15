@@ -4780,6 +4780,20 @@ export default function App() {
     [remoteConfig],
   );
 
+  // Passed to Home so a killed feature's tile disappears rather than becoming
+  // an advert for "Temporarily unavailable".
+  //
+  // IT LIVES UP HERE WITH THE OTHER HOOKS, AND THAT IS THE WHOLE POINT. It was
+  // written next to the code that uses it, a few lines above renderScreen —
+  // which is BELOW the early returns for the splash screen and onboarding. A
+  // hook after an early return is a conditional hook: during onboarding App
+  // returns at the onboarding branch and this never runs, then the moment
+  // onboarding finishes it does, the hook count changes between two renders of
+  // the same component, and React throws. That is the crash on the onboarding
+  // paywall in build 36 — not the paywall's fault at all, just the first render
+  // that got past the early return.
+  const isTabHiddenNow = React.useMemo(() => tabHider(featureRegistry), [featureRegistry]);
+
   React.useEffect(() => {
     let live = true;
     (async () => {
@@ -5128,9 +5142,6 @@ export default function App() {
   // it — Home, Settings and the calculators are absent, so a bad config can
   // never leave somebody with no way out.
   const TAB_FEATURE = KILLABLE_TABS;
-  // Passed to Home so a killed feature's tile disappears rather than becoming
-  // an advert for "Temporarily unavailable".
-  const isTabHiddenNow = React.useMemo(() => tabHider(featureRegistry), [featureRegistry]);
 
   const renderScreen = () => {
     // A feature turned off from the website says so, rather than crashing,

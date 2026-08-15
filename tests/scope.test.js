@@ -161,3 +161,41 @@ test('every identifying key in the project shapes is covered', async () => {
     assert.ok(!json.includes(secret), `"${secret}" reached the model payload`);
   }
 });
+
+// ─── Conditional hooks ───────────────────────────────────────────────────────
+// Build 36 crashed the moment onboarding finished, on the paywall, and the
+// paywall had nothing to do with it.
+//
+// App returns early for the splash screen and again for onboarding. A
+// React.useMemo written below those returns runs on some renders and not
+// others: during onboarding the component returns before reaching it, then the
+// render after onboarding completes reaches it, the hook count changes between
+// two renders of the same component, and React throws inside App's own render.
+//
+// It is invisible in review — the hook sits right next to the code that uses
+// it, which is where you would put it — and invisible in tests, because no
+// test renders App. It is trivial to see from the source, so this sees it.
+
+test('no React hook is called after an early return in App', () => {
+  const src = readFileSync(new URL('../App.js', import.meta.url), 'utf8');
+  const lines = src.split('\n');
+
+  // The main component: the last top-level `export default function App(` or
+  // the component that owns the splash/onboarding early returns.
+  const start = lines.findIndex((l) => /^\s{2}if \(!splashDone\) \{/.test(l));
+  assert.ok(start > 0, 'the splash early return moved — check what replaced it');
+
+  const offenders = [];
+  for (let i = start; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^\s*(\/\/|\*)/.test(l.trim())) continue;
+    const m = l.match(/\b(?:React\.)?(use[A-Z][A-Za-z]*)\s*\(/);
+    // useRef/useState inside a nested component defined later in the file are
+    // fine; only the top-level indentation of App's own body counts.
+    if (m && /^ {2}(?:const|let|var)?\s*/.test(l) && /^ {2}\S/.test(l)) {
+      offenders.push(`${i + 1}: ${l.trim().slice(0, 90)}`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    `hook(s) called after App's early returns — these run conditionally and React will throw when the branch flips:\n  ${offenders.join('\n  ')}`);
+});
