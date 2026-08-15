@@ -69,6 +69,37 @@ jobs:
       - name: Install
         run: npm ci
 
+      # THE SECOND WAY TO SHIP A DUPLICATE, and the one the stale-re-run check
+      # does not catch. Picking `main` from the branch dropdown is a perfectly
+      # fresh run of a perfectly current commit — it is just a commit whose
+      # app.json still says 33, because the work sits on a feature branch. It
+      # builds for five minutes and dies at submit, exactly like a stale re-run,
+      # for a completely different reason.
+      #
+      # If any other branch carries a HIGHER build number, this is almost
+      # certainly the wrong branch. Says which one to pick rather than just
+      # refusing.
+      - name: This branch has the newest build number
+        run: |
+          HERE=$(node -p "require('./app.json').expo.ios.buildNumber")
+          echo "this ref ships build $HERE"
+          git fetch --quiet --depth=1 origin '+refs/heads/*:refs/remotes/origin/*' || true
+          BEST=""; BEST_N="$HERE"
+          for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin); do
+            [ "$ref" = "origin/HEAD" ] && continue
+            N=$(git show "$ref:app.json" 2>/dev/null | node -e "
+              let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
+                try{console.log(JSON.parse(s).expo.ios.buildNumber)}catch{console.log('')}
+              })" 2>/dev/null || true)
+            case "$N" in ''|*[!0-9]*) continue;; esac
+            if [ "$N" -gt "$BEST_N" ]; then BEST_N="$N"; BEST="$ref"; fi
+          done
+          if [ -n "$BEST" ]; then
+            echo "::error title=Probably the wrong branch::You are building ${{ github.ref_name }}, which ships build $HERE. ${BEST#origin/} ships build $BEST_N — newer. Apple rejects a build number it already has, so this run would fail at submit after the build. Re-run and pick ${BEST#origin/} from the branch dropdown, or merge it first."
+            exit 1
+          fi
+          echo "no branch carries a newer build number"
+
       - name: What is about to ship
         run: |
           node -e "
