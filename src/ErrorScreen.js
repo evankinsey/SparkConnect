@@ -6,6 +6,16 @@
 import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
 
+// A static JSON import — no code runs, so this cannot be the thing that breaks
+// the screen whose job is to survive everything else breaking. The build number
+// was hardcoded as "1.0.1" and had been wrong for ten builds, which made every
+// crash screenshot lie about which binary produced it at the exact moment that
+// is the first thing you need to know.
+import appJson from '../app.json';
+
+const VERSION = appJson?.expo?.version ?? '?';
+const BUILD = appJson?.expo?.ios?.buildNumber ?? String(appJson?.expo?.android?.versionCode ?? '?');
+
 export default function ErrorScreen({ error, detail, source, phase = 'running', onRetry }) {
   const message = String((error && (error.message || error)) || 'Unknown error');
   const name = (error && error.name) || 'Error';
@@ -27,19 +37,29 @@ export default function ErrorScreen({ error, detail, source, phase = 'running', 
         below says exactly what went wrong and where.
       </Text>
 
-      <ScrollView style={{ maxHeight: 300, backgroundColor: '#0F1524', borderRadius: 12, padding: 14 }}>
+      {/* THE MESSAGE LIVES OUTSIDE THE SCROLLER, and that is the fix rather than
+          a tidy-up. It used to be the first line INSIDE a 300pt box holding
+          fourteen frames of minified bundle paths, so a screenshot of a scrolled
+          box showed nothing but `main.jsbundle:79961:44` — the one part nobody
+          can read without a source map — while the sentence naming the fault had
+          scrolled away. The screen asks for a screenshot; it has to guarantee
+          that the screenshot carries the answer. */}
+      <View style={{ backgroundColor: '#0F1524', borderTopLeftRadius: 12, borderTopRightRadius: 12, padding: 14, paddingBottom: 10 }}>
         <Text selectable style={{ color: '#9CA3AF', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
           {name}{source ? '  ·  caught in: ' + source : ''}
         </Text>
-        <Text selectable style={{ color: '#F4A11D', fontSize: 13, fontWeight: '700', marginBottom: 10 }}>
+        <Text selectable style={{ color: '#F4A11D', fontSize: 13, fontWeight: '700' }}>
           {message}
         </Text>
-        {!!stack && (
+      </View>
+
+      {!!stack && (
+        <ScrollView style={{ maxHeight: 260, backgroundColor: '#0B1120', borderBottomLeftRadius: 12, borderBottomRightRadius: 12, paddingHorizontal: 14, paddingBottom: 14 }}>
           <Text selectable style={{ color: '#6B7280', fontSize: 11, lineHeight: 16 }}>
             {stack}
           </Text>
-        )}
-      </ScrollView>
+        </ScrollView>
+      )}
 
       {!!onRetry && (
         <TouchableOpacity
@@ -50,7 +70,7 @@ export default function ErrorScreen({ error, detail, source, phase = 'running', 
       )}
 
       <Text style={{ color: '#4B5563', fontSize: 10.5, marginTop: 14 }}>
-        {Platform.OS} · SparkConnect 1.0.1
+        {Platform.OS} · SparkConnect {VERSION} ({BUILD})
       </Text>
     </View>
   );
