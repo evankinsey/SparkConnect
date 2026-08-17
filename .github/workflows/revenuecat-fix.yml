@@ -1,0 +1,41 @@
+name: RevenueCat attach products
+
+# One job: attach the App Store products to the default offering's packages.
+# See scripts/rc-attach-products.mjs for what and why.
+#
+# ONE SECRET IS REQUIRED — Settings → Secrets and variables → Actions:
+#
+#   RC_API_KEY   RevenueCat → API keys → a v2 secret key with
+#                "Project configuration" Read & Write
+#
+# Manual-trigger only, and it changes nothing that is already right: attach is
+# idempotent, nothing is detached, entitlements are untouched.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  attach:
+    name: Attach App Store products to packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Fail early if the key is missing
+        env:
+          RC_API_KEY: ${{ secrets.RC_API_KEY }}
+        run: |
+          if [ -z "${RC_API_KEY}" ]; then
+            echo "::error title=RC_API_KEY missing::Add it at Settings → Secrets and variables → Actions. Get the key from RevenueCat → API keys — a v2 secret key with Project configuration Read & Write."
+            exit 1
+          fi
+          echo "RC_API_KEY is set"
+
+      - name: Attach
+        env:
+          RC_API_KEY: ${{ secrets.RC_API_KEY }}
+        run: node scripts/rc-attach-products.mjs
