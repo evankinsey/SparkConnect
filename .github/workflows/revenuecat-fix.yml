@@ -12,7 +12,16 @@ name: RevenueCat attach products
 # idempotent, nothing is detached, entitlements are untouched.
 
 on:
+  # workflow_dispatch only registers from the DEFAULT branch, and this lives on
+  # the feature branch — the dispatch API 404s. So it also fires on push, gated
+  # to its own files: pushing this workflow (or the script it runs) IS the "go"
+  # button. Idempotent, so an extra firing attaches nothing twice.
   workflow_dispatch: {}
+  push:
+    branches: [claude/daily-code-question-home-rh6cip]
+    paths:
+      - '.github/workflows/revenuecat-fix.yml'
+      - 'scripts/rc-attach-products.mjs'
 
 jobs:
   attach:
