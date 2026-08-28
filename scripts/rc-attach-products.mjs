@@ -134,3 +134,5 @@ const main = async () => {
 };
 
 main().catch((e) => { console.error(String(e?.message ?? e)); process.exit(1); });
+
+// Re-run trigger: 2026-08-28T01:44:35Z
